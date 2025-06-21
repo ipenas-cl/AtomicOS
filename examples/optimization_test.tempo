@@ -1,0 +1,82 @@
+// Test program to demonstrate Tempo compiler optimizations
+// Shows WCET analysis, optimization, and debug features
+
+// Simple leaf function - should have frame pointer removed
+function add_simple(a: int32, b: int32): int32 {
+    return a + b
+}
+
+// Function with constant folding opportunity
+function const_math(): int32 {
+    let x = 10 + 20      // Should fold to 30
+    let y = x * 2        // Should fold to 60
+    let z = 100 / 5      // Should fold to 20
+    return y + z         // Should fold to 80
+}
+
+// Function with dead code
+function dead_code_test(flag: int32): int32 {
+    if (1) {
+        return 42        // Always taken
+    }
+    
+    // This is dead code - should be eliminated
+    let dead = 100
+    return dead
+}
+
+// Function to test peephole optimizations
+function peephole_test(x: int32): int32 {
+    let a = 0            // Should use xor
+    let b = x + 1        // Should use inc
+    let c = x - 1        // Should use dec
+    
+    if (a == 0) {        // Should use test
+        return b
+    }
+    
+    return c
+}
+
+// Loop with WCET bounds
+function loop_wcet_test(n: int32): int32 {
+    let sum = 0
+    let i = 0
+    
+    // Loop should be analyzed for WCET
+    // Assuming max 10 iterations
+    while (i < n && i < 10) {
+        sum = sum + i
+        i = i + 1
+    }
+    
+    return sum
+}
+
+// Function with multiply by power of 2
+function shift_opt_test(x: int32): int32 {
+    let a = x * 2        // Should use shl 1
+    let b = x * 8        // Should use shl 3
+    let c = x * 16       // Should use shl 4
+    return a + b + c
+}
+
+// Tail recursive function (future optimization)
+function factorial(n: int32, acc: int32): int32 {
+    if (n <= 1) {
+        return acc
+    }
+    return factorial(n - 1, n * acc)  // Tail call
+}
+
+// Main test function
+function optimization_demo(): int32 {
+    let test1 = add_simple(5, 10)
+    let test2 = const_math()
+    let test3 = dead_code_test(1)
+    let test4 = peephole_test(100)
+    let test5 = loop_wcet_test(5)
+    let test6 = shift_opt_test(4)
+    
+    return test1 + test2 + test3 + test4 + test5 + test6
+}

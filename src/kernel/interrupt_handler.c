@@ -22,7 +22,7 @@ extern uint32_t interrupt_overruns;
 static uint32_t current_task_id = 0;
 
 // System tick counter for scheduling
-static volatile uint64_t system_ticks = 0;
+volatile uint32_t system_ticks = 0;
 
 // Deadline tracking for real-time tasks
 static uint64_t next_deadline_check = 0;
@@ -176,8 +176,9 @@ void handle_timer_interrupt(void) {
         next_deadline_check = system_ticks + DEADLINE_CHECK_INTERVAL;
     }
     
-    // Trigger scheduler (when implemented)
-    // schedule_next_task();
+    // Trigger real-time scheduler
+    extern void rt_schedule(void);
+    rt_schedule();
 }
 
 // Keyboard interrupt handler

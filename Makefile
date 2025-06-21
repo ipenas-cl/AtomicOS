@@ -3,7 +3,7 @@
 
 # Configuration
 PROJECT_NAME = AtomicOS
-VERSION = 0.8.0
+VERSION = 0.9.0
 ARCH = i386
 
 # Directories
@@ -26,7 +26,7 @@ LD = ld
 TEMPO = $(TOOLS_DIR)/tempo_compiler
 
 # Flags
-CFLAGS = -std=c99 -Wall -Wextra -Werror -O2 -m32 -fno-stack-protector -fno-builtin -nostdlib -nostdinc -fno-pie
+CFLAGS = -std=c99 -Wall -Wextra -Werror -O2 -m32 -fno-stack-protector -fno-builtin -nostdlib -nostdinc -fno-pie -I$(SRC_DIR)/kernel -I include
 ASFLAGS = -f bin
 LDFLAGS = -m elf_i386 -nostdlib
 TEMPO_FLAGS = 
@@ -52,10 +52,20 @@ $(TEMPO_BIN): $(TOOLS_DIR)/tempo_compiler_v3.c | $(BUILD_DIR)
 	@echo "Building Tempo v3.0 compiler..."
 	$(CC) -std=c99 -Wall -Wextra -O2 -o $@ $<
 
-# Build Tempo v4 compiler (with full parser)
-tempo-v4: $(TOOLS_DIR)/tempo_compiler_v4.c | $(BUILD_DIR)
-	@echo "Building Tempo v4.0 compiler with full parser..."
-	$(CC) -std=c99 -Wall -Wextra -O2 -o $(BUILD_DIR)/tempo_v4 $<
+# Build enhanced Tempo compiler (separate target)
+tempo-enhanced: $(TOOLS_DIR)/tempo_compiler_v3_enhanced.c $(TOOLS_DIR)/tempo_optimizer.c $(TOOLS_DIR)/tempo_debug.c $(SRC_DIR)/kernel/wcet_model.c | $(BUILD_DIR)
+	@echo "Building Tempo v3.0 Enhanced compiler..."
+	$(CC) -std=c99 -Wall -Wextra -O2 -I$(SRC_DIR) -I$(TOOLS_DIR) -o $(BUILD_DIR)/tempo_enhanced $^
+
+# Compile Tempo source files to assembly
+%.s: %.tempo $(TEMPO_BIN)
+	@echo "Compiling Tempo file: $<"
+	$(TEMPO_BIN) $< $@
+
+# Pattern rule for kernel Tempo files
+$(BUILD_DIR)/%.s: $(KERNEL_SRC)/%.tempo $(TEMPO_BIN)
+	@echo "Compiling kernel Tempo file: $<"
+	$(TEMPO_BIN) $< $@
 
 # Compile security modules from Tempo
 $(BUILD_DIR)/%.inc: $(EXAMPLES_DIR)/%.tempo $(TEMPO_BIN) | $(BUILD_DIR)
@@ -68,11 +78,25 @@ $(BOOTLOADER): $(BOOT_SRC)/boot.asm | $(BUILD_DIR)
 	@echo "Assembling bootloader..."
 	$(AS) $(ASFLAGS) $< -o $@
 
+# Build kernel C files
+$(BUILD_DIR)/syscall.o: $(KERNEL_SRC)/syscall.c | $(BUILD_DIR)
+	@echo "Compiling syscall.c..."
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/ipc.o: $(KERNEL_SRC)/ipc.c | $(BUILD_DIR)
+	@echo "Compiling ipc.c..."
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/fs.o: $(KERNEL_SRC)/fs.c | $(BUILD_DIR)
+	@echo "Compiling fs.c..."
+	$(CC) $(CFLAGS) -c $< -o $@
+
 # Build kernel
-$(KERNEL): $(KERNEL_SRC)/kernel.asm | $(BUILD_DIR)
+$(KERNEL): $(KERNEL_SRC)/kernel.asm $(BUILD_DIR)/syscall.o $(BUILD_DIR)/ipc.o $(BUILD_DIR)/fs.o | $(BUILD_DIR)
 	@echo "Assembling kernel with security modules..."
 	@mkdir -p $(BUILD_DIR)/kernel
 	@cp $(KERNEL_SRC)/*.inc $(BUILD_DIR)/kernel/ 2>/dev/null || true
+	@cp $(KERNEL_SRC)/*.asm $(BUILD_DIR)/kernel/ 2>/dev/null || true
 	cd $(BUILD_DIR) && $(AS) $(ASFLAGS) ../$(KERNEL_SRC)/kernel.asm -o ../$(KERNEL)
 
 # Create OS image
@@ -99,7 +123,7 @@ release-major:
 version:
 	@echo "AtomicOS $(VERSION)"
 	@echo "Architecture: $(ARCH)"
-	@echo "Tempo Compiler: v3.0.0"
+	@echo "Tempo Compiler: v4.0.0"
 
 # Run in QEMU
 .PHONY: run

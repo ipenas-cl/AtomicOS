@@ -55,6 +55,13 @@ global deterministic_system_init
 %include "kernel/deterministic_core.inc"
 %include "kernel/interrupts.inc"
 %include "kernel/logo.inc"
+%include "kernel/context_switch.inc"
+%include "kernel/process_management.inc"
+%include "kernel/realtime_scheduler.inc"
+%include "kernel/syscall_handler.inc"
+%include "kernel/ipc_stubs.inc"
+%include "kernel/fs_stubs.inc"
+%include "kernel/paging.inc"
 
 _start:
     ; Initialize Deterministic Core System
@@ -77,6 +84,37 @@ _start:
     call init_idt          ; Set up IDT with all handlers
     call load_idt          ; Load the IDT
     call init_timer        ; Initialize timer for scheduling
+    
+    ; Initialize paging (must be before process management)
+    call init_paging
+    
+    ; Initialize process management
+    call init_process_management
+    
+    ; Initialize real-time scheduler
+    call init_rt_scheduler
+    
+    ; Initialize system call interface
+    call init_syscall_handler
+    
+    ; Create a test process
+    push 0              ; Priority NORMAL
+    push test_process   ; Entry point
+    push test_proc_name ; Name
+    call create_process
+    add esp, 12
+    
+    ; Create a real-time task example
+    push 0              ; No specific deadline (use period)
+    push test_rt_task   ; Entry point
+    push 100           ; WCET: 100 microseconds
+    push 1000          ; Period: 1000 microseconds (1ms)
+    call rt_create_task
+    add esp, 16
+    
+    ; Quick system validation tests
+    call validate_systems
+    
     call enable_interrupts ; Enable interrupts (STI)
     
     ; Clear screen exactly like debug test
@@ -389,10 +427,164 @@ _start:
     hlt
     jmp $
 
-welcome_msg: db "AtomicOS v0.8.0 - Deterministic Real-Time Security OS"
+welcome_msg: db "AtomicOS v0.8.1 - Deterministic RTOS with Memory Protection"
 welcome_len equ $ - welcome_msg
 
 security_fail_msg: db "SECURITY INIT FAILED - SYSTEM HALTED"
 security_fail_len equ $ - security_fail_msg
 
-times 16384-($-$$) db 0
+test_proc_name: db "test_task", 0
+
+; Test process that prints characters
+test_process:
+    mov edi, VGA_BUFFER + (20 * 80 * 2)  ; Line 20
+    mov al, 'T'
+    mov ah, 0x0C  ; Red on black
+    
+.loop:
+    mov [edi], ax
+    add edi, 2
+    inc al
+    cmp al, 'Z'
+    jle .continue
+    mov al, 'A'
+.continue:
+    
+    ; Small delay
+    mov ecx, 0x100000
+.delay:
+    loop .delay
+    
+    jmp .loop
+
+; Test real-time task
+test_rt_task:
+    ; Simple periodic task that runs every 1ms
+    pushad
+    
+    ; Get task ID (simplified)
+    mov eax, 1
+    
+.rt_loop:
+    ; Do some work (toggle a flag or update counter)
+    inc dword [rt_task_counter]
+    
+    ; Signal completion (simplified)
+    ; In a real implementation, would yield to scheduler
+    
+    ; Busy wait to simulate work (WCET = 100us)
+    mov ecx, 100
+.work:
+    nop
+    loop .work
+    
+    ; Task would normally block until next period
+    ; For now, just return
+    popad
+    ret
+
+; Real-time task counter
+rt_task_counter: dd 0
+
+; Process name for test RT task
+test_rt_name: db 'rt_test', 0
+
+; System validation function
+validate_systems:
+    pushad
+    
+    ; Test 1: Check timer interrupt
+    mov eax, [system_ticks]
+    push eax
+    
+    ; Short delay
+    mov ecx, 0x100000
+.delay1:
+    loop .delay1
+    
+    pop ebx
+    cmp [system_ticks], ebx
+    jne .timer_ok
+    
+    ; Timer not working - show error
+    mov edi, VGA_BUFFER + (23 * 80 * 2)
+    mov esi, timer_fail_msg
+    mov ah, 0x0C  ; Red
+.print_timer_fail:
+    lodsb
+    test al, al
+    jz .done
+    mov [edi], ax
+    add edi, 2
+    jmp .print_timer_fail
+    
+.timer_ok:
+    ; Test 2: Quick syscall test
+    mov eax, 4    ; SYS_GETPID
+    int 0x80
+    
+    ; Check if we got a valid PID (should be non-zero)
+    test eax, eax
+    jz .syscall_fail
+    
+    ; Test 3: Memory allocation test
+    push 4096          ; Size (1 page)
+    push 0x07          ; Flags (RWX)
+    call sys_mmap
+    add esp, 8
+    
+    ; Check if allocation succeeded
+    test eax, eax
+    jz .memory_fail
+    
+    ; Try to write to allocated memory
+    mov dword [eax], 0x12345678
+    
+    ; Free the memory
+    push 4096          ; Size
+    push eax           ; Address
+    call sys_munmap
+    add esp, 8
+    
+    ; All tests passed - show success indicator
+    mov edi, VGA_BUFFER + (23 * 80 * 2) + (70 * 2)
+    mov ax, 0x0A4F  ; 'O' in green (OK)
+    mov [edi], ax
+    mov ax, 0x0A4B  ; 'K' in green
+    mov [edi + 2], ax
+    jmp .done
+    
+.syscall_fail:
+    mov edi, VGA_BUFFER + (23 * 80 * 2)
+    mov esi, syscall_fail_msg
+    mov ah, 0x0C  ; Red
+.print_syscall_fail:
+    lodsb
+    test al, al
+    jz .done
+    mov [edi], ax
+    add edi, 2
+    jmp .print_syscall_fail
+    jmp .done
+    
+.memory_fail:
+    mov edi, VGA_BUFFER + (23 * 80 * 2)
+    mov esi, memory_fail_msg
+    mov ah, 0x0C  ; Red
+.print_memory_fail:
+    lodsb
+    test al, al
+    jz .done
+    mov [edi], ax
+    add edi, 2
+    jmp .print_memory_fail
+    
+.done:
+    popad
+    ret
+
+timer_fail_msg: db 'Timer interrupt not working!', 0
+syscall_fail_msg: db 'Syscall interface not working!', 0
+memory_fail_msg: db 'Memory protection not working!', 0
+
+times 32768-($-$$) db 0

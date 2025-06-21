@@ -15,12 +15,14 @@ AtomicOS is a deterministic operating system designed for security-critical appl
 - **KASLR**: Kernel Address Space Layout Randomization with deterministic PRNG
 - **Multi-level Security**: Bell-LaPadula inspired access control with 4 security levels
 
-### ⚡ Determinism
+### ⚡ Determinism & Real-Time
 - **Predictable Execution Timing**: WCET-bounded operations for real-time guarantees
 - **Static Resource Allocation**: Fixed 64KB memory pool with deterministic allocation
 - **Reproducible Behavior**: Deterministic PRNG with fixed seed for testing
-- **Real-Time Scheduling**: Fixed priority scheduling with deadline guarantees
+- **Real-Time Scheduling**: EDF (Earliest Deadline First) and RMS (Rate Monotonic Scheduling)
 - **Constant-Time Operations**: No timing side-channels in cryptographic operations
+- **Interrupt System**: Full IDT with ISRs, IRQs, and deterministic interrupt handling
+- **Process Management**: Context switching with real-time task support
 
 ### 🛠️ Tempo Programming Language v3.0.0
 

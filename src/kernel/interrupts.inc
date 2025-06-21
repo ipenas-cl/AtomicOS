@@ -44,6 +44,11 @@ init_idt:
     cmp ecx, 48
     jl .setup_irqs
     
+    ; Set up syscall handler (INT 0x80)
+    mov eax, 0x80
+    mov ebx, syscall_handler
+    call set_idt_entry_user  ; Special entry with DPL=3
+    
     ; Remap PIC
     call remap_pic
     
@@ -70,6 +75,31 @@ set_idt_entry:
     mov word [edi + 2], 0x08    ; Code segment
     mov byte [edi + 4], 0       ; Reserved
     mov byte [edi + 5], 0x8E    ; Present, DPL=0, Interrupt gate
+    shr ebx, 16
+    mov word [edi + 6], bx      ; Handler high
+    
+    pop edi
+    pop edx
+    pop eax
+    ret
+
+; Set IDT entry with user access (DPL=3)
+; Input: EAX = vector, EBX = handler address
+set_idt_entry_user:
+    push eax
+    push edx
+    push edi
+    
+    ; Calculate entry address
+    mov edi, eax
+    shl edi, 3
+    add edi, idt_start
+    
+    ; Set entry
+    mov word [edi], bx          ; Handler low
+    mov word [edi + 2], 0x08    ; Code segment
+    mov byte [edi + 4], 0       ; Reserved
+    mov byte [edi + 5], 0xEE    ; Present, DPL=3, Interrupt gate
     shr ebx, 16
     mov word [edi + 6], bx      ; Handler high
     
@@ -225,9 +255,17 @@ enable_interrupts:
     ret
 
 ; Data
+global system_ticks
 system_ticks: dd 0
 tick_char: db '|'
 exception_msg: db 'Exception occurred!', 0
+
+
+; Helper function to update interrupt statistics
+global update_interrupt_cycles
+update_interrupt_cycles:
+    ; Simple stub - in real implementation would update stats
+    ret
 
 ; Timer initialization
 init_timer:

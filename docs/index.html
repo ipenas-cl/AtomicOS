@@ -351,7 +351,7 @@
             <div class="header-content">
                 <div class="logo-section">
                     <div class="logo">AtomicOS</div>
-                    <div class="version">v0.7.0</div>
+                    <div class="version">v0.9.0</div>
                 </div>
                 <nav class="nav-links">
                     <a href="#features">Features</a>
@@ -374,7 +374,7 @@
             <h1>Deterministic Real-Time Security Operating System</h1>
             <p class="hero-subtitle">Enterprise-grade security with predictable timing for mission-critical applications</p>
             <div class="cta-section">
-                <a href="https://github.com/ipenas-cl/AtomicOS/releases" class="btn btn-primary">Download v0.8.0</a>
+                <a href="https://github.com/ipenas-cl/AtomicOS/releases" class="btn btn-primary">Download v0.9.0</a>
                 <a href="https://github.com/ipenas-cl/AtomicOS" class="btn btn-secondary">View Source</a>
             </div>
         </div>
@@ -419,6 +419,18 @@
                     <h3>Constant-Time Operations</h3>
                     <p>Cryptographic operations execute in constant time, eliminating timing side-channel vulnerabilities.</p>
                 </div>
+                
+                <div class="feature">
+                    <div class="feature-icon">📡</div>
+                    <h3>Inter-Process Communication</h3>
+                    <p>Message-passing IPC with channel-based security, static allocation, and bounded message queues for microkernel architecture.</p>
+                </div>
+                
+                <div class="feature">
+                    <div class="feature-icon">📁</div>
+                    <h3>Deterministic Filesystem</h3>
+                    <p>Simple filesystem with static allocation, fixed-size blocks, and predictable access times for reliable data storage.</p>
+                </div>
             </div>
         </div>
     </section>
@@ -461,11 +473,15 @@
                 </div>
                 <div class="spec-card">
                     <h4>Real-Time Capabilities</h4>
-                    <p>WCET analysis, fixed priority scheduling, bounded interrupt latency, deterministic memory allocation.</p>
+                    <p>WCET analysis, EDF/RMS scheduling, bounded interrupt latency, deterministic memory allocation, IPC with time bounds.</p>
                 </div>
                 <div class="spec-card">
                     <h4>Development Tools</h4>
                     <p>Tempo v3.0 compiler with WCET analysis, comprehensive test suite, release management, pre-commit hooks.</p>
+                </div>
+                <div class="spec-card">
+                    <h4>Microkernel Architecture</h4>
+                    <p>Message-passing IPC, channel-based communication, process isolation, static filesystem with 512-byte blocks.</p>
                 </div>
                 <div class="spec-card">
                     <h4>Memory Management</h4>
@@ -491,7 +507,7 @@
                 <div class="download-card">
                     <div class="download-title">Release Package</div>
                     <p>Pre-built OS image ready for testing in QEMU or deployment to bare metal.</p>
-                    <a href="https://github.com/ipenas-cl/AtomicOS/releases" class="btn btn-primary" style="margin-top: 1rem;">Download v0.7.0</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/releases" class="btn btn-primary" style="margin-top: 1rem;">Download v0.9.0</a>
                 </div>
                 <div class="download-card">
                     <div class="download-title">Tempo Language</div>

@@ -1,0 +1,318 @@
+// AtomicOS Process Management in Tempo
+// Deterministic task management with real-time guarantees
+
+// Process states
+const PROCESS_STATE_READY = 0;
+const PROCESS_STATE_RUNNING = 1;
+const PROCESS_STATE_BLOCKED = 2;
+const PROCESS_STATE_SUSPENDED = 3;
+const PROCESS_STATE_ZOMBIE = 4;
+
+// Priority levels (deterministic)
+const PRIORITY_KERNEL = 0;
+const PRIORITY_REALTIME = 1;
+const PRIORITY_SYSTEM = 2;
+const PRIORITY_NORMAL = 3;
+const PRIORITY_LOW = 4;
+const PRIORITY_IDLE = 5;
+
+// System constants
+const MAX_PROCESSES = 32;
+const KERNEL_STACK_SIZE = 4096;
+const USER_STACK_SIZE = 8192;
+const DEFAULT_TIME_SLICE = 10;
+
+// Process table base address
+const PROCESS_TABLE_BASE = 0x600000;
+const PCB_SIZE = 256;  // Fixed size PCB for determinism
+
+// Current process pointer
+var current_pid;
+var process_count;
+var next_pid;
+
+// Initialize process management with deterministic allocation
+function init_process_management:
+    wcet_cycles 1000;
+    security_level KERNEL;
+    
+    // Initialize globals
+    current_pid = 0;
+    process_count = 0;
+    next_pid = 1;
+    
+    // Clear process table
+    var i;
+    i = 0;
+    while (i < MAX_PROCESSES) {
+        clear_process_slot(i);
+        i = i + 1;
+    }
+    
+    // Create idle process (PID 0)
+    create_idle_process();
+    
+    return 1;
+
+// Clear a process slot deterministically
+function clear_process_slot:
+    wcet_cycles 100;
+    security_level KERNEL;
+    
+    // slot passed via register
+    var slot;
+    var addr;
+    
+    // Calculate PCB address
+    addr = PROCESS_TABLE_BASE + (slot * PCB_SIZE);
+    
+    // Clear PCB memory
+    var i;
+    i = 0;
+    while (i < PCB_SIZE) {
+        // Memory clear operation
+        i = i + 4;
+    }
+    
+    return 1;
+
+// Create idle process with deterministic properties
+function create_idle_process:
+    wcet_cycles 500;
+    security_level KERNEL;
+    
+    // Idle process always at slot 0
+    var pcb_addr;
+    pcb_addr = PROCESS_TABLE_BASE;
+    
+    // Set PID = 0
+    // Set state = READY
+    // Set priority = IDLE
+    
+    return 1;
+
+// Create new process with bounded allocation time
+function create_process:
+    wcet_cycles 2000;
+    security_level KERNEL;
+    
+    // Find free slot with deterministic search
+    var slot;
+    var found;
+    
+    slot = 0;
+    found = 0;
+    
+    while (slot < MAX_PROCESSES) {
+        if (is_slot_free(slot)) {
+            found = 1;
+            slot = MAX_PROCESSES;  // Exit loop
+        } else {
+            slot = slot + 1;
+        }
+    }
+    
+    if (found == 0) {
+        return 0;  // No free slots
+    }
+    
+    // Allocate PCB at fixed location
+    var pcb_addr;
+    pcb_addr = PROCESS_TABLE_BASE + (slot * PCB_SIZE);
+    
+    // Initialize PCB fields
+    init_pcb(pcb_addr);
+    
+    // Increment process count
+    process_count = process_count + 1;
+    
+    return next_pid;  // Return PID
+
+// Initialize PCB with deterministic values
+function init_pcb:
+    wcet_cycles 800;
+    security_level KERNEL;
+    
+    // Set default values
+    // PID = next_pid
+    // State = READY
+    // Priority = NORMAL
+    // Time slice = DEFAULT_TIME_SLICE
+    
+    next_pid = next_pid + 1;
+    
+    return 1;
+
+// Context switch with bounded execution time
+function context_switch:
+    wcet_cycles 500;
+    security_level KERNEL;
+    atomic;  // No interrupts during switch
+    
+    // Save current context
+    save_context();
+    
+    // Select next process
+    var next_pid;
+    next_pid = select_next_process();
+    
+    if (next_pid == current_pid) {
+        return 0;  // No switch needed
+    }
+    
+    // Load new context
+    load_context(next_pid);
+    
+    current_pid = next_pid;
+    
+    return 1;
+
+// Save process context deterministically
+function save_context:
+    wcet_cycles 200;
+    security_level KERNEL;
+    
+    var pcb_addr;
+    pcb_addr = PROCESS_TABLE_BASE + (current_pid * PCB_SIZE);
+    
+    // Save registers to PCB
+    // Fixed order for determinism
+    
+    return 1;
+
+// Load process context deterministically  
+function load_context:
+    wcet_cycles 200;
+    security_level KERNEL;
+    
+    var pcb_addr;
+    pcb_addr = PROCESS_TABLE_BASE + (pid * PCB_SIZE);
+    
+    // Load registers from PCB
+    // Fixed order for determinism
+    
+    return 1;
+
+// Select next process - deterministic scheduler
+function select_next_process:
+    wcet_cycles 300;
+    security_level KERNEL;
+    
+    var next;
+    var highest_priority;
+    var i;
+    
+    next = 0;  // Default to idle
+    highest_priority = PRIORITY_IDLE;
+    i = 0;
+    
+    // Fixed-time priority search
+    while (i < MAX_PROCESSES) {
+        if (is_process_ready(i)) {
+            var prio;
+            prio = get_process_priority(i);
+            
+            if (prio < highest_priority) {
+                highest_priority = prio;
+                next = i;
+            }
+        }
+        i = i + 1;
+    }
+    
+    return next;
+
+// Check if process is ready - constant time
+function is_process_ready:
+    wcet_cycles 50;
+    
+    var pcb_addr;
+    var state;
+    
+    pcb_addr = PROCESS_TABLE_BASE + (pid * PCB_SIZE);
+    // Read state from PCB
+    
+    if (state == PROCESS_STATE_READY) {
+        return 1;
+    }
+    
+    return 0;
+
+// Real-time task creation with WCET guarantees
+function create_rt_task:
+    wcet_cycles 2500;
+    security_level KERNEL;
+    
+    var pid;
+    pid = create_process();
+    
+    if (pid == 0) {
+        return 0;
+    }
+    
+    // Set real-time parameters
+    var pcb_addr;
+    pcb_addr = PROCESS_TABLE_BASE + (pid * PCB_SIZE);
+    
+    // Set priority = REALTIME
+    // Set period, deadline, WCET
+    
+    return pid;
+
+// Yield CPU - deterministic scheduling point
+function yield_cpu:
+    wcet_cycles 600;
+    
+    // Set current process to READY
+    set_process_state(current_pid, PROCESS_STATE_READY);
+    
+    // Force context switch
+    context_switch();
+    
+    return 1;
+
+// Block process for deterministic time
+function block_process:
+    wcet_cycles 400;
+    security_level KERNEL;
+    
+    set_process_state(pid, PROCESS_STATE_BLOCKED);
+    
+    // If blocking current process, switch
+    if (pid == current_pid) {
+        context_switch();
+    }
+    
+    return 1;
+
+// Check deadline miss - constant time
+function check_deadline:
+    wcet_cycles 100;
+    
+    var pcb_addr;
+    var deadline;
+    var current_time;
+    
+    pcb_addr = PROCESS_TABLE_BASE + (pid * PCB_SIZE);
+    // Read deadline from PCB
+    // Get current time
+    
+    if (current_time > deadline) {
+        // Deadline missed
+        return 1;
+    }
+    
+    return 0;
+
+// Update process statistics deterministically
+function update_process_stats:
+    wcet_cycles 150;
+    
+    var pcb_addr;
+    pcb_addr = PROCESS_TABLE_BASE + (pid * PCB_SIZE);
+    
+    // Update execution count
+    // Update total cycles
+    // Check max cycles
+    
+    return 1;

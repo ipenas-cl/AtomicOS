@@ -1,0 +1,48 @@
+// Test Tempo v4 features
+module test_v4;
+
+// Import system functions
+import system;
+
+// Constants
+const int32 MAX_COUNT = 10;
+const bool DEBUG_MODE = true;
+
+// Global variable
+int32 counter = 0;
+
+// Function with control flow
+function countdown(int32 start) -> int32 {
+    let int32 count = start;
+    
+    while (count > 0) {
+        if (DEBUG_MODE) {
+            // In real implementation, would call print
+            count = count - 1;
+        } else {
+            count = count - 2;
+        }
+    }
+    
+    return count;
+}
+
+// Main entry point
+function main() -> int32 {
+    let int32 result = 0;
+    
+    // Test for loop
+    for (let int32 i = 0; i < MAX_COUNT; i = i + 1) {
+        counter = counter + 1;
+    }
+    
+    // Test function call
+    result = countdown(5);
+    
+    // Test if-else
+    if (counter == MAX_COUNT) {
+        return 0;  // Success
+    } else {
+        return 1;  // Error
+    }
+}

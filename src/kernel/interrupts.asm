@@ -130,12 +130,41 @@ init_idt:
         %assign i i+1
     %endrep
     
+    ; Set up system call handler (INT 0x80)
+    extern syscall_handler
+    mov edi, 0x80           ; INT 0x80
+    mov esi, syscall_handler
+    call set_idt_entry_user ; Special version for user-callable
+    
     ; Remap the PIC
     call remap_pic
     
     pop esi
     pop edi
     pop ebp
+    ret
+
+; Set an IDT entry accessible from user space
+; Input: EDI = interrupt number, ESI = handler address
+set_idt_entry_user:
+    push eax
+    push ebx
+    
+    ; Calculate IDT entry address
+    mov eax, edi
+    shl eax, 3          ; Multiply by 8 (entry size)
+    add eax, idt_start
+    
+    ; Set up the entry
+    mov word [eax], si      ; Handler low 16 bits
+    mov word [eax + 2], 0x08    ; Kernel code segment
+    mov byte [eax + 4], 0       ; Reserved
+    mov byte [eax + 5], 0xEE    ; Present, DPL=3 (user), Interrupt gate
+    shr esi, 16
+    mov word [eax + 6], si      ; Handler high 16 bits
+    
+    pop ebx
+    pop eax
     ret
 
 ; Set an IDT entry

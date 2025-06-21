@@ -1,0 +1,83 @@
+// AtomicOS IPC Demonstration
+// Shows inter-process communication using message passing
+
+// IPC system call wrappers
+function ipc_create_channel(permissions: int32): int32 {
+    // Simplified - would use inline assembly in real implementation
+    return 1  // Mock channel ID
+}
+
+function ipc_send_message(channel: int32, msg: int32): int32 {
+    // Send a simple integer message
+    return 0  // Success
+}
+
+function ipc_receive_message(channel: int32): int32 {
+    // Receive a message
+    return 42  // Mock received value
+}
+
+// Producer process - sends data through IPC
+function producer_process(): int32 {
+    // Create a channel for sending data
+    let channel: int32 = ipc_create_channel(3)  // Read/Write permissions
+    
+    // Send sequence of values
+    let i: int32 = 0
+    while (i < 10) {
+        let value: int32 = i * i  // Square numbers
+        ipc_send_message(channel, value)
+        i = i + 1
+    }
+    
+    return channel
+}
+
+// Consumer process - receives data through IPC
+function consumer_process(channel: int32): int32 {
+    let sum: int32 = 0
+    let count: int32 = 0
+    
+    // Receive and sum values
+    while (count < 10) {
+        let value: int32 = ipc_receive_message(channel)
+        sum = sum + value
+        count = count + 1
+    }
+    
+    return sum
+}
+
+// Bidirectional communication example
+function ping_pong_demo(): int32 {
+    // Create two channels for bidirectional communication
+    let channel_a_to_b: int32 = ipc_create_channel(3)
+    let channel_b_to_a: int32 = ipc_create_channel(3)
+    
+    // Process A sends ping
+    ipc_send_message(channel_a_to_b, 100)
+    
+    // Process B receives ping and sends pong
+    let ping: int32 = ipc_receive_message(channel_a_to_b)
+    if (ping == 100) {
+        ipc_send_message(channel_b_to_a, 200)
+    }
+    
+    // Process A receives pong
+    let pong: int32 = ipc_receive_message(channel_b_to_a)
+    
+    return pong
+}
+
+// Main demonstration
+function main(): int32 {
+    // Test producer/consumer pattern
+    let prod_channel: int32 = producer_process()
+    let result: int32 = consumer_process(prod_channel)
+    
+    // Test bidirectional communication
+    let pong_result: int32 = ping_pong_demo()
+    
+    // Return combined result
+    return result + pong_result
+}

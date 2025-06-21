@@ -1,0 +1,122 @@
+// AtomicOS Filesystem Demonstration
+// Shows basic file operations in Tempo
+
+// File operation constants
+function FS_OPEN_READ(): int32 { return 1 }
+function FS_OPEN_WRITE(): int32 { return 2 }
+function FS_OPEN_CREATE(): int32 { return 4 }
+
+// Filesystem syscall wrappers (simplified)
+function fs_create_file(name: int32): int32 {
+    // In real implementation would use inline assembly
+    return 0  // Success
+}
+
+function fs_open(name: int32, flags: int32): int32 {
+    // Returns file descriptor
+    return 3  // Mock fd
+}
+
+function fs_write(fd: int32, data: int32, size: int32): int32 {
+    // Returns bytes written
+    return size  // Mock - wrote all bytes
+}
+
+function fs_read(fd: int32, buffer: int32, size: int32): int32 {
+    // Returns bytes read
+    return size  // Mock - read requested bytes
+}
+
+function fs_close(fd: int32): int32 {
+    return 0  // Success
+}
+
+// Write data to a file
+function write_config_file(): int32 {
+    // Create and open file
+    let fd: int32 = fs_open(100, FS_OPEN_WRITE() | FS_OPEN_CREATE())
+    
+    if (fd < 0) {
+        return -1
+    }
+    
+    // Write some configuration data
+    let data: int32 = 0x12345678
+    let result: int32 = fs_write(fd, data, 4)
+    
+    // Close file
+    fs_close(fd)
+    
+    return result
+}
+
+// Read data from a file
+function read_config_file(): int32 {
+    // Open file for reading
+    let fd: int32 = fs_open(100, FS_OPEN_READ())
+    
+    if (fd < 0) {
+        return -1
+    }
+    
+    // Read data
+    let buffer: int32 = 0
+    let bytes_read: int32 = fs_read(fd, buffer, 4)
+    
+    // Close file
+    fs_close(fd)
+    
+    return bytes_read
+}
+
+// File copy operation
+function copy_file(src: int32, dst: int32): int32 {
+    // Open source file
+    let src_fd: int32 = fs_open(src, FS_OPEN_READ())
+    if (src_fd < 0) {
+        return -1
+    }
+    
+    // Create destination file
+    let dst_fd: int32 = fs_open(dst, FS_OPEN_WRITE() | FS_OPEN_CREATE())
+    if (dst_fd < 0) {
+        fs_close(src_fd)
+        return -2
+    }
+    
+    // Copy loop (simplified - copies fixed amount)
+    let buffer: int32 = 0
+    let total_copied: int32 = 0
+    let chunk_size: int32 = 16
+    
+    let i: int32 = 0
+    while (i < 10) {  // Copy 10 chunks
+        let read_bytes: int32 = fs_read(src_fd, buffer, chunk_size)
+        if (read_bytes > 0) {
+            let written: int32 = fs_write(dst_fd, buffer, read_bytes)
+            total_copied = total_copied + written
+        }
+        i = i + 1
+    }
+    
+    // Close both files
+    fs_close(src_fd)
+    fs_close(dst_fd)
+    
+    return total_copied
+}
+
+// Main demonstration
+function main(): int32 {
+    // Test file creation and writing
+    let write_result: int32 = write_config_file()
+    
+    // Test file reading
+    let read_result: int32 = read_config_file()
+    
+    // Test file copy
+    let copy_result: int32 = copy_file(200, 201)
+    
+    // Return combined result
+    return write_result + read_result + copy_result
+}
