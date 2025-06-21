@@ -1,0 +1,40 @@
+# Build artifacts
+build/
+*.bin
+*.img
+*.o
+*.elf
+
+# Temporary files
+*~
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# Log files
+*.log
+
+# Cache directories
+.cache/
+cache/
+
+# Compiled tempo files
+*.s
+
+# Debug files
+*.debug

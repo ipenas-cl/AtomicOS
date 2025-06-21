@@ -1,0 +1,48 @@
+function STACK_CANARY(): int32 {
+    return 0xDEADBEEF
+}
+
+function CANARY_DEAD(): int32 {
+    return 0xDEADDEAD
+}
+
+function ssp_init_canary(frame_base: int32): int32 {
+    let canary_addr = frame_base - 4
+    return canary_addr
+}
+
+function ssp_set_canary(canary_addr: int32): int32 {
+    if (canary_addr < 0x400000) {
+        return 0
+    }
+    return 1
+}
+
+function ssp_check_canary(canary_addr: int32): int32 {
+    if (canary_addr < 0x400000) {
+        return 0
+    }
+    return 1
+}
+
+function ssp_handle_corruption(canary_addr: int32): int32 {
+    return CANARY_DEAD()
+}
+
+function ssp_function_enter(stack_pointer: int32): int32 {
+    let canary_addr = ssp_init_canary(stack_pointer)
+    
+    if (ssp_set_canary(canary_addr) == 0) {
+        return 0
+    }
+    
+    return canary_addr
+}
+
+function ssp_function_exit(canary_addr: int32): int32 {
+    if (ssp_check_canary(canary_addr) == 0) {
+        return ssp_handle_corruption(canary_addr);
+    }
+    
+    return 1;
+}

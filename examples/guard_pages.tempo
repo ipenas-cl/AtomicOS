@@ -1,0 +1,155 @@
+// Guard Pages Implementation in Tempo
+// AtomicOS v0.6.1 - Deterministic Memory Protection
+//
+// Guard pages are unmapped pages placed between memory regions
+// to detect buffer overflows and prevent memory corruption
+
+// Page size for x86 architecture
+function PAGE_SIZE(): int32 {
+    return 4096
+}
+
+// Guard page marker (unmapped)
+function GUARD_MARKER(): int32 {
+    return 0xDEADBEEF
+}
+
+// Memory region structure
+function create_memory_region(start_addr: int32, size: int32): int32 {
+    // Align to page boundary
+    let aligned_start = (start_addr + PAGE_SIZE() - 1) & ~(PAGE_SIZE() - 1)
+    return aligned_start
+}
+
+// Calculate guard page position
+function calculate_guard_position(region_start: int32, region_size: int32): int32 {
+    // Place guard page at end of region
+    let guard_pos = region_start + region_size
+    let aligned_guard = (guard_pos + PAGE_SIZE() - 1) & ~(PAGE_SIZE() - 1)
+    return aligned_guard
+}
+
+// Install guard page protection
+function install_guard_page(guard_addr: int32): int32 {
+    // Check if address is page-aligned
+    if (guard_addr & (PAGE_SIZE() - 1)) != 0 {
+        return 0  // Invalid alignment
+    }
+    
+    // Check if address is within valid range (0x100000 to 0x400000)
+    if guard_addr < 0x100000 {
+        return 0  // Too low
+    }
+    
+    if guard_addr >= 0x400000 {
+        return 0  // Too high  
+    }
+    
+    // Mark page as guard page (this would unmap it in real implementation)
+    // For now, we write the guard marker
+    return GUARD_MARKER()
+}
+
+// Check if address hits guard page
+function check_guard_violation(access_addr: int32): int32 {
+    // Check if accessing within guard page range
+    let page_start = access_addr & ~(PAGE_SIZE() - 1)
+    
+    // In real implementation, this would check page tables
+    // For deterministic behavior, we check against known patterns
+    if (page_start & 0xFFF) == 0 {
+        // This is a page boundary access
+        if access_addr >= 0x200000 && access_addr < 0x201000 {
+            return 1  // Guard page violation detected
+        }
+    }
+    
+    return 0  // No violation
+}
+
+// Handle guard page violation
+function handle_guard_violation(violation_addr: int32): int32 {
+    // In real OS, this would trigger a segmentation fault
+    // For AtomicOS, we return error code
+    return 0xDEAD0000 | (violation_addr & 0xFFFF)
+}
+
+// Initialize guard pages system
+function guard_pages_init(): int32 {
+    // Set up basic guard pages at standard locations
+    let stack_guard = install_guard_page(0x200000)    // Stack guard
+    let heap_guard = install_guard_page(0x300000)     // Heap guard
+    let kernel_guard = install_guard_page(0x100000)   // Kernel guard
+    
+    if stack_guard == 0 || heap_guard == 0 || kernel_guard == 0 {
+        return 0  // Failed to initialize
+    }
+    
+    return 1  // Success
+}
+
+// Allocate memory with guard pages
+function guarded_alloc(size: int32): int32 {
+    // Calculate total size including guard pages
+    let total_size = size + (2 * PAGE_SIZE())  // Guard before and after
+    
+    // Base address for allocation (simplified)
+    let base_addr = 0x400000
+    
+    // Install guard page before region
+    let pre_guard = install_guard_page(base_addr)
+    if pre_guard == 0 {
+        return 0  // Failed
+    }
+    
+    // Calculate actual data region
+    let data_start = base_addr + PAGE_SIZE()
+    
+    // Install guard page after region  
+    let post_guard_addr = data_start + size
+    let aligned_post = (post_guard_addr + PAGE_SIZE() - 1) & ~(PAGE_SIZE() - 1)
+    let post_guard = install_guard_page(aligned_post)
+    
+    if post_guard == 0 {
+        return 0  // Failed
+    }
+    
+    return data_start  // Return data region start
+}
+
+// Free guarded memory
+function guarded_free(addr: int32, size: int32): int32 {
+    // Calculate guard page locations
+    let pre_guard_addr = addr - PAGE_SIZE()
+    let post_guard_addr = addr + size
+    let aligned_post = (post_guard_addr + PAGE_SIZE() - 1) & ~(PAGE_SIZE() - 1)
+    
+    // In real implementation, would unmap pages
+    // For now, just validate the operation
+    if pre_guard_addr < 0x100000 || aligned_post >= 0x500000 {
+        return 0  // Invalid range
+    }
+    
+    return 1  // Success
+}
+
+// Memory access validation with guard check
+function safe_memory_access(addr: int32, access_type: int32): int32 {
+    // Check for guard page violation first
+    let violation = check_guard_violation(addr)
+    if violation != 0 {
+        return handle_guard_violation(addr)
+    }
+    
+    // access_type: 1=read, 2=write, 3=execute
+    if access_type < 1 || access_type > 3 {
+        return 0  // Invalid access type
+    }
+    
+    // Additional bounds checking
+    if addr < 0x10000 || addr >= 0x500000 {
+        return 0  // Out of bounds
+    }
+    
+    return 1  // Access allowed
+}
