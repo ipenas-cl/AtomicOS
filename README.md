@@ -2,6 +2,8 @@
 
 **Deterministic Real-Time Security Operating System**
 
+🌐 **Website**: [ipenas-cl.github.io/AtomicOS](https://ipenas-cl.github.io/AtomicOS)
+
 AtomicOS is a deterministic operating system designed for security-critical applications requiring predictable timing and robust security guarantees.
 
 ## Features
@@ -21,10 +23,14 @@ AtomicOS is a deterministic operating system designed for security-critical appl
 - **Constant-Time Operations**: No timing side-channels in cryptographic operations
 
 ### 🛠️ Tempo Programming Language
+
+🚀 **[Learn Tempo Programming Language](https://ipenas-cl.github.io/AtomicOS/tempo)**
+
 - **Deterministic**: All operations have bounded execution time
 - **Memory Safe**: Static allocation with compile-time bounds checking
 - **Verified**: Formal verification support for critical code paths
 - **Real-Time**: WCET analysis integrated into compiler
+- **Security-First**: Built specifically for AtomicOS security modules
 
 ## Quick Start
 
@@ -86,3 +92,10 @@ AtomicOS follows strict coding standards for security and determinism:
 - Security features must be formally verified where possible
 
 For detailed contributing guidelines, see `docs/CONTRIBUTING.md`.
+
+## Links
+
+- 🌐 **Official Website**: [ipenas-cl.github.io/AtomicOS](https://ipenas-cl.github.io/AtomicOS)
+- 📚 **Tempo Language Documentation**: [ipenas-cl.github.io/AtomicOS/tempo](https://ipenas-cl.github.io/AtomicOS/tempo)
+- 🔧 **GitHub Repository**: [github.com/ipenas-cl/AtomicOS](https://github.com/ipenas-cl/AtomicOS)
+- 📦 **Releases**: [github.com/ipenas-cl/AtomicOS/releases](https://github.com/ipenas-cl/AtomicOS/releases)
