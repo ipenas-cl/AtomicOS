@@ -14,7 +14,7 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
+            color: #2c3e50;
             background: #ffffff;
         }
         
@@ -25,222 +25,311 @@
         }
         
         header {
-            background: #f8f9fa;
-            border-bottom: 1px solid #e9ecef;
+            background: #ffffff;
+            border-bottom: 1px solid #e1e8ed;
             padding: 2rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
         
         .header-content {
-            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
         }
         
         .logo {
-            font-size: 2.5rem;
+            font-size: 2rem;
             font-weight: 700;
             color: #2c3e50;
-            margin-bottom: 0.5rem;
         }
         
-        .tagline {
-            font-size: 1.2rem;
-            color: #6c757d;
-            margin-bottom: 1rem;
-        }
-        
-        .version-badge {
-            background: #007bff;
+        .version {
+            background: #3498db;
             color: white;
-            padding: 0.5rem 1rem;
+            padding: 0.3rem 0.8rem;
             border-radius: 4px;
+            font-size: 0.9rem;
             font-weight: 600;
-            display: inline-block;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+        
+        .nav-links a {
+            color: #7f8c8d;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        
+        .nav-links a:hover {
+            color: #3498db;
         }
         
         .hero {
-            padding: 4rem 0;
+            padding: 5rem 0;
             text-align: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
         }
         
         .hero h1 {
-            font-size: 3rem;
-            margin-bottom: 1rem;
+            font-size: 3.5rem;
+            font-weight: 300;
+            margin-bottom: 1.5rem;
+            color: #2c3e50;
+        }
+        
+        .hero-subtitle {
+            font-size: 1.5rem;
+            color: #7f8c8d;
+            margin-bottom: 3rem;
             font-weight: 300;
         }
         
-        .hero p {
-            font-size: 1.3rem;
-            max-width: 600px;
-            margin: 0 auto 2rem;
-            opacity: 0.9;
+        .cta-section {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
         }
         
-        .cta-button {
-            background: #ffffff;
-            color: #667eea;
+        .btn {
             padding: 1rem 2rem;
-            text-decoration: none;
             border-radius: 6px;
-            font-weight: 600;
-            display: inline-block;
-            transition: transform 0.2s;
-        }
-        
-        .cta-button:hover {
-            transform: translateY(-2px);
             text-decoration: none;
-            color: #667eea;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: inline-block;
         }
         
-        .features {
-            padding: 5rem 0;
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: #3498db;
+            border: 2px solid #3498db;
+        }
+        
+        .btn-secondary:hover {
+            background: #3498db;
+            color: white;
+        }
+        
+        .features-section {
+            padding: 6rem 0;
         }
         
         .section-title {
             text-align: center;
             font-size: 2.5rem;
-            margin-bottom: 3rem;
-            color: #2c3e50;
             font-weight: 300;
+            margin-bottom: 4rem;
+            color: #2c3e50;
         }
         
-        .feature-grid {
+        .features-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 3rem;
-            margin-top: 3rem;
+            gap: 4rem;
         }
         
-        .feature-card {
+        .feature {
             text-align: center;
-            padding: 2rem;
-            background: #f8f9fa;
-            border-radius: 8px;
-            border: 1px solid #e9ecef;
         }
         
         .feature-icon {
             width: 80px;
             height: 80px;
-            background: #007bff;
+            background: #ecf0f1;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0 auto 1.5rem;
-            color: white;
+            margin: 0 auto 2rem;
             font-size: 2rem;
+            color: #3498db;
         }
         
-        .feature-title {
+        .feature h3 {
             font-size: 1.5rem;
-            font-weight: 600;
             margin-bottom: 1rem;
             color: #2c3e50;
+            font-weight: 600;
         }
         
-        .feature-description {
-            color: #6c757d;
+        .feature p {
+            color: #7f8c8d;
             line-height: 1.7;
         }
         
-        .specs {
-            background: #f8f9fa;
-            padding: 5rem 0;
-        }
-        
-        .spec-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            margin-top: 2rem;
-        }
-        
-        .spec-item {
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            border-left: 4px solid #007bff;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .spec-item h4 {
-            color: #2c3e50;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-        }
-        
-        .tempo-section {
-            padding: 5rem 0;
+        .stats-section {
             background: #2c3e50;
             color: white;
+            padding: 5rem 0;
             text-align: center;
         }
         
-        .tempo-section .section-title {
-            color: white;
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 3rem;
+            margin-top: 3rem;
         }
         
-        .tempo-features {
+        .stat {
+            padding: 2rem;
+        }
+        
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 700;
+            color: #3498db;
+            display: block;
+        }
+        
+        .stat-label {
+            font-size: 1.1rem;
+            opacity: 0.8;
+            margin-top: 0.5rem;
+        }
+        
+        .tech-specs {
+            padding: 6rem 0;
+            background: #f8f9fa;
+        }
+        
+        .specs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+        
+        .spec-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            border: 1px solid #e1e8ed;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .spec-card h4 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+        
+        .spec-card p {
+            color: #7f8c8d;
+            line-height: 1.6;
+        }
+        
+        .download-section {
+            padding: 6rem 0;
+            text-align: center;
+        }
+        
+        .download-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
             gap: 2rem;
             margin-top: 3rem;
         }
         
-        .tempo-feature {
-            background: rgba(255,255,255,0.1);
-            padding: 1.5rem;
+        .download-card {
+            background: white;
+            border: 2px solid #e1e8ed;
             border-radius: 8px;
+            padding: 2rem;
+            transition: all 0.2s;
         }
         
-        .getting-started {
-            padding: 5rem 0;
-            text-align: center;
+        .download-card:hover {
+            border-color: #3498db;
+            transform: translateY(-4px);
+            box-shadow: 0 8px 25px rgba(52, 152, 219, 0.15);
         }
         
-        .code-block {
-            background: #f1f3f4;
-            border: 1px solid #e1e5e9;
-            border-radius: 6px;
-            padding: 1.5rem;
-            margin: 2rem auto;
-            max-width: 600px;
-            text-align: left;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-            color: #24292e;
+        .download-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #2c3e50;
         }
         
         footer {
-            background: #2c3e50;
+            background: #34495e;
             color: white;
-            padding: 3rem 0;
+            padding: 4rem 0 2rem;
             text-align: center;
         }
         
-        .footer-links {
-            margin-bottom: 2rem;
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 3rem;
+            margin-bottom: 3rem;
+            text-align: left;
         }
         
-        .footer-links a {
-            color: white;
+        .footer-section h4 {
+            margin-bottom: 1rem;
+            color: #3498db;
+        }
+        
+        .footer-section a {
+            color: #bdc3c7;
             text-decoration: none;
-            margin: 0 1rem;
-            opacity: 0.8;
+            display: block;
+            margin-bottom: 0.5rem;
+            transition: color 0.2s;
         }
         
-        .footer-links a:hover {
-            opacity: 1;
+        .footer-section a:hover {
+            color: white;
+        }
+        
+        .footer-bottom {
+            border-top: 1px solid #7f8c8d;
+            padding-top: 2rem;
+            color: #bdc3c7;
         }
         
         @media (max-width: 768px) {
-            .hero h1 {
-                font-size: 2rem;
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
             }
             
-            .feature-grid {
-                grid-template-columns: 1fr;
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            
+            .nav-links {
+                gap: 1rem;
+            }
+            
+            .cta-section {
+                flex-direction: column;
+                align-items: center;
             }
         }
     </style>
@@ -249,157 +338,180 @@
     <header>
         <div class="container">
             <div class="header-content">
-                <div class="logo">AtomicOS</div>
-                <div class="tagline">Deterministic Real-Time Security Operating System</div>
-                <div class="version-badge">Version 0.6.1</div>
+                <div class="logo-section">
+                    <div class="logo">AtomicOS</div>
+                    <div class="version">v0.6.1</div>
+                </div>
+                <nav class="nav-links">
+                    <a href="#features">Features</a>
+                    <a href="#specs">Specifications</a>
+                    <a href="#download">Download</a>
+                    <a href="tempo/">Tempo Language</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS">GitHub</a>
+                </nav>
             </div>
         </div>
     </header>
 
     <section class="hero">
         <div class="container">
-            <h1>Security First, Stability Second, Performance Third</h1>
-            <p>AtomicOS delivers predictable timing, robust security, and deterministic behavior for mission-critical applications where reliability cannot be compromised.</p>
-            <a href="https://github.com/ipenas-cl/AtomicOS" class="cta-button">View on GitHub</a>
+            <h1>Deterministic Real-Time Security Operating System</h1>
+            <p class="hero-subtitle">Enterprise-grade security with predictable timing for mission-critical applications</p>
+            <div class="cta-section">
+                <a href="https://github.com/ipenas-cl/AtomicOS/releases" class="btn btn-primary">Download v0.6.1</a>
+                <a href="https://github.com/ipenas-cl/AtomicOS" class="btn btn-secondary">View Source</a>
+            </div>
         </div>
     </section>
 
-    <section class="features">
+    <section class="features-section" id="features">
         <div class="container">
-            <h2 class="section-title">Enterprise-Grade Security Features</h2>
-            <div class="feature-grid">
-                <div class="feature-card">
+            <h2 class="section-title">Built for Security-Critical Systems</h2>
+            <div class="features-grid">
+                <div class="feature">
                     <div class="feature-icon">🛡️</div>
-                    <div class="feature-title">W^X Memory Protection</div>
-                    <div class="feature-description">Hardware-enforced memory protection ensuring pages cannot be both writable and executable, preventing code injection attacks.</div>
+                    <h3>Hardware-Enforced Security</h3>
+                    <p>W^X memory protection, stack-smashing protection, and guard pages provide multiple layers of defense against exploitation attempts.</p>
                 </div>
                 
-                <div class="feature-card">
+                <div class="feature">
+                    <div class="feature-icon">⏱️</div>
+                    <h3>Deterministic Execution</h3>
+                    <p>All operations have provable worst-case execution times (WCET) ensuring predictable behavior in time-critical environments.</p>
+                </div>
+                
+                <div class="feature">
                     <div class="feature-icon">🔒</div>
-                    <div class="feature-title">Stack-Smashing Protection</div>
-                    <div class="feature-description">Deterministic canary-based stack corruption detection with guaranteed response times for real-time applications.</div>
+                    <h3>Multi-Level Security</h3>
+                    <p>Bell-LaPadula inspired mandatory access controls with four security levels: Kernel, System, User, and Guest.</p>
                 </div>
                 
-                <div class="feature-card">
-                    <div class="feature-icon">⚡</div>
-                    <div class="feature-title">WCET Analysis</div>
-                    <div class="feature-description">All operations have provable worst-case execution times, ensuring predictable behavior in time-critical systems.</div>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">🎯</div>
-                    <div class="feature-title">Multi-Level Security</div>
-                    <div class="feature-description">Bell-LaPadula inspired access control with four security levels providing mandatory access controls.</div>
-                </div>
-                
-                <div class="feature-card">
+                <div class="feature">
                     <div class="feature-icon">💾</div>
-                    <div class="feature-title">Deterministic Memory</div>
-                    <div class="feature-description">Static 64KB memory pool with deterministic allocation eliminating unpredictable delays and fragmentation.</div>
+                    <h3>Static Memory Management</h3>
+                    <p>Fixed 64KB memory pool with deterministic allocation eliminates unpredictable delays and memory fragmentation.</p>
                 </div>
                 
-                <div class="feature-card">
+                <div class="feature">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Real-Time Scheduling</h3>
+                    <p>Fixed priority scheduling with deadline guarantees and bounded interrupt latency for real-time applications.</p>
+                </div>
+                
+                <div class="feature">
                     <div class="feature-icon">🔐</div>
-                    <div class="feature-title">Constant-Time Operations</div>
-                    <div class="feature-description">Cryptographic operations execute in constant time, eliminating timing side-channel vulnerabilities.</div>
+                    <h3>Constant-Time Operations</h3>
+                    <p>Cryptographic operations execute in constant time, eliminating timing side-channel vulnerabilities.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <section class="tempo-section">
+    <section class="stats-section">
         <div class="container">
-            <h2 class="section-title">Tempo Programming Language</h2>
-            <p style="font-size: 1.2rem; margin-bottom: 2rem; opacity: 0.9;">A deterministic systems programming language designed specifically for AtomicOS security modules</p>
-            
-            <div class="tempo-features">
-                <div class="tempo-feature">
-                    <h4>Deterministic Execution</h4>
-                    <p>All operations have bounded execution time with compile-time WCET analysis</p>
+            <h2 class="section-title">Security First, Stability Second, Performance Third</h2>
+            <div class="stats-grid">
+                <div class="stat">
+                    <span class="stat-number">100%</span>
+                    <div class="stat-label">Security Module Coverage</div>
                 </div>
-                <div class="tempo-feature">
-                    <h4>Memory Safety</h4>
-                    <p>Static allocation with compile-time bounds checking prevents buffer overflows</p>
+                <div class="stat">
+                    <span class="stat-number">&lt;10μs</span>
+                    <div class="stat-label">Interrupt Latency</div>
                 </div>
-                <div class="tempo-feature">
-                    <h4>Security-First Design</h4>
-                    <p>Built specifically for implementing security-critical kernel modules</p>
+                <div class="stat">
+                    <span class="stat-number">64KB</span>
+                    <div class="stat-label">Deterministic Memory Pool</div>
                 </div>
-                <div class="tempo-feature">
-                    <h4>Formal Verification</h4>
-                    <p>Language constructs designed to support formal verification of critical code paths</p>
+                <div class="stat">
+                    <span class="stat-number">4</span>
+                    <div class="stat-label">Security Levels</div>
                 </div>
-            </div>
-            
-            <div style="margin-top: 2rem;">
-                <a href="tempo/" class="cta-button">Learn Tempo Language</a>
             </div>
         </div>
     </section>
 
-    <section class="specs">
+    <section class="tech-specs" id="specs">
         <div class="container">
             <h2 class="section-title">Technical Specifications</h2>
-            <div class="spec-grid">
-                <div class="spec-item">
-                    <h4>Architecture</h4>
-                    <p>Intel x86 (i386) with plans for x86_64 and ARM64 support</p>
+            <div class="specs-grid">
+                <div class="spec-card">
+                    <h4>Architecture Support</h4>
+                    <p>Intel x86 (i386) with plans for x86_64 and ARM64 support in future releases.</p>
                 </div>
-                <div class="spec-item">
-                    <h4>Real-Time Scheduling</h4>
-                    <p>Fixed priority scheduling with deadline guarantees and bounded interrupt latency</p>
+                <div class="spec-card">
+                    <h4>Security Features</h4>
+                    <p>W^X Protection, Stack-Smashing Protection, Guard Pages, KASLR, Multi-level mandatory access control.</p>
                 </div>
-                <div class="spec-item">
-                    <h4>Security Model</h4>
-                    <p>Multi-level mandatory access control with kernel, system, user, and guest levels</p>
+                <div class="spec-card">
+                    <h4>Real-Time Capabilities</h4>
+                    <p>WCET analysis, fixed priority scheduling, bounded interrupt latency, deterministic memory allocation.</p>
                 </div>
-                <div class="spec-item">
-                    <h4>Memory Management</h4>
-                    <p>Static allocation with guard pages and deterministic memory layout</p>
-                </div>
-                <div class="spec-item">
-                    <h4>Build System</h4>
-                    <p>Professional Makefile with cross-compilation support and automated testing</p>
-                </div>
-                <div class="spec-item">
+                <div class="spec-card">
                     <h4>Development Tools</h4>
-                    <p>Tempo compiler, security analysis tools, and QEMU integration</p>
+                    <p>Tempo programming language compiler, professional build system, QEMU integration, automated testing.</p>
+                </div>
+                <div class="spec-card">
+                    <h4>Memory Management</h4>
+                    <p>Static allocation with compile-time bounds checking, guard pages, deterministic layout.</p>
+                </div>
+                <div class="spec-card">
+                    <h4>Build System</h4>
+                    <p>Professional Makefile with cross-compilation support, security analysis, and automated testing.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <section class="getting-started">
+    <section class="download-section" id="download">
         <div class="container">
-            <h2 class="section-title">Get Started</h2>
-            <p>Build and run AtomicOS in minutes with our streamlined development environment</p>
-            
-            <div class="code-block">
-# Clone the repository<br>
-git clone https://github.com/ipenas-cl/AtomicOS.git<br>
-cd AtomicOS<br><br>
-
-# Build the operating system<br>
-make all<br><br>
-
-# Run in QEMU emulator<br>
-make run<br><br>
-
-# Run test suite<br>
-make test
+            <h2 class="section-title">Get AtomicOS</h2>
+            <div class="download-grid">
+                <div class="download-card">
+                    <div class="download-title">Source Code</div>
+                    <p>Build from source with full control over compilation and configuration options.</p>
+                    <a href="https://github.com/ipenas-cl/AtomicOS" class="btn btn-primary" style="margin-top: 1rem;">GitHub Repository</a>
+                </div>
+                <div class="download-card">
+                    <div class="download-title">Release Package</div>
+                    <p>Pre-built OS image ready for testing in QEMU or deployment to bare metal.</p>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/releases" class="btn btn-primary" style="margin-top: 1rem;">Download v0.6.1</a>
+                </div>
+                <div class="download-card">
+                    <div class="download-title">Tempo Language</div>
+                    <p>Explore the deterministic programming language designed for AtomicOS security modules.</p>
+                    <a href="tempo/" class="btn btn-secondary" style="margin-top: 1rem;">Learn Tempo</a>
+                </div>
             </div>
         </div>
     </section>
 
     <footer>
         <div class="container">
-            <div class="footer-links">
-                <a href="https://github.com/ipenas-cl/AtomicOS">GitHub Repository</a>
-                <a href="https://github.com/ipenas-cl/AtomicOS/releases">Download Releases</a>
-                <a href="tempo/">Tempo Language</a>
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>Project</h4>
+                    <a href="https://github.com/ipenas-cl/AtomicOS">GitHub Repository</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/releases">Download Releases</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/issues">Report Issues</a>
+                </div>
+                <div class="footer-section">
+                    <h4>Documentation</h4>
+                    <a href="tempo/">Tempo Language</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/examples">Code Examples</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/docs">Technical Docs</a>
+                </div>
+                <div class="footer-section">
+                    <h4>Community</h4>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/discussions">Discussions</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/wiki">Wiki</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/blob/main/LICENSE">License</a>
+                </div>
             </div>
-            <p>&copy; 2024 AtomicOS Project | MIT License</p>
-            <p><strong>Security First, Stability Second, Performance Third</strong></p>
+            <div class="footer-bottom">
+                <p>&copy; 2024 AtomicOS Project | MIT License</p>
+                <p><strong>Security First, Stability Second, Performance Third</strong></p>
+            </div>
         </div>
     </footer>
 </body>
