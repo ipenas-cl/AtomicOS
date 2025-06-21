@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tempo Programming Language - Deterministic Systems Programming</title>
+    <title>Tempo Programming Language - Early Development</title>
     <style>
         * {
             margin: 0;
@@ -45,6 +45,14 @@
             opacity: 0.9;
         }
         
+        .status-banner {
+            background: #f39c12;
+            color: white;
+            padding: 1rem 0;
+            text-align: center;
+            font-weight: 600;
+        }
+        
         .nav {
             background: #34495e;
             padding: 1rem 0;
@@ -71,59 +79,64 @@
         .hero {
             padding: 4rem 0;
             text-align: center;
-            background: linear-gradient(135deg, #3498db 0%, #2c3e50 100%);
-            color: white;
         }
         
         .hero h1 {
-            font-size: 3rem;
+            font-size: 2.5rem;
             margin-bottom: 1rem;
-            font-weight: 300;
+            color: #2c3e50;
         }
         
         .hero p {
-            font-size: 1.3rem;
+            font-size: 1.1rem;
             max-width: 700px;
             margin: 0 auto;
-            opacity: 0.9;
+            color: #666;
         }
         
-        .features {
-            padding: 5rem 0;
+        .current-status {
+            padding: 4rem 0;
+            background: #f8f9fa;
         }
         
         .section-title {
             text-align: center;
-            font-size: 2.5rem;
-            margin-bottom: 3rem;
+            font-size: 2rem;
+            margin-bottom: 2rem;
             color: #2c3e50;
-            font-weight: 300;
         }
         
-        .feature-grid {
+        .status-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 2rem;
             margin-top: 2rem;
         }
         
-        .feature-card {
+        .status-card {
+            background: white;
             padding: 2rem;
-            background: #f8f9fa;
             border-radius: 8px;
-            border-left: 4px solid #3498db;
+            border-left: 4px solid #e74c3c;
         }
         
-        .feature-title {
+        .status-card.working {
+            border-left-color: #27ae60;
+        }
+        
+        .status-card.partial {
+            border-left-color: #f39c12;
+        }
+        
+        .status-title {
             font-size: 1.3rem;
             font-weight: 600;
             margin-bottom: 1rem;
             color: #2c3e50;
         }
         
-        .syntax-section {
-            background: #f8f9fa;
-            padding: 5rem 0;
+        .working-example {
+            padding: 4rem 0;
         }
         
         .code-example {
@@ -152,29 +165,39 @@
             color: #fc8181;
         }
         
-        .two-column {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 3rem;
-            margin-top: 3rem;
+        .roadmap {
+            padding: 4rem 0;
+            background: #f8f9fa;
         }
         
-        .use-cases {
-            padding: 5rem 0;
-        }
-        
-        .use-case {
+        .roadmap-item {
             background: white;
             padding: 2rem;
             border-radius: 8px;
             border: 1px solid #e1e5e9;
-            margin-bottom: 2rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
         }
         
-        .use-case h4 {
-            color: #2c3e50;
-            margin-bottom: 1rem;
-            font-size: 1.2rem;
+        .roadmap-status {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        
+        .roadmap-status.done {
+            background: #27ae60;
+        }
+        
+        .roadmap-status.progress {
+            background: #f39c12;
+        }
+        
+        .roadmap-status.todo {
+            background: #e74c3c;
         }
         
         footer {
@@ -200,10 +223,6 @@
         }
         
         @media (max-width: 768px) {
-            .two-column {
-                grid-template-columns: 1fr;
-            }
-            
             .nav-links {
                 flex-direction: column;
                 align-items: center;
@@ -222,13 +241,17 @@
         </div>
     </header>
 
+    <div class="status-banner">
+        ⚠️ Early Development Stage - Limited Functionality Available
+    </div>
+
     <nav class="nav">
         <div class="container">
             <div class="nav-links">
                 <a href="../">← Back to AtomicOS</a>
-                <a href="#features">Features</a>
-                <a href="#syntax">Syntax</a>
-                <a href="#examples">Examples</a>
+                <a href="#status">Current Status</a>
+                <a href="#examples">Working Examples</a>
+                <a href="#roadmap">Roadmap</a>
                 <a href="https://github.com/ipenas-cl/AtomicOS">GitHub</a>
             </div>
         </div>
@@ -236,112 +259,135 @@
 
     <section class="hero">
         <div class="container">
-            <h1>Built for Security-Critical Systems</h1>
-            <p>Tempo is a deterministic programming language designed specifically for implementing AtomicOS security modules with guaranteed timing behavior and memory safety.</p>
+            <h1>Tempo Programming Language</h1>
+            <p>A deterministic systems programming language being developed for AtomicOS security modules. Currently in early development with basic compilation capabilities.</p>
         </div>
     </section>
 
-    <section class="features" id="features">
+    <section class="current-status" id="status">
         <div class="container">
-            <h2 class="section-title">Language Features</h2>
-            <div class="feature-grid">
-                <div class="feature-card">
-                    <div class="feature-title">Deterministic Execution</div>
-                    <p>All operations have bounded execution time with compile-time worst-case execution time (WCET) analysis for real-time guarantees.</p>
+            <h2 class="section-title">Current Implementation Status</h2>
+            <div class="status-grid">
+                <div class="status-card working">
+                    <div class="status-title">✅ Working Features</div>
+                    <ul>
+                        <li>Basic function definitions</li>
+                        <li>Simple return statements</li>
+                        <li>Integer literals</li>
+                        <li>x86 assembly code generation</li>
+                        <li>Command-line compiler interface</li>
+                    </ul>
                 </div>
                 
-                <div class="feature-card">
-                    <div class="feature-title">Memory Safety</div>
-                    <p>Static memory allocation with compile-time bounds checking prevents buffer overflows and memory corruption.</p>
+                <div class="status-card partial">
+                    <div class="status-title">⚠️ Partial Implementation</div>
+                    <ul>
+                        <li>Variable declarations (let statements)</li>
+                        <li>Function parameters</li>
+                        <li>Basic arithmetic expressions</li>
+                        <li>Type system (int32 only)</li>
+                    </ul>
                 </div>
                 
-                <div class="feature-card">
-                    <div class="feature-title">Security-First Design</div>
-                    <p>Language constructs designed specifically for implementing security modules like stack protection and memory guards.</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-title">Formal Verification</div>
-                    <p>Simple syntax and semantics enable formal verification of critical code paths using mathematical proofs.</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-title">Cross-Compilation</div>
-                    <p>Compiles to x86 assembly with support for multiple target architectures and optimization levels.</p>
-                </div>
-                
-                <div class="feature-card">
-                    <div class="feature-title">Real-Time Ready</div>
-                    <p>Built-in support for real-time constraints, deadlines, and priority-based scheduling integration.</p>
+                <div class="status-card">
+                    <div class="status-title">❌ Not Yet Implemented</div>
+                    <ul>
+                        <li>Complex expressions and operators</li>
+                        <li>Control flow (if/else, loops)</li>
+                        <li>Function calls</li>
+                        <li>WCET analysis</li>
+                        <li>Memory safety checks</li>
+                        <li>Formal verification support</li>
+                    </ul>
                 </div>
             </div>
         </div>
     </section>
 
-    <section class="syntax-section" id="syntax">
+    <section class="working-example" id="examples">
         <div class="container">
-            <h2 class="section-title">Syntax Overview</h2>
-            <div class="two-column">
+            <h2 class="section-title">Working Example</h2>
+            <p>The following simple Tempo program compiles successfully:</p>
+            
+            <div class="code-example">
+<span class="comment">// Simple function that returns a constant</span>
+<span class="keyword">function</span> <span class="function">test</span>(): <span class="type">int32</span> {
+    <span class="keyword">return</span> 42
+}
+            </div>
+            
+            <p>Compiles to x86 assembly:</p>
+            
+            <div class="code-example">
+section .text
+bits 32
+
+global test
+test:
+    push ebp
+    mov ebp, esp
+    mov eax, 42
+    ret
+    pop ebp
+    ret
+            </div>
+            
+            <p><strong>Usage:</strong></p>
+            <div class="code-example">
+$ cd tools
+$ ./tempo_compiler input.tempo output.s
+=== Tempo Compiler v2.0 ===
+Compiling: input.tempo
+Lexer: 11 tokens
+Parser: success
+Code generation: success
+Output written to: output.s
+            </div>
+        </div>
+    </section>
+
+    <section class="roadmap" id="roadmap">
+        <div class="container">
+            <h2 class="section-title">Development Roadmap</h2>
+            
+            <div class="roadmap-item">
+                <div class="roadmap-status done"></div>
                 <div>
-                    <h3>Basic Function Definition</h3>
-                    <div class="code-example">
-<span class="comment">// Stack protection canary function</span>
-<span class="keyword">function</span> <span class="function">ssp_init_canary</span>(): <span class="type">int32</span> {
-    <span class="keyword">let</span> canary = <span class="function">get_random_seed</span>()
-    <span class="keyword">return</span> canary
-}
-
-<span class="comment">// Memory guard page installer</span>
-<span class="keyword">function</span> <span class="function">install_guard_page</span>(addr: <span class="type">int32</span>): <span class="type">int32</span> {
-    <span class="keyword">if</span> addr % PAGE_SIZE() != 0 {
-        <span class="keyword">return</span> ERROR_INVALID_PARAM()
-    }
-    <span class="keyword">return</span> ERROR_NONE()
-}
-                    </div>
+                    <h4>Phase 1: Basic Compiler Infrastructure</h4>
+                    <p>Lexer, basic parser, simple AST, and x86 code generation for functions and return statements.</p>
                 </div>
+            </div>
+            
+            <div class="roadmap-item">
+                <div class="roadmap-status progress"></div>
                 <div>
-                    <h3>Security Module Example</h3>
-                    <div class="code-example">
-<span class="comment">// Deterministic memory allocator</span>
-<span class="keyword">function</span> <span class="function">static_alloc_block</span>(): <span class="type">int32</span> {
-    <span class="keyword">let</span> block_index = find_free_block()
-    <span class="keyword">if</span> block_index == -1 {
-        <span class="keyword">return</span> 0  <span class="comment">// Out of memory</span>
-    }
-    
-    <span class="keyword">let</span> address = MEMORY_POOL_BASE() + 
-                 block_index * MEMORY_BLOCK_SIZE()
-    mark_block_used(block_index)
-    <span class="keyword">return</span> address
-}
-                    </div>
+                    <h4>Phase 2: Core Language Features</h4>
+                    <p>Complete expression parsing, function parameters, local variables, and arithmetic operations.</p>
                 </div>
             </div>
-        </div>
-    </section>
-
-    <section class="use-cases" id="examples">
-        <div class="container">
-            <h2 class="section-title">Real-World Applications</h2>
-            <div class="use-case">
-                <h4>Stack-Smashing Protection (SSP)</h4>
-                <p>Tempo implements the entire SSP subsystem for AtomicOS, including canary generation, stack frame protection, and corruption detection with deterministic response times.</p>
+            
+            <div class="roadmap-item">
+                <div class="roadmap-status todo"></div>
+                <div>
+                    <h4>Phase 3: Control Flow</h4>
+                    <p>If/else statements, loops, function calls, and proper variable scoping.</p>
+                </div>
             </div>
             
-            <div class="use-case">
-                <h4>Guard Pages Implementation</h4>
-                <p>Memory protection through guard pages is implemented in Tempo, providing buffer overflow detection between memory regions with compile-time verified bounds.</p>
+            <div class="roadmap-item">
+                <div class="roadmap-status todo"></div>
+                <div>
+                    <h4>Phase 4: Deterministic Features</h4>
+                    <p>WCET analysis, memory bounds checking, and deterministic execution guarantees.</p>
+                </div>
             </div>
             
-            <div class="use-case">
-                <h4>Deterministic Core Services</h4>
-                <p>Real-time scheduling, static memory management, and security level enforcement are all implemented in Tempo with WCET guarantees.</p>
-            </div>
-            
-            <div class="use-case">
-                <h4>Cryptographic Primitives</h4>
-                <p>Constant-time cryptographic operations eliminate timing side-channels while maintaining deterministic execution for real-time systems.</p>
+            <div class="roadmap-item">
+                <div class="roadmap-status todo"></div>
+                <div>
+                    <h4>Phase 5: Security Integration</h4>
+                    <p>AtomicOS security module compilation, formal verification support, and production deployment.</p>
+                </div>
             </div>
         </div>
     </section>
@@ -351,10 +397,10 @@
             <div class="footer-links">
                 <a href="../">AtomicOS Homepage</a>
                 <a href="https://github.com/ipenas-cl/AtomicOS">GitHub Repository</a>
-                <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/examples">Code Examples</a>
+                <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/tools">Compiler Source</a>
             </div>
-            <p>&copy; 2024 AtomicOS Project | Tempo Programming Language</p>
-            <p><strong>Deterministic • Memory Safe • Security-First</strong></p>
+            <p>&copy; 2024 AtomicOS Project | Tempo Programming Language (Early Development)</p>
+            <p><strong>Honesty in Development • Transparency in Progress</strong></p>
         </div>
     </footer>
 </body>

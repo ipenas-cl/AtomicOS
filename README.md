@@ -24,13 +24,13 @@ AtomicOS is a deterministic operating system designed for security-critical appl
 
 ### 🛠️ Tempo Programming Language
 
-🚀 **[Learn Tempo Programming Language](https://ipenas-cl.github.io/AtomicOS/tempo)**
+🚧 **[Tempo Language Documentation](https://ipenas-cl.github.io/AtomicOS/tempo)** *(Early Development)*
 
-- **Deterministic**: All operations have bounded execution time
-- **Memory Safe**: Static allocation with compile-time bounds checking
-- **Verified**: Formal verification support for critical code paths
-- **Real-Time**: WCET analysis integrated into compiler
-- **Security-First**: Built specifically for AtomicOS security modules
+- **Current Status**: Basic compiler with limited functionality
+- **Working**: Simple functions, return statements, integer literals
+- **In Progress**: Variables, parameters, arithmetic expressions  
+- **Planned**: Control flow, WCET analysis, memory safety, formal verification
+- **Goal**: Deterministic language for AtomicOS security modules
 
 ## Quick Start
 
