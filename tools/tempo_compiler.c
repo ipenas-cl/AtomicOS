@@ -1,4 +1,8 @@
 /*
+ * Copyright (c) 2024 Ignacio Peña
+ * Part of AtomicOS Project - https://github.com/ipenas-cl/AtomicOS
+ * Licensed under MIT License - see LICENSE file for details
+ *
  * Tempo Compiler v1.0.0 - Complete Systems Programming Language
  * Deterministic Programming Language for AtomicOS
  * Features: Structs, Pointers, Inline Assembly, WCET analysis, Full type system

@@ -1,3 +1,7 @@
+; Copyright (c) 2024 Ignacio Peña
+; Part of AtomicOS Project - https://github.com/ipenas-cl/AtomicOS
+; Licensed under MIT License - see LICENSE file for details
+
 ; AtomicOS Fixed Bootloader - Forces proper VGA text mode
 [BITS 16]
 [ORG 0x7C00]

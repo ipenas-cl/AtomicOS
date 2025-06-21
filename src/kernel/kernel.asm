@@ -1,3 +1,7 @@
+; Copyright (c) 2024 Ignacio Peña
+; Part of AtomicOS Project - https://github.com/ipenas-cl/AtomicOS
+; Licensed under MIT License - see LICENSE file for details
+
 ; AtomicOS Working Shell with Stack-Smashing Protection and Interrupts
 [BITS 32]
 [ORG 0x10000]

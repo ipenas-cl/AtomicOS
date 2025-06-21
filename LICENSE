@@ -25,8 +25,11 @@ ADDITIONAL TERMS:
 1. Attribution Requirement: Any use of this software must maintain clear 
    attribution to the original AtomicOS project and its creator.
 
-2. Name Protection: The name "AtomicOS" is part of this project's identity.
-   Forks must use a different name to avoid confusion.
+2. Name Protection: The names "AtomicOS" and "Tempo" are part of this project's 
+   identity. Forks must use different names to avoid confusion.
 
 3. Integrity Notice: If you modify this software, you must clearly indicate
    what changes were made and by whom.
+
+This license covers both AtomicOS (the operating system) and Tempo (the programming
+language) as they are integral parts of the same project.

@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2024 Ignacio Peña
+ * AtomicOS - Deterministic Real-Time Security Operating System
+ * https://github.com/ipenas-cl/AtomicOS
+ * Licensed under MIT License - see LICENSE file for details
+ */
+
 // Simplified Enhanced Tempo Compiler
 // Demonstrates realistic WCET without complex dependencies
 

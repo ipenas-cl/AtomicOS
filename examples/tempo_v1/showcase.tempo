@@ -1,0 +1,235 @@
+// Copyright (c) 2024 Ignacio Peña
+// Tempo Programming Language - Part of AtomicOS Project
+// https://github.com/ipenas-cl/AtomicOS
+// Licensed under MIT License - see LICENSE file for details
+
+// Tempo v1.0.0 Showcase - Complete OS in Tempo!
+// No more C needed - Everything you need for systems programming
+
+//===== Memory-Safe Kernel Structures =====//
+struct Process @packed {
+    pid: int32,
+    state: int32,
+    priority: int32, 
+    stack_ptr: raw_ptr<int32>,
+    name: [16]int8,
+    next: ptr<Process>
+}
+
+struct InterruptFrame {
+    // Pushed by CPU
+    eip: int32,
+    cs: int32,
+    eflags: int32,
+    esp: int32,
+    ss: int32,
+    
+    // Pushed by us
+    eax: int32, ebx: int32, ecx: int32, edx: int32,
+    esi: int32, edi: int32, ebp: int32
+}
+
+//===== Direct Hardware Control =====//
+function outb(port: int16, value: int8) {
+    asm("outb %b0, %w1" :: "a"(value), "d"(port));
+}
+
+function inb(port: int16) -> int8 {
+    let result: int8;
+    asm("inb %w1, %b0" : "=a"(result) : "d"(port));
+    return result;
+}
+
+function enable_interrupts() {
+    asm volatile("sti");
+}
+
+function disable_interrupts() {
+    asm volatile("cli");
+}
+
+//===== Interrupt Handlers =====//
+@interrupt
+function timer_handler(frame: ptr<InterruptFrame>) {
+    // Increment system tick
+    system_ticks = system_ticks + 1;
+    
+    // Schedule next process
+    if system_ticks % QUANTUM == 0 {
+        schedule();
+    }
+    
+    // Send EOI to PIC
+    outb(0x20, 0x20);
+}
+
+@interrupt  
+function keyboard_handler() {
+    let scancode = inb(0x60);
+    
+    // Safe array access - no buffer overflow!
+    if scancode < 128 && kb_buffer_head < KB_BUFFER_SIZE {
+        kb_buffer[kb_buffer_head] = SCANCODE_TABLE[scancode];
+        kb_buffer_head = (kb_buffer_head + 1) % KB_BUFFER_SIZE;
+    }
+    
+    outb(0x20, 0x20);
+}
+
+//===== Memory Management =====//
+function kmalloc(size: int32) -> raw_ptr<int8> @wcet(100) {
+    // Find free block
+    let block = heap_start;
+    
+    while @wcet(50) block < heap_end {
+        if block->size >= size && block->free {
+            block->free = false;
+            return &block->data as raw_ptr<int8>;
+        }
+        block = block->next;
+    }
+    
+    return null;
+}
+
+function kfree(ptr: raw_ptr<int8>) {
+    let block = container_of(ptr, HeapBlock, data);
+    block->free = true;
+    
+    // Coalesce adjacent free blocks
+    if block->next && block->next->free {
+        block->size = block->size + block->next->size;
+        block->next = block->next->next;
+    }
+}
+
+//===== Process Management =====//
+function create_process(
+    name: ptr<int8>, 
+    entry: raw_ptr<void>,
+    priority: int32
+) -> ptr<Process> {
+    let proc = kmalloc(sizeof<Process>()) as ptr<Process>;
+    
+    // Initialize process
+    proc->pid = next_pid();
+    proc->state = PROCESS_READY;
+    proc->priority = priority;
+    
+    // Set up stack
+    let stack = kmalloc(STACK_SIZE);
+    proc->stack_ptr = (stack + STACK_SIZE - 4) as raw_ptr<int32>;
+    
+    // Push initial context
+    push_context(proc->stack_ptr, entry);
+    
+    // Copy name safely
+    strncpy(&proc->name, name, 16);
+    
+    // Add to ready queue
+    enqueue_process(proc);
+    
+    return proc;
+}
+
+function context_switch(next: ptr<Process>) {
+    // Save current context
+    asm volatile("pushad");
+    asm("mov %0, %%esp" : "=m"(current_process->stack_ptr));
+    
+    // Switch to next process
+    current_process = next;
+    tss.esp0 = next->kernel_stack;
+    
+    // Restore new context
+    asm("mov %%esp, %0" :: "m"(next->stack_ptr));
+    asm volatile("popad");
+}
+
+//===== Real-Time Scheduling =====//
+@realtime(period: 1000, wcet: 200)
+function scheduler_tick() {
+    let highest_prio = -1;
+    let next: ptr<Process> = null;
+    
+    // Find highest priority ready process
+    let proc = ready_queue_head;
+    while @wcet(100) proc != null {
+        if proc->state == PROCESS_READY && 
+           proc->priority > highest_prio {
+            highest_prio = proc->priority;
+            next = proc;
+        }
+        proc = proc->next;
+    }
+    
+    if next != null && next != current_process {
+        context_switch(next);
+    }
+}
+
+//===== Safe String Operations =====//
+function strncpy(
+    dst: ptr<int8, N>, 
+    src: ptr<int8>, 
+    max: int32
+) @wcet(N) {
+    let i = 0;
+    while @wcet(N) i < max && i < N && src[i] != 0 {
+        dst[i] = src[i];
+        i = i + 1;
+    }
+    
+    // Null terminate
+    if i < N {
+        dst[i] = 0;
+    }
+}
+
+//===== Constant-Time Crypto =====//
+@constant_time
+function secure_compare(
+    a: ptr<int8, 32>, 
+    b: ptr<int8, 32>
+) -> bool {
+    let diff: int32 = 0;
+    
+    // Compare all bytes regardless of result
+    for i in 0..32 {
+        diff = diff | (a[i] ^ b[i]);
+    }
+    
+    return diff == 0;
+}
+
+//===== Main Kernel Entry =====//
+@kernel_entry
+pub function kernel_main() {
+    // Initialize hardware
+    init_gdt();
+    init_idt();
+    init_pic();
+    init_timer(1000); // 1ms tick
+    
+    // Initialize memory
+    init_heap(HEAP_START, HEAP_SIZE);
+    
+    // Create init process
+    let init = create_process(
+        "init",
+        &init_main as raw_ptr<void>,
+        PRIORITY_NORMAL
+    );
+    
+    // Enable interrupts and start scheduling
+    enable_interrupts();
+    
+    // Idle loop
+    loop {
+        asm volatile("hlt");
+    }
+}
+
+// That's it! A complete kernel foundation in Tempo.
+// No C required. No undefined behavior. No memory leaks.
+// Just clean, safe, deterministic systems programming.

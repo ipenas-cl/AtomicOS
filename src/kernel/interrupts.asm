@@ -1,3 +1,8 @@
+; Copyright (c) 2024 Ignacio Peña
+; AtomicOS - Deterministic Real-Time Security Operating System
+; https://github.com/ipenas-cl/AtomicOS
+; Licensed under MIT License - see LICENSE file for details
+
 ; AtomicOS Interrupt System
 ; Deterministic interrupt handling with WCET bounds
 

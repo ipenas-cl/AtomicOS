@@ -1,3 +1,10 @@
+<!--
+Copyright (c) 2024 Ignacio Peña
+Tempo Programming Language - Part of AtomicOS Project
+https://github.com/ipenas-cl/AtomicOS
+Licensed under MIT License - see LICENSE file for details
+-->
+
 # Tempo v4 Language Specification
 
 ## Vision
