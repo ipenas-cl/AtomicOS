@@ -1,3 +1,6 @@
+# Claude Code settings
+.claude/
+
 # Build artifacts
 build/
 *.bin

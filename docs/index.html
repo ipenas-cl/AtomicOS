@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AtomicOS - Deterministic Real-Time Security OS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            background: #0a0a0a;
+            color: #00ff00;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #1a1a1a, #2a2a2a);
+            border-bottom: 2px solid #00ff00;
+            padding: 2rem 0;
+            text-align: center;
+        }
+        
+        .logo {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #00ff00;
+            text-shadow: 0 0 20px #00ff00;
+            margin-bottom: 0.5rem;
+        }
+        
+        .tagline {
+            font-size: 1.2rem;
+            color: #888;
+            margin-bottom: 1rem;
+        }
+        
+        .version {
+            background: #00ff00;
+            color: #000;
+            padding: 0.3rem 1rem;
+            border-radius: 20px;
+            font-weight: bold;
+        }
+        
+        .features {
+            padding: 4rem 0;
+            background: #111;
+        }
+        
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .feature-card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+        
+        .feature-card:hover {
+            border-color: #00ff00;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+        }
+        
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+        
+        .feature-title {
+            color: #00ff00;
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .specs {
+            padding: 4rem 0;
+            background: #0a0a0a;
+        }
+        
+        .spec-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        
+        .spec-item {
+            background: #1a1a1a;
+            padding: 1rem;
+            border-left: 3px solid #00ff00;
+        }
+        
+        .downloads {
+            padding: 4rem 0;
+            background: #111;
+            text-align: center;
+        }
+        
+        .download-btn {
+            display: inline-block;
+            background: #00ff00;
+            color: #000;
+            padding: 1rem 2rem;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 0 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .download-btn:hover {
+            background: #00cc00;
+            transform: translateY(-2px);
+        }
+        
+        footer {
+            background: #1a1a1a;
+            padding: 2rem 0;
+            text-align: center;
+            border-top: 1px solid #333;
+        }
+        
+        h2 {
+            color: #00ff00;
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        
+        .terminal {
+            background: #000;
+            border: 1px solid #00ff00;
+            border-radius: 5px;
+            padding: 1rem;
+            margin: 2rem 0;
+            font-family: 'Monaco', monospace;
+        }
+        
+        .terminal-header {
+            color: #00ff00;
+            margin-bottom: 0.5rem;
+        }
+        
+        @media (max-width: 768px) {
+            .logo {
+                font-size: 2rem;
+            }
+            
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">AtomicOS</div>
+            <div class="tagline">Deterministic Real-Time Security Operating System</div>
+            <div class="version">v0.6.1</div>
+        </div>
+    </header>
+
+    <section class="features">
+        <div class="container">
+            <h2>🔒 Security & Determinism</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🛡️</div>
+                    <div class="feature-title">W^X Protection</div>
+                    <p>Memory pages cannot be both writable and executable, preventing code injection attacks.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <div class="feature-title">Stack-Smashing Protection</div>
+                    <p>Deterministic canary-based stack corruption detection with guaranteed response times.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🚧</div>
+                    <div class="feature-title">Guard Pages</div>
+                    <p>Empty pages between memory regions to detect buffer overflows and prevent corruption.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">🎲</div>
+                    <div class="feature-title">KASLR</div>
+                    <p>Kernel Address Space Layout Randomization with deterministic PRNG for reproducible testing.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">⏱️</div>
+                    <div class="feature-title">WCET Analysis</div>
+                    <p>All operations have provable worst-case execution times for real-time guarantees.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-icon">💾</div>
+                    <div class="feature-title">Static Allocation</div>
+                    <p>Fixed 64KB memory pool with deterministic allocation - no unpredictable delays.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="specs">
+        <div class="container">
+            <h2>⚡ Technical Specifications</h2>
+            <div class="terminal">
+                <div class="terminal-header">$ make info</div>
+                <div>===============================================</div>
+                <div>AtomicOS v0.6.1 - Deterministic Real-Time Security OS</div>
+                <div>===============================================</div>
+                <div>Architecture: i386</div>
+                <div>Security First, Stability Second, Performance Third</div>
+            </div>
+            
+            <div class="spec-list">
+                <div class="spec-item">
+                    <strong>Multi-level Security</strong><br>
+                    Bell-LaPadula inspired access control with 4 security levels
+                </div>
+                <div class="spec-item">
+                    <strong>Real-Time Scheduling</strong><br>
+                    Fixed priority scheduling with deadline guarantees
+                </div>
+                <div class="spec-item">
+                    <strong>Constant-Time Operations</strong><br>
+                    No timing side-channels in cryptographic operations
+                </div>
+                <div class="spec-item">
+                    <strong>Tempo Language</strong><br>
+                    Deterministic programming language with WCET analysis
+                </div>
+                <div class="spec-item">
+                    <strong>Memory Safety</strong><br>
+                    Static allocation with compile-time bounds checking
+                </div>
+                <div class="spec-item">
+                    <strong>Reproducible Behavior</strong><br>
+                    Deterministic PRNG with fixed seed for testing
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="downloads">
+        <div class="container">
+            <h2>🚀 Get Started</h2>
+            <p>Build and run AtomicOS with deterministic security guarantees</p>
+            
+            <div class="terminal">
+                <div class="terminal-header">$ git clone https://github.com/ipenas-cl/AtomicOS.git</div>
+                <div>$ cd AtomicOS</div>
+                <div>$ make all</div>
+                <div>$ make run</div>
+            </div>
+            
+            <a href="https://github.com/ipenas-cl/AtomicOS" class="download-btn">View on GitHub</a>
+            <a href="https://github.com/ipenas-cl/AtomicOS/releases" class="download-btn">Download Release</a>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 AtomicOS Project | MIT License</p>
+            <p><strong>Security First, Stability Second, Performance Third</strong></p>
+        </div>
+    </footer>
+</body>
+</html>
