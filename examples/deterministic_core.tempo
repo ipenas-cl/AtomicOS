@@ -1,6 +1,6 @@
-// Deterministic Core for AtomicOS - Simplified Version
-// OpenBSD + Linux + Solaris + AIX inspired features
-// Tempo v2.0 Implementation
+// Deterministic Core for AtomicOS - Security and Real-Time Features
+// Advanced deterministic operating system implementation
+// Tempo v3.0 Implementation
 
 // 1. PREDICTABLE EXECUTION TIMING
 function constant_time_compare(a: int32, b: int32): int32 {

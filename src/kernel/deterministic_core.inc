@@ -1,5 +1,5 @@
 ; Deterministic Core for AtomicOS v0.6.1
-; Based on ideal OS characteristics: OpenBSD + Linux + Solaris + AIX
+; Deterministic core features for real-time and security-critical systems
 ; Compiled from Tempo deterministic language
 
 MEMORY_POOL_SIZE:

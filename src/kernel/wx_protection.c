@@ -1,6 +1,6 @@
 /*
  * W^X (Write XOR Execute) Protection for AtomicOS
- * Based on OpenBSD's W^X enforcement
+ * Memory pages cannot be both writable and executable
  */
 
 #include <stdint.h>

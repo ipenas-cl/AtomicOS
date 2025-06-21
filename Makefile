@@ -1,9 +1,9 @@
-# AtomicOS v0.6.1 - Deterministic Real-Time Security OS
+# AtomicOS v0.7.0 - Deterministic Real-Time Security OS
 # Professional Build System
 
 # Configuration
 PROJECT_NAME = AtomicOS
-VERSION = 0.6.1
+VERSION = 0.7.0
 ARCH = i386
 
 # Directories
@@ -51,8 +51,8 @@ $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
 # Build Tempo compiler
-$(TEMPO_BIN): $(TOOLS_DIR)/tempo_compiler.c | $(BUILD_DIR)
-	@echo "Building Tempo compiler..."
+$(TEMPO_BIN): $(TOOLS_DIR)/tempo_compiler_v3.c | $(BUILD_DIR)
+	@echo "Building Tempo v3.0 compiler..."
 	$(CC) -std=c99 -Wall -Wextra -O2 -o $@ $<
 
 # Compile security modules from Tempo
@@ -69,8 +69,9 @@ $(BOOTLOADER): $(BOOT_SRC)/boot.asm | $(BUILD_DIR)
 # Build kernel
 $(KERNEL): $(KERNEL_SRC)/kernel.asm | $(BUILD_DIR)
 	@echo "Assembling kernel with security modules..."
-	@cp $(KERNEL_SRC)/*.inc $(BUILD_DIR)/ 2>/dev/null || true
-	$(AS) $(ASFLAGS) $< -o $@
+	@mkdir -p $(BUILD_DIR)/kernel
+	@cp $(KERNEL_SRC)/*.inc $(BUILD_DIR)/kernel/ 2>/dev/null || true
+	cd $(BUILD_DIR) && $(AS) $(ASFLAGS) ../$(KERNEL_SRC)/kernel.asm -o ../$(KERNEL)
 
 # Create OS image
 $(OS_IMAGE): $(BOOTLOADER) $(KERNEL) | $(BUILD_DIR)
@@ -79,6 +80,24 @@ $(OS_IMAGE): $(BOOTLOADER) $(KERNEL) | $(BUILD_DIR)
 	dd if=$(BOOTLOADER) of=$@ conv=notrunc status=none
 	dd if=$(KERNEL) of=$@ bs=512 seek=1 conv=notrunc status=none
 	@echo "AtomicOS v$(VERSION) image created: $@"
+
+# Release management
+.PHONY: release-patch release-minor release-major
+release-patch:
+	@scripts/release.sh patch
+
+release-minor:
+	@scripts/release.sh minor
+
+release-major:
+	@scripts/release.sh major
+
+# Version info
+.PHONY: version
+version:
+	@echo "AtomicOS $(VERSION)"
+	@echo "Architecture: $(ARCH)"
+	@echo "Tempo Compiler: v$(shell echo $(VERSION) | cut -d. -f1-2)"
 
 # Run in QEMU
 .PHONY: run
@@ -92,15 +111,32 @@ debug: $(OS_IMAGE)
 	@echo "Starting AtomicOS v$(VERSION) in debug mode..."
 	qemu-system-$(ARCH) -fda $< -display curses -s -S
 
+# Build test runner
+$(BUILD_DIR)/tempo_test_runner: $(TESTS_DIR)/tempo_test_runner.c | $(BUILD_DIR)
+	@echo "Building test runner..."
+	$(CC) -std=c99 -Wall -Wextra -O2 -o $@ $<
+
 # Build tests
 .PHONY: test
-test: $(TEMPO_BIN)
-	@echo "Running Tempo compiler tests..."
+test: $(TEMPO_BIN) $(BUILD_DIR)/tempo_test_runner
+	@echo "Running comprehensive Tempo test suite..."
+	$(BUILD_DIR)/tempo_test_runner
+
+# Quick test - just examples
+.PHONY: test-quick
+test-quick: $(TEMPO_BIN)
+	@echo "Running quick Tempo compiler tests..."
 	@for test_file in $(EXAMPLES_DIR)/*.tempo; do \
 		echo "Testing: $$test_file"; \
 		$(TEMPO_BIN) $$test_file $(BUILD_DIR)/test_output.s || exit 1; \
 	done
-	@echo "All tests passed!"
+	@echo "All quick tests passed!"
+
+# Test with verbose output
+.PHONY: test-verbose
+test-verbose: $(TEMPO_BIN) $(BUILD_DIR)/tempo_test_runner
+	@echo "Running verbose Tempo test suite..."
+	$(BUILD_DIR)/tempo_test_runner --verbose
 
 # Security analysis
 .PHONY: security-check

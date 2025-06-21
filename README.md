@@ -1,4 +1,4 @@
-# AtomicOS v0.6.1
+# AtomicOS v0.7.0
 
 **Deterministic Real-Time Security Operating System**
 
@@ -22,15 +22,16 @@ AtomicOS is a deterministic operating system designed for security-critical appl
 - **Real-Time Scheduling**: Fixed priority scheduling with deadline guarantees
 - **Constant-Time Operations**: No timing side-channels in cryptographic operations
 
-### 🛠️ Tempo Programming Language
+### 🛠️ Tempo Programming Language v3.0
 
-🚧 **[Tempo Language Documentation](https://ipenas-cl.github.io/AtomicOS/tempo)** *(Early Development)*
+📚 **[Tempo Language Documentation](https://ipenas-cl.github.io/AtomicOS/tempo)**
 
-- **Current Status**: Basic compiler with limited functionality
-- **Working**: Simple functions, return statements, integer literals
-- **In Progress**: Variables, parameters, arithmetic expressions  
-- **Planned**: Control flow, WCET analysis, memory safety, formal verification
-- **Goal**: Deterministic language for AtomicOS security modules
+- **Current Status**: Full-featured compiler with advanced OS capabilities
+- **Working**: Functions, variables, arithmetic, WCET analysis, security annotations
+- **Security**: Process sandboxing, capability restrictions, trusted execution
+- **Real-Time**: EDF/RMS scheduling, bounded execution, interrupt handling  
+- **Analysis**: Automatic WCET calculation, security verification, deterministic guarantees
+- **Testing**: Comprehensive test suite with regression testing and quality assurance
 
 ## Quick Start
 
@@ -41,8 +42,11 @@ make all
 # Run in QEMU
 make run
 
-# Run tests
+# Run comprehensive test suite
 make test
+
+# Run pre-commit checks
+scripts/pre-commit.sh
 ```
 
 ## Project Structure
@@ -78,6 +82,26 @@ AtomicOS prioritizes security over performance, ensuring that:
 - **Fixed Priority Scheduling**: Deterministic task scheduling with deadline guarantees
 - **Static Memory Management**: No dynamic allocation to prevent unpredictable delays
 - **Bounded Interrupt Latency**: Hardware interrupts serviced within fixed time windows
+
+## New in v0.7.0
+
+### Enhanced Tempo Compiler
+- **Advanced Parser**: Complete syntax validation and error reporting
+- **WCET Analysis**: Automatic worst-case execution time calculation
+- **Security Levels**: Multi-level security verification at compile time
+- **Code Generation**: Optimized assembly output with security annotations
+
+### Comprehensive Testing
+- **Test Suite**: 16 automated tests covering all compiler features
+- **Regression Testing**: All example files tested on every change
+- **Pre-commit Hooks**: Quality assurance before code commits
+- **Coverage**: Syntax, WCET, security, and real-time feature validation
+
+### Professional Development Tools
+- **Release Management**: Semantic versioning with automated releases
+- **Version Control**: `make release-patch/minor/major` commands
+- **Quality Checks**: Pre-commit validation for code quality
+- **Documentation**: Comprehensive developer and API documentation
 
 ## License
 

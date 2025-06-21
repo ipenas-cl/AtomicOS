@@ -1,5 +1,10 @@
-# Claude Code settings
+# IDE and development environment settings
+.vscode/
+.idea/
 .claude/
+
+# Development documentation
+CLAUDE.md
 
 # Build artifacts
 build/
