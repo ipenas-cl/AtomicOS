@@ -1,4 +1,4 @@
-# AtomicOS v0.7.0
+# AtomicOS v0.8.0
 
 **Deterministic Real-Time Security Operating System**
 
@@ -22,7 +22,7 @@ AtomicOS is a deterministic operating system designed for security-critical appl
 - **Real-Time Scheduling**: Fixed priority scheduling with deadline guarantees
 - **Constant-Time Operations**: No timing side-channels in cryptographic operations
 
-### 🛠️ Tempo Programming Language v3.0
+### 🛠️ Tempo Programming Language v3.0.0
 
 📚 **[Tempo Language Documentation](https://ipenas-cl.github.io/AtomicOS/tempo)**
 
@@ -82,6 +82,17 @@ AtomicOS prioritizes security over performance, ensuring that:
 - **Fixed Priority Scheduling**: Deterministic task scheduling with deadline guarantees
 - **Static Memory Management**: No dynamic allocation to prevent unpredictable delays
 - **Bounded Interrupt Latency**: Hardware interrupts serviced within fixed time windows
+
+## New in v0.8.0
+
+### Interrupt System Foundation
+- **IDT Implementation**: Complete Interrupt Descriptor Table with 256 entries
+- **Exception Handlers**: All 32 CPU exceptions with deterministic handling
+- **IRQ Management**: Hardware interrupt handlers for timer, keyboard, and devices
+- **PIC Configuration**: 8259A controller remapped to avoid conflicts
+- **Real-Time Timer**: 1000Hz timer interrupt for scheduling foundation
+- **WCET Tracking**: Interrupt cycle counting for deterministic guarantees
+- **Nested Interrupts**: Support for up to 3 levels with overflow protection
 
 ## New in v0.7.0
 

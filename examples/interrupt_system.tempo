@@ -1,0 +1,328 @@
+// AtomicOS Interrupt System - Deterministic Interrupt Handling
+// WCET-bounded interrupt processing with real-time guarantees
+
+// Interrupt vector numbers
+const INT_DIVIDE_ERROR = 0;
+const INT_DEBUG = 1;
+const INT_NMI = 2;
+const INT_BREAKPOINT = 3;
+const INT_OVERFLOW = 4;
+const INT_BOUND_RANGE = 5;
+const INT_INVALID_OPCODE = 6;
+const INT_DEVICE_NOT_AVAIL = 7;
+const INT_DOUBLE_FAULT = 8;
+const INT_INVALID_TSS = 10;
+const INT_SEGMENT_NOT_PRESENT = 11;
+const INT_STACK_SEGMENT = 12;
+const INT_GENERAL_PROTECTION = 13;
+const INT_PAGE_FAULT = 14;
+const INT_FPU_ERROR = 16;
+const INT_ALIGNMENT_CHECK = 17;
+const INT_MACHINE_CHECK = 18;
+const INT_SIMD_ERROR = 19;
+
+// IRQ mappings (remapped to avoid conflicts with exceptions)
+const IRQ0_TIMER = 32;
+const IRQ1_KEYBOARD = 33;
+const IRQ2_CASCADE = 34;
+const IRQ3_COM2 = 35;
+const IRQ4_COM1 = 36;
+const IRQ5_LPT2 = 37;
+const IRQ6_FLOPPY = 38;
+const IRQ7_LPT1 = 39;
+const IRQ8_RTC = 40;
+const IRQ9_FREE = 41;
+const IRQ10_FREE = 42;
+const IRQ11_FREE = 43;
+const IRQ12_MOUSE = 44;
+const IRQ13_FPU = 45;
+const IRQ14_ATA_PRIMARY = 46;
+const IRQ15_ATA_SECONDARY = 47;
+
+// Interrupt priorities for real-time scheduling
+const PRIORITY_NMI = 0;          // Highest priority - Non-maskable
+const PRIORITY_TIMER = 1;        // Timer for real-time scheduling
+const PRIORITY_CRITICAL = 2;     // Critical system interrupts
+const PRIORITY_HIGH = 3;         // High priority devices
+const PRIORITY_NORMAL = 4;       // Normal priority
+const PRIORITY_LOW = 5;          // Low priority devices
+
+// IDT entry structure constants
+const IDT_PRESENT = 0x80;
+const IDT_DPL_0 = 0x00;
+const IDT_DPL_3 = 0x60;
+const IDT_INTERRUPT_GATE = 0x0E;
+const IDT_TRAP_GATE = 0x0F;
+
+// Maximum interrupt processing time in cycles (WCET bound)
+const MAX_ISR_CYCLES = 1000;
+const MAX_IRQ_CYCLES = 2000;
+const MAX_NESTED_INTERRUPTS = 3;
+
+// Interrupt statistics for real-time analysis
+var interrupt_count[256];
+var interrupt_cycles[256];
+var interrupt_max_cycles[256];
+var nested_interrupt_level;
+var interrupt_overruns;
+
+// Initialize interrupt system with deterministic behavior
+function init_interrupts() {
+    // Initialize statistics
+    var i;
+    i = 0;
+    while (i < 256) {
+        interrupt_count[i] = 0;
+        interrupt_cycles[i] = 0;
+        interrupt_max_cycles[i] = 0;
+        i = i + 1;
+    }
+    
+    nested_interrupt_level = 0;
+    interrupt_overruns = 0;
+    
+    // Remap PIC (8259A) for deterministic IRQ handling
+    remap_pic();
+    
+    // Set all interrupt priorities
+    set_interrupt_priorities();
+    
+    // Enable interrupts with deterministic latency
+    enable_interrupts();
+}
+
+// Remap PIC to avoid conflicts with CPU exceptions
+function remap_pic() {
+    // Send ICW1 to both PICs
+    outb(0x20, 0x11);  // Master PIC command
+    outb(0xA0, 0x11);  // Slave PIC command
+    
+    // Send ICW2 - remap interrupts
+    outb(0x21, 0x20);  // Master PIC vector offset (32)
+    outb(0xA1, 0x28);  // Slave PIC vector offset (40)
+    
+    // Send ICW3 - cascade configuration
+    outb(0x21, 0x04);  // Master has slave on IRQ2
+    outb(0xA1, 0x02);  // Slave ID is 2
+    
+    // Send ICW4 - 8086 mode
+    outb(0x21, 0x01);
+    outb(0xA1, 0x01);
+    
+    // Set interrupt masks - enable only critical interrupts initially
+    outb(0x21, 0xFB);  // Enable IRQ2 (cascade) only
+    outb(0xA1, 0xFF);  // Disable all slave interrupts
+}
+
+// Set interrupt priorities for real-time scheduling
+function set_interrupt_priorities() {
+    // Timer gets highest priority for scheduling
+    set_irq_priority(0, PRIORITY_TIMER);
+    
+    // Keyboard for user interaction
+    set_irq_priority(1, PRIORITY_HIGH);
+    
+    // RTC for time-sensitive operations
+    set_irq_priority(8, PRIORITY_HIGH);
+    
+    // Other devices get normal priority
+    set_irq_priority(14, PRIORITY_NORMAL);  // Primary ATA
+    set_irq_priority(15, PRIORITY_NORMAL);  // Secondary ATA
+}
+
+// Generic interrupt handler with WCET bounds
+function handle_interrupt(vector) {
+    var start_cycles;
+    var end_cycles;
+    var cycles_used;
+    
+    // Get cycle count for WCET tracking
+    start_cycles = read_tsc_low();
+    
+    // Check nested interrupt level
+    if (nested_interrupt_level >= MAX_NESTED_INTERRUPTS) {
+        // Deterministic failure - too many nested interrupts
+        interrupt_overruns = interrupt_overruns + 1;
+        return;
+    }
+    
+    nested_interrupt_level = nested_interrupt_level + 1;
+    
+    // Update statistics
+    interrupt_count[vector] = interrupt_count[vector] + 1;
+    
+    // Handle specific interrupt types
+    if (vector < 32) {
+        // CPU exception
+        handle_exception(vector);
+    } else if (vector < 48) {
+        // Hardware IRQ
+        handle_irq(vector - 32);
+    } else {
+        // Software interrupt or system call
+        handle_software_int(vector);
+    }
+    
+    // Calculate cycles used
+    end_cycles = read_tsc_low();
+    cycles_used = end_cycles - start_cycles;
+    
+    // Update WCET tracking
+    interrupt_cycles[vector] = interrupt_cycles[vector] + cycles_used;
+    if (cycles_used > interrupt_max_cycles[vector]) {
+        interrupt_max_cycles[vector] = cycles_used;
+    }
+    
+    // Check WCET violation
+    if (vector < 32 && cycles_used > MAX_ISR_CYCLES) {
+        interrupt_overruns = interrupt_overruns + 1;
+    } else if (vector < 48 && cycles_used > MAX_IRQ_CYCLES) {
+        interrupt_overruns = interrupt_overruns + 1;
+    }
+    
+    nested_interrupt_level = nested_interrupt_level - 1;
+}
+
+// Handle CPU exceptions with deterministic recovery
+function handle_exception(exception) {
+    security_level KERNEL;
+    
+    if (exception == INT_DIVIDE_ERROR) {
+        // Deterministic handling of divide by zero
+        // Log error and terminate offending task
+        log_exception(exception);
+        terminate_current_task();
+    } else if (exception == INT_PAGE_FAULT) {
+        // Handle page fault deterministically
+        var fault_addr;
+        fault_addr = read_cr2();
+        
+        if (is_valid_page_fault(fault_addr)) {
+            // Valid fault - handle in bounded time
+            handle_page_fault(fault_addr);
+        } else {
+            // Invalid access - terminate task
+            log_exception(exception);
+            terminate_current_task();
+        }
+    } else if (exception == INT_GENERAL_PROTECTION) {
+        // Security violation - immediate termination
+        log_security_violation(exception);
+        terminate_current_task();
+    } else {
+        // Other exceptions - log and halt
+        log_exception(exception);
+        halt_system();
+    }
+}
+
+// Handle hardware IRQs with priority-based processing
+function handle_irq(irq) {
+    security_level KERNEL;
+    
+    // Acknowledge interrupt to PIC
+    if (irq >= 8) {
+        // Slave PIC
+        outb(0xA0, 0x20);
+    }
+    outb(0x20, 0x20);  // Master PIC EOI
+    
+    // Process based on IRQ number
+    if (irq == 0) {
+        // Timer interrupt - critical for scheduling
+        handle_timer_irq();
+    } else if (irq == 1) {
+        // Keyboard interrupt
+        handle_keyboard_irq();
+    } else if (irq == 8) {
+        // RTC interrupt
+        handle_rtc_irq();
+    } else if (irq == 14 || irq == 15) {
+        // ATA interrupts
+        handle_ata_irq(irq);
+    }
+}
+
+// Timer interrupt handler - bounded execution time
+function handle_timer_irq() {
+    wcet_cycles 500;
+    
+    // Update system tick count
+    increment_system_tick();
+    
+    // Check for scheduling decisions
+    if (is_scheduling_needed()) {
+        // Trigger scheduler with bounded time
+        schedule_next_task();
+    }
+    
+    // Update real-time task deadlines
+    update_task_deadlines();
+    
+    // Check for deadline violations
+    check_deadline_violations();
+}
+
+// Enable specific IRQ with priority checking
+function enable_irq(irq) {
+    security_level KERNEL;
+    
+    var mask;
+    
+    if (irq < 8) {
+        // Master PIC
+        mask = inb(0x21);
+        mask = mask & ~(1 << irq);
+        outb(0x21, mask);
+    } else {
+        // Slave PIC
+        mask = inb(0xA1);
+        mask = mask & ~(1 << (irq - 8));
+        outb(0xA1, mask);
+    }
+}
+
+// Disable specific IRQ for deterministic control
+function disable_irq(irq) {
+    security_level KERNEL;
+    
+    var mask;
+    
+    if (irq < 8) {
+        // Master PIC
+        mask = inb(0x21);
+        mask = mask | (1 << irq);
+        outb(0x21, mask);
+    } else {
+        // Slave PIC
+        mask = inb(0xA1);
+        mask = mask | (1 << (irq - 8));
+        outb(0xA1, mask);
+    }
+}
+
+// Get interrupt statistics for real-time analysis
+function get_interrupt_stats(vector) {
+    var stats;
+    
+    stats = interrupt_count[vector];
+    stats = stats << 32;
+    stats = stats | interrupt_max_cycles[vector];
+    
+    return stats;
+}
+
+// Check system interrupt health
+function check_interrupt_health() {
+    if (interrupt_overruns > 0) {
+        // WCET violations detected
+        return 0;
+    }
+    
+    if (nested_interrupt_level > 0) {
+        // Interrupt handling not complete
+        return 0;
+    }
+    
+    return 1;
+}

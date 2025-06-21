@@ -35,7 +35,7 @@ static int total_tests = 0;
 void print_test_header() {
     printf("\n");
     printf("=================================================\n");
-    printf("  AtomicOS Tempo Compiler Test Suite v0.7.0\n");
+    printf("  AtomicOS Tempo Compiler Test Suite v3.0.0\n");
     printf("=================================================\n\n");
 }
 

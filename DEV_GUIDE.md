@@ -83,7 +83,7 @@ The OS implements multiple security layers:
 - Security analysis includes WCET bounds verification
 - No traditional unit testing framework - uses custom validation
 
-## Tempo Language v3.0
+## Tempo Language v3.0.0
 
 Tempo is a deterministic programming language for AtomicOS that integrates enterprise-grade security and real-time features:
 
@@ -93,7 +93,7 @@ Tempo is a deterministic programming language for AtomicOS that integrates enter
 - **Real-Time**: EDF/RMS scheduling, bounded execution, interrupt handling
 - **Deterministic**: Constant-time operations, static memory allocation, formal verification support
 
-**Key Tempo v3.0 Features:**
+**Key Tempo v3.0.0 Features:**
 - **WCET Analysis**: Automatic worst-case execution time calculation and verification
 - **Security Levels**: Multi-level security with Bell-LaPadula access control
 - **Pledge System**: Process sandboxing and capability restriction framework

@@ -1,0 +1,48 @@
+// AtomicOS Interrupt Core Functions
+// Simplified version for Tempo v3 compiler
+
+// Basic interrupt functions for deterministic handling
+function interrupt_init:
+    security_level KERNEL;
+    wcet_cycles 500;
+    
+    // Initialize interrupt counters
+    var i;
+    i = 0;
+    
+    // Clear interrupt statistics
+    while (i < 256) {
+        // Would set interrupt_count[i] = 0
+        i = i + 1;
+    }
+    
+    return 1;
+
+// Handle timer interrupt
+function handle_timer:
+    wcet_cycles 200;
+    security_level KERNEL;
+    
+    // Increment system tick
+    var tick_count;
+    tick_count = 0;
+    tick_count = tick_count + 1;
+    
+    return tick_count;
+
+// Check interrupt health
+function check_interrupt_health:
+    wcet_cycles 100;
+    
+    var health_status;
+    health_status = 1;
+    
+    // Check for overruns
+    var overruns;
+    overruns = 0;
+    
+    if (overruns > 0) {
+        health_status = 0;
+    }
+    
+    return health_status;

@@ -1,4 +1,4 @@
-; AtomicOS Working Shell with Stack-Smashing Protection
+; AtomicOS Working Shell with Stack-Smashing Protection and Interrupts
 [BITS 32]
 [ORG 0x10000]
 
@@ -53,6 +53,8 @@ global deterministic_system_init
 %include "kernel/ssp_functions.inc"
 %include "kernel/guard_pages.inc"
 %include "kernel/deterministic_core.inc"
+%include "kernel/interrupts.inc"
+%include "kernel/logo.inc"
 
 _start:
     ; Initialize Deterministic Core System
@@ -71,6 +73,12 @@ _start:
     add esp, 4
     push eax               ; Save canary address for later exit
     
+    ; Initialize interrupt system
+    call init_idt          ; Set up IDT with all handlers
+    call load_idt          ; Load the IDT
+    call init_timer        ; Initialize timer for scheduling
+    call enable_interrupts ; Enable interrupts (STI)
+    
     ; Clear screen exactly like debug test
     mov edi, VGA_BUFFER
     mov ecx, 80 * 25
@@ -80,6 +88,41 @@ _start:
     mov [edi], ax
     add edi, 2
     loop .clear
+    
+    ; Display AtomicOS logo
+    mov edi, VGA_BUFFER + (5 * 80 * 2)  ; Start at line 5
+    mov esi, atomicos_logo
+    mov ebx, logo_lines
+    
+.logo_loop:
+    push edi
+    push esi
+    
+    ; Center the logo (each line is 50 chars, center in 80 cols)
+    add edi, 15 * 2  ; Move 15 chars to the right
+    
+.logo_line:
+    lodsb
+    test al, al
+    jz .next_logo_line
+    mov [edi], al
+    mov byte [edi+1], 0x0B  ; Cyan on black
+    add edi, 2
+    jmp .logo_line
+    
+.next_logo_line:
+    pop esi
+    pop edi
+    
+    ; Skip to next string
+.find_next:
+    lodsb
+    test al, al
+    jnz .find_next
+    
+    add edi, 160  ; Next line
+    dec ebx
+    jnz .logo_loop
     
     ; Write welcome message - AtomicOS Deterministic
     mov edi, VGA_BUFFER
@@ -346,10 +389,10 @@ _start:
     hlt
     jmp $
 
-welcome_msg: db "AtomicOS v0.6.1 - Deterministic Real-Time Security OS"
+welcome_msg: db "AtomicOS v0.8.0 - Deterministic Real-Time Security OS"
 welcome_len equ $ - welcome_msg
 
 security_fail_msg: db "SECURITY INIT FAILED - SYSTEM HALTED"
 security_fail_len equ $ - security_fail_msg
 
-times 4096-($-$$) db 0
+times 16384-($-$$) db 0

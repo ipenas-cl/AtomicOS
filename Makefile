@@ -3,7 +3,7 @@
 
 # Configuration
 PROJECT_NAME = AtomicOS
-VERSION = 0.7.0
+VERSION = 0.8.0
 ARCH = i386
 
 # Directories
@@ -26,9 +26,9 @@ LD = ld
 TEMPO = $(TOOLS_DIR)/tempo_compiler
 
 # Flags
-CFLAGS = -std=c99 -Wall -Wextra -Werror -O2 -fno-stack-protector -nostdlib -nostdinc
+CFLAGS = -std=c99 -Wall -Wextra -Werror -O2 -m32 -fno-stack-protector -fno-builtin -nostdlib -nostdinc -fno-pie
 ASFLAGS = -f bin
-LDFLAGS = -nostdlib
+LDFLAGS = -m elf_i386 -nostdlib
 TEMPO_FLAGS = 
 
 # Build targets
@@ -37,10 +37,7 @@ KERNEL = $(BUILD_DIR)/kernel.bin
 OS_IMAGE = $(BUILD_DIR)/atomicos.img
 TEMPO_BIN = $(BUILD_DIR)/tempo_compiler
 
-# Security modules (compiled from Tempo)
-SECURITY_MODULES = $(BUILD_DIR)/ssp_functions.inc \
-                   $(BUILD_DIR)/guard_pages.inc \
-                   $(BUILD_DIR)/deterministic_core.inc
+# Security modules are pre-built in kernel directory
 
 # Default target
 .PHONY: all
@@ -54,6 +51,11 @@ $(BUILD_DIR):
 $(TEMPO_BIN): $(TOOLS_DIR)/tempo_compiler_v3.c | $(BUILD_DIR)
 	@echo "Building Tempo v3.0 compiler..."
 	$(CC) -std=c99 -Wall -Wextra -O2 -o $@ $<
+
+# Build Tempo v4 compiler (with full parser)
+tempo-v4: $(TOOLS_DIR)/tempo_compiler_v4.c | $(BUILD_DIR)
+	@echo "Building Tempo v4.0 compiler with full parser..."
+	$(CC) -std=c99 -Wall -Wextra -O2 -o $(BUILD_DIR)/tempo_v4 $<
 
 # Compile security modules from Tempo
 $(BUILD_DIR)/%.inc: $(EXAMPLES_DIR)/%.tempo $(TEMPO_BIN) | $(BUILD_DIR)
@@ -97,7 +99,7 @@ release-major:
 version:
 	@echo "AtomicOS $(VERSION)"
 	@echo "Architecture: $(ARCH)"
-	@echo "Tempo Compiler: v$(shell echo $(VERSION) | cut -d. -f1-2)"
+	@echo "Tempo Compiler: v3.0.0"
 
 # Run in QEMU
 .PHONY: run

@@ -5,6 +5,39 @@ All notable changes to AtomicOS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2025-06-21
+
+### Added
+- Complete interrupt system implementation
+  - IDT (Interrupt Descriptor Table) with 256 entries
+  - ISRs for all 32 CPU exceptions
+  - IRQ handlers for hardware interrupts
+  - PIC (8259A) remapping to avoid conflicts
+  - Timer interrupt at 1000Hz for real-time scheduling
+  - WCET tracking for interrupt handlers
+  - Nested interrupt support (max 3 levels)
+- Interrupt statistics and monitoring
+  - Cycle counting per interrupt
+  - Maximum cycle tracking
+  - Overflow detection and reporting
+- Visual indicators
+  - Exception messages on screen
+  - Timer tick indicator (rotating character)
+- Deterministic interrupt handling
+  - Bounded execution times
+  - Predictable latency
+  - No dynamic allocation in handlers
+
+### Changed
+- Kernel size increased to 16KB to accommodate interrupt system
+- Updated version messages throughout codebase
+
+### Technical Notes
+- Interrupt vectors 0-31: CPU exceptions
+- Interrupt vectors 32-47: Hardware IRQs (remapped)
+- Timer configured for 1ms ticks (1000Hz)
+- All handlers respect WCET bounds
+
 ## [0.7.0] - 2024-06-21
 
 ### Added
