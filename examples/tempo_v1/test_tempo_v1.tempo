@@ -1,0 +1,73 @@
+// Test program for Tempo v1.0 - Complete Systems Programming Language
+// Demonstrates structs, pointers, and inline assembly
+
+struct Point {
+    x: int32,
+    y: int32
+}
+
+struct Rectangle @packed {
+    top_left: Point,
+    bottom_right: Point,
+    color: int32
+}
+
+// Test basic arithmetic with new types
+function add(a: int32, b: int32) -> int32 {
+    return a + b;
+}
+
+// Test pointer operations
+function swap(a: ptr<int32>, b: ptr<int32>) {
+    let temp: int32 = *a;
+    *a = *b;
+    *b = temp;
+}
+
+// Test struct operations
+function area(rect: ptr<Rectangle>) -> int32 {
+    let width: int32 = rect->bottom_right.x - rect->top_left.x;
+    let height: int32 = rect->bottom_right.y - rect->top_left.y;
+    return width * height;
+}
+
+// Test inline assembly
+function read_port(port: int16) -> int8 @wcet(10) {
+    let result: int8;
+    asm("in al, dx" : "=a"(result) : "d"(port));
+    return result;
+}
+
+// Test arrays and loops
+function sum_array(arr: ptr<int32>, size: int32) -> int32 @wcet(1000) {
+    let sum: int32 = 0;
+    let i: int32 = 0;
+    
+    while @wcet(100) i < size {
+        sum = sum + arr[i];
+        i = i + 1;
+    }
+    
+    return sum;
+}
+
+// Main entry point
+pub function main() -> int32 {
+    // Test basic arithmetic
+    let x: int32 = 10;
+    let y: int32 = 20;
+    let z: int32 = add(x, y);
+    
+    // Test struct creation
+    let p1: Point = Point { x: 0, y: 0 };
+    let p2: Point = Point { x: 100, y: 50 };
+    
+    // Test arrays
+    let numbers: [10]int32 = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let total: int32 = sum_array(&numbers, 10);
+    
+    // Test string literal
+    let message: ptr<int8> = "Hello, Tempo v1.0!";
+    
+    return 0;
+}

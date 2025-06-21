@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tempo v3.0 - Deterministic Programming Language</title>
+    <title>Tempo v1.0.0 - Complete Systems Programming Language</title>
     <style>
         * {
             margin: 0;
@@ -14,7 +14,7 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
+            color: #2c3e50;
             background: #ffffff;
         }
         
@@ -25,96 +25,142 @@
         }
         
         header {
-            background: #2c3e50;
-            color: white;
+            background: #ffffff;
+            border-bottom: 1px solid #e1e8ed;
             padding: 2rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
         
-        .ascii-logo {
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .logo {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #667eea;
+        }
+        
+        .version {
+            background: #e74c3c;
+            color: white;
+            padding: 0.3rem 0.8rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+        
+        .nav-links a {
+            color: #7f8c8d;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        
+        .nav-links a:hover {
+            color: #667eea;
+        }
+        
+        .hero {
+            padding: 5rem 0;
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .tempo-logo {
             font-family: 'Courier New', monospace;
             font-size: 0.9rem;
             line-height: 1.2;
-            color: #a78bfa;
-            margin: 1rem 0;
+            color: white;
+            margin-bottom: 2rem;
             white-space: pre;
             display: inline-block;
             text-align: left;
         }
         
-        .header-content {
-            text-align: center;
-        }
-        
-        .logo {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
-            letter-spacing: -2px;
-        }
-        
-        .tagline {
-            font-size: 1.2rem;
-            opacity: 0.9;
-        }
-        
-        .status-banner {
-            background: #27ae60;
-            color: white;
-            padding: 1rem 0;
-            text-align: center;
-            font-weight: 600;
-        }
-        
-        .nav {
-            background: #34495e;
-            padding: 1rem 0;
-        }
-        
-        .nav-links {
-            display: flex;
-            justify-content: center;
-            gap: 2rem;
-        }
-        
-        .nav-links a {
-            color: white;
-            text-decoration: none;
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            transition: background-color 0.2s;
-        }
-        
-        .nav-links a:hover {
-            background: rgba(255,255,255,0.1);
-        }
-        
-        .hero {
-            padding: 4rem 0;
-            text-align: center;
-        }
-        
         .hero h1 {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-            color: #2c3e50;
+            font-size: 3.5rem;
+            font-weight: 300;
+            margin-bottom: 1.5rem;
         }
         
-        .hero p {
-            font-size: 1.1rem;
-            max-width: 700px;
-            margin: 0 auto;
-            color: #666;
+        .hero-subtitle {
+            font-size: 1.3rem;
+            opacity: 0.9;
+            margin-bottom: 3rem;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
         }
         
-        .features {
-            padding: 4rem 0;
+        .cta-section {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 1rem 2rem;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: white;
+            color: #667eea;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: white;
+            border: 2px solid white;
+        }
+        
+        .btn-secondary:hover {
+            background: white;
+            color: #667eea;
+        }
+        
+        .features-section {
+            padding: 5rem 0;
             background: #f8f9fa;
         }
         
         .section-title {
+            font-size: 2.5rem;
             text-align: center;
-            font-size: 2rem;
             margin-bottom: 3rem;
             color: #2c3e50;
         }
@@ -125,203 +171,244 @@
             gap: 2rem;
         }
         
-        .feature-card {
+        .feature {
             background: white;
             padding: 2rem;
             border-radius: 8px;
-            border: 1px solid #e1e8ed;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
             transition: all 0.2s;
         }
         
-        .feature-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        .feature:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.15);
         }
         
         .feature-icon {
-            font-size: 2rem;
+            font-size: 2.5rem;
             margin-bottom: 1rem;
         }
         
-        .feature-title {
-            font-size: 1.3rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
+        .feature h3 {
             color: #2c3e50;
+            margin-bottom: 1rem;
+            font-size: 1.4rem;
+        }
+        
+        .feature p {
+            color: #7f8c8d;
+            line-height: 1.8;
         }
         
         .code-section {
-            padding: 4rem 0;
+            padding: 5rem 0;
+        }
+        
+        .code-examples {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+            margin-top: 3rem;
         }
         
         .code-example {
-            background: #2d3748;
-            color: #e2e8f0;
-            padding: 2rem;
+            background: #2c3e50;
+            padding: 1.5rem;
             border-radius: 8px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-            margin: 2rem 0;
             overflow-x: auto;
-            line-height: 1.5;
         }
         
-        .code-example .comment {
-            color: #a0aec0;
+        .code-example h4 {
+            color: #3498db;
+            margin-bottom: 1rem;
+            font-family: 'Courier New', monospace;
         }
         
-        .code-example .keyword {
-            color: #63b3ed;
-            font-weight: 600;
+        pre {
+            color: #ecf0f1;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            white-space: pre;
+            overflow-x: auto;
         }
         
-        .code-example .function {
-            color: #f6e05e;
+        .highlight {
+            color: #e74c3c;
+            font-weight: bold;
         }
         
-        .code-example .type {
-            color: #fc8181;
-        }
-        
-        .code-example .number {
-            color: #9f7aea;
-        }
-        
-        .specs {
-            padding: 4rem 0;
+        .comparison-section {
+            padding: 5rem 0;
             background: #f8f9fa;
         }
         
-        .specs-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-        }
-        
-        .spec-item {
+        .comparison-table {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
             background: white;
-            padding: 1.5rem;
             border-radius: 8px;
-            border-left: 4px solid #3498db;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
         }
         
-        .spec-label {
+        .comparison-table th,
+        .comparison-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #e1e8ed;
+        }
+        
+        .comparison-table th {
+            background: #667eea;
+            color: white;
             font-weight: 600;
-            color: #2c3e50;
-            margin-bottom: 0.5rem;
+        }
+        
+        .comparison-table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .announcement-banner {
+            background: #e74c3c;
+            color: white;
+            padding: 1rem 0;
+            text-align: center;
+            font-weight: 600;
+            font-size: 1.1rem;
         }
         
         footer {
-            background: #2c3e50;
+            background: #34495e;
             color: white;
-            padding: 3rem 0;
+            padding: 4rem 0 2rem;
             text-align: center;
         }
         
-        .footer-links {
-            margin-bottom: 2rem;
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 3rem;
+            margin-bottom: 3rem;
+            text-align: left;
         }
         
-        .footer-links a {
-            color: white;
+        .footer-section h4 {
+            margin-bottom: 1rem;
+            color: #667eea;
+        }
+        
+        .footer-section a {
+            color: #bdc3c7;
             text-decoration: none;
-            margin: 0 1rem;
-            opacity: 0.8;
+            display: block;
+            margin-bottom: 0.5rem;
+            transition: color 0.2s;
         }
         
-        .footer-links a:hover {
-            opacity: 1;
+        .footer-section a:hover {
+            color: white;
         }
         
         @media (max-width: 768px) {
-            .nav-links {
-                flex-direction: column;
-                align-items: center;
-                gap: 1rem;
+            .hero h1 {
+                font-size: 2.5rem;
             }
-            
             .features-grid {
+                grid-template-columns: 1fr;
+            }
+            .code-examples {
                 grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
 <body>
+    <div class="announcement-banner">
+        🎉 NEW: Tempo v1.0.0 Released - Complete Systems Programming Language! No More C Needed!
+    </div>
+    
     <header>
         <div class="container">
             <div class="header-content">
-                <pre class="ascii-logo">████████╗███████╗███╗   ███╗██████╗  ██████╗ 
-╚══██╔══╝██╔════╝████╗ ████║██╔══██╗██╔═══██╗
-   ██║   █████╗  ██╔████╔██║██████╔╝██║   ██║
-   ██║   ██╔══╝  ██║╚██╔╝██║██╔═══╝ ██║   ██║
-   ██║   ███████╗██║ ╚═╝ ██║██║     ╚██████╔╝
-   ╚═╝   ╚══════╝╚═╝     ╚═╝╚═╝      ╚═════╝ </pre>
-                <div class="logo">⚡ Tempo v3.0.0</div>
-                <div class="tagline">Deterministic Programming for Security-Critical Systems</div>
+                <div class="logo-section">
+                    <div class="logo">Tempo</div>
+                    <div class="version">v1.0.0</div>
+                </div>
+                <nav class="nav-links">
+                    <a href="#features">Features</a>
+                    <a href="#examples">Examples</a>
+                    <a href="#comparison">Comparison</a>
+                    <a href="../">← Back to AtomicOS</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS">GitHub</a>
+                </nav>
             </div>
         </div>
     </header>
 
-    <div class="status-banner">
-        ✅ Production Ready - Full-Featured Compiler with Advanced OS Capabilities
-    </div>
-
-    <nav class="nav">
-        <div class="container">
-            <div class="nav-links">
-                <a href="../">← Back to AtomicOS</a>
-                <a href="#features">Features</a>
-                <a href="#examples">Examples</a>
-                <a href="#specs">Specifications</a>
-                <a href="https://github.com/ipenas-cl/AtomicOS">GitHub</a>
-            </div>
-        </div>
-    </nav>
-
     <section class="hero">
         <div class="container">
-            <h1>The Language for Deterministic Systems</h1>
-            <p>Tempo v3.0 brings enterprise-grade security and real-time guarantees to systems programming. With built-in WCET analysis, security annotations, and formal verification support, write code that's both secure and predictable.</p>
+            <pre class="tempo-logo">████████╗███████╗███╗   ███╗██████╗  ██████╗ 
+╚══██╔══╝██╔════╝████╗ ████║██╔══██╗██╔═══██╗
+   ██║   █████╗  ██╔████╔██║██████╔╝██║   ██║
+   ██║   ██╔══╝  ██║╚██╔╝██║██╔═══╝ ██║   ██║
+   ██║   ███████╗██║ ╚═╝ ██║██║     ╚██████╔╝
+   ╚═╝   ╚══════╝╚═╝     ╚═╝╚═╝      ╚═════╝</pre>
+            <h1>No More C Needed!</h1>
+            <p class="hero-subtitle">Tempo v1.0.0 is a complete systems programming language with zero runtime overhead, 
+            memory safety, and deterministic execution. Write your entire OS in Tempo!</p>
+            <div class="cta-section">
+                <a href="#getting-started" class="btn btn-primary">Get Started</a>
+                <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/examples/tempo_v1" class="btn btn-secondary">View Examples</a>
+            </div>
         </div>
     </section>
 
-    <section class="features" id="features">
+    <section class="features-section" id="features">
         <div class="container">
-            <h2 class="section-title">Advanced Compiler Features</h2>
+            <h2 class="section-title">Complete Systems Programming</h2>
             <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">⏱️</div>
-                    <div class="feature-title">WCET Analysis</div>
-                    <p>Automatic worst-case execution time calculation ensures your code meets real-time deadlines. Every function is analyzed at compile time for timing guarantees.</p>
+                <div class="feature">
+                    <div class="feature-icon">🏗️</div>
+                    <h3>Structs with Layout Control</h3>
+                    <p>Define complex data structures with precise memory layout. Support for @packed and @align attributes 
+                    for hardware-level programming. Perfect for kernel data structures, device drivers, and network protocols.</p>
                 </div>
                 
-                <div class="feature-card">
-                    <div class="feature-icon">🔒</div>
-                    <div class="feature-title">Security Annotations</div>
-                    <p>Built-in security levels and capability restrictions. Compile-time verification of security policies with multi-level access control.</p>
+                <div class="feature">
+                    <div class="feature-icon">👉</div>
+                    <h3>Safe & Raw Pointers</h3>
+                    <p>Bounded pointers ptr&lt;T, N&gt; with compile-time bounds checking prevent buffer overflows. 
+                    Raw pointers raw_ptr&lt;T&gt; available for hardware access. No null pointer exceptions!</p>
                 </div>
                 
-                <div class="feature-card">
-                    <div class="feature-icon">🛡️</div>
-                    <div class="feature-title">Memory Safety</div>
-                    <p>Static memory allocation with bounds checking. Guard pages and stack protection prevent buffer overflows and memory corruption.</p>
+                <div class="feature">
+                    <div class="feature-icon">⚙️</div>
+                    <h3>Inline Assembly</h3>
+                    <p>Direct hardware control with inline assembly blocks. Support for input/output operands and clobber lists. 
+                    Write interrupt handlers, context switches, and port I/O directly in Tempo.</p>
                 </div>
                 
-                <div class="feature-card">
+                <div class="feature">
                     <div class="feature-icon">🎯</div>
-                    <div class="feature-title">Deterministic Execution</div>
-                    <p>No dynamic allocation, no garbage collection. Every operation has predictable timing and behavior for safety-critical systems.</p>
+                    <h3>Complete Type System</h3>
+                    <p>All integer sizes (int8, int16, int32, int64), arrays with compile-time bounds, 
+                    strings, characters, and boolean types. Type inference reduces boilerplate.</p>
                 </div>
                 
-                <div class="feature-card">
-                    <div class="feature-icon">📊</div>
-                    <div class="feature-title">Real-Time Scheduling</div>
-                    <p>EDF and RMS scheduling primitives built into the language. Create tasks with guaranteed deadlines and priority-based execution.</p>
+                <div class="feature">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Zero Overhead</h3>
+                    <p>Every Tempo abstraction compiles to optimal assembly. No hidden allocations, no runtime, 
+                    no garbage collector. You get exactly what you write, nothing more.</p>
                 </div>
                 
-                <div class="feature-card">
-                    <div class="feature-icon">✅</div>
-                    <div class="feature-title">Formal Verification</div>
-                    <p>Support for mathematical proofs of correctness. Verify security properties and timing constraints at compile time.</p>
+                <div class="feature">
+                    <div class="feature-icon">⏱️</div>
+                    <h3>WCET Analysis</h3>
+                    <p>Built-in worst-case execution time analysis ensures deterministic behavior. 
+                    Perfect for real-time systems where timing guarantees are critical.</p>
                 </div>
             </div>
         </div>
@@ -329,97 +416,184 @@
 
     <section class="code-section" id="examples">
         <div class="container">
-            <h2 class="section-title">Code Examples</h2>
-            
-            <h3>Security-Critical Function with WCET Bounds</h3>
-            <div class="code-example">
-<span class="comment">// Process sandboxing with capability restrictions</span>
-<span class="keyword">function</span> <span class="function">secure_handler</span>(): <span class="type">int32</span> {
-    <span class="comment">// Initialize security framework</span>
-    <span class="keyword">let</span> security_level = <span class="function">SECURITY_LEVEL_SYSTEM</span>()
-    <span class="keyword">let</span> pledge = <span class="function">pledge_init_process</span>(<span class="number">42</span>, <span class="function">PLEDGE_INET</span>() | <span class="function">PLEDGE_STDIO</span>())
-    
-    <span class="comment">// Verify security context</span>
-    <span class="keyword">if</span> pledge == <span class="number">0</span> {
-        <span class="keyword">return</span> <span class="function">ERROR_SECURITY_VIOLATION</span>()
-    }
-    
-    <span class="comment">// Allocate memory with guard pages</span>
-    <span class="keyword">let</span> buffer = <span class="function">guarded_alloc</span>(<span class="number">4096</span>)
-    <span class="keyword">if</span> buffer == <span class="number">0</span> {
-        <span class="keyword">return</span> <span class="function">ERROR_OUT_OF_BOUNDS</span>()
-    }
-    
-    <span class="keyword">return</span> <span class="function">ERROR_NONE</span>()
+            <h2 class="section-title">See Tempo in Action</h2>
+            <div class="code-examples">
+                <div class="code-example">
+                    <h4>// Struct with memory layout</h4>
+                    <pre>struct Process @packed {
+    pid: int32,
+    state: int32,
+    priority: int32,
+    stack_ptr: raw_ptr&lt;int32&gt;,
+    name: [16]int8
 }
-</div>
 
-            <h3>Real-Time Task with Deadline Guarantees</h3>
-            <div class="code-example">
-<span class="comment">// Real-time task with EDF scheduling</span>
-<span class="keyword">function</span> <span class="function">rt_control_loop</span>(sensor_value: <span class="type">int32</span>): <span class="type">int32</span> {
-    <span class="comment">// Create real-time task with 5ms period, 1ms WCET</span>
-    <span class="keyword">let</span> task = <span class="function">rt_create_tcb</span>(<span class="number">1</span>, <span class="function">rt_rms_assign_priority</span>(<span class="number">5000</span>), <span class="number">5000</span>, <span class="number">1000</span>)
-    
-    <span class="comment">// Process control algorithm (constant-time)</span>
-    <span class="keyword">let</span> control_output = <span class="function">pid_controller</span>(sensor_value, <span class="number">100</span>)
-    
-    <span class="comment">// Verify deadline compliance</span>
-    <span class="keyword">let</span> deadline_met = <span class="function">rt_check_deadline</span>(task, <span class="function">get_current_time</span>())
-    <span class="keyword">if</span> deadline_met == <span class="number">0</span> {
-        <span class="keyword">return</span> <span class="function">rt_deadline_miss_handler</span>(task)
-    }
-    
-    <span class="keyword">return</span> control_output
+function create_process(name: ptr&lt;int8&gt;) -&gt; ptr&lt;Process&gt; {
+    let proc = alloc&lt;Process&gt;();
+    proc-&gt;pid = next_pid();
+    proc-&gt;state = READY;
+    proc-&gt;priority = NORMAL;
+    copy_string(name, &proc-&gt;name);
+    return proc;
+}</pre>
+                </div>
+                
+                <div class="code-example">
+                    <h4>// Hardware control with inline assembly</h4>
+                    <pre>function outb(port: int16, value: int8) {
+    asm("outb %b0, %w1" :: "a"(value), "d"(port));
 }
-</div>
 
-            <h3>Constant-Time Cryptographic Operation</h3>
-            <div class="code-example">
-<span class="comment">// Timing-attack resistant comparison</span>
-<span class="keyword">function</span> <span class="function">secure_compare</span>(a: <span class="type">int32</span>, b: <span class="type">int32</span>): <span class="type">int32</span> {
-    <span class="keyword">let</span> diff = a ^ b
-    <span class="keyword">let</span> result = <span class="number">0</span>
-    
-    <span class="comment">// Process all bits regardless of result</span>
-    <span class="keyword">if</span> (diff & <span class="number">0xFF000000</span>) != <span class="number">0</span> { result = result | <span class="number">1</span> }
-    <span class="keyword">if</span> (diff & <span class="number">0x00FF0000</span>) != <span class="number">0</span> { result = result | <span class="number">1</span> }
-    <span class="keyword">if</span> (diff & <span class="number">0x0000FF00</span>) != <span class="number">0</span> { result = result | <span class="number">1</span> }
-    <span class="keyword">if</span> (diff & <span class="number">0x000000FF</span>) != <span class="number">0</span> { result = result | <span class="number">1</span> }
-    
-    <span class="keyword">return</span> <span class="number">1</span> - result
+function inb(port: int16) -&gt; int8 {
+    let result: int8;
+    asm("inb %w1, %b0" : "=a"(result) : "d"(port));
+    return result;
 }
-</div>
+
+<span class="highlight">@interrupt</span>
+function timer_handler() {
+    // Handle timer interrupt
+    send_eoi(0x20);
+}</pre>
+                </div>
+                
+                <div class="code-example">
+                    <h4>// Safe pointer operations</h4>
+                    <pre>function memcpy(
+    dst: ptr&lt;int8, N&gt;, 
+    src: ptr&lt;int8, N&gt;, 
+    size: int32
+) <span class="highlight">@wcet(N)</span> {
+    let i: int32 = 0;
+    while <span class="highlight">@wcet(N)</span> i &lt; size {
+        dst[i] = src[i];
+        i = i + 1;
+    }
+}
+
+// Compile-time bounds checking!
+let buffer: [256]int8;
+let data: [512]int8;
+memcpy(&buffer, &data, 256); // OK
+memcpy(&buffer, &data, 512); // Compile error!</pre>
+                </div>
+                
+                <div class="code-example">
+                    <h4>// Real-time scheduling</h4>
+                    <pre><span class="highlight">@realtime(period: 1000, wcet: 100)</span>
+function sensor_task() {
+    let data = read_sensor();
+    process_data(data);
+    update_control(data);
+}
+
+<span class="highlight">@constant_time</span>
+function crypto_compare(a: ptr&lt;int8, 32&gt;, 
+                       b: ptr&lt;int8, 32&gt;) -&gt; bool {
+    let diff: int32 = 0;
+    for i in 0..32 {
+        diff = diff | (a[i] ^ b[i]);
+    }
+    return diff == 0;
+}</pre>
+                </div>
+            </div>
         </div>
     </section>
 
-    <section class="specs" id="specs">
+    <section class="comparison-section" id="comparison">
         <div class="container">
-            <h2 class="section-title">Language Specifications</h2>
-            <div class="specs-grid">
-                <div class="spec-item">
-                    <div class="spec-label">Type System</div>
-                    <p>Strong static typing with int32, bool, and pointer types. No implicit conversions.</p>
+            <h2 class="section-title">Tempo vs Other Languages</h2>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>Tempo v1.0</th>
+                        <th>C</th>
+                        <th>Rust</th>
+                        <th>Zig</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Memory Safety</td>
+                        <td>✅ Compile-time</td>
+                        <td>❌ Manual</td>
+                        <td>✅ Borrow checker</td>
+                        <td>⚠️ Manual + debug</td>
+                    </tr>
+                    <tr>
+                        <td>Zero Overhead</td>
+                        <td>✅ Guaranteed</td>
+                        <td>✅ Yes</td>
+                        <td>✅ Yes</td>
+                        <td>✅ Yes</td>
+                    </tr>
+                    <tr>
+                        <td>WCET Analysis</td>
+                        <td>✅ Built-in</td>
+                        <td>❌ External tools</td>
+                        <td>❌ No</td>
+                        <td>❌ No</td>
+                    </tr>
+                    <tr>
+                        <td>Inline Assembly</td>
+                        <td>✅ First-class</td>
+                        <td>✅ Compiler-specific</td>
+                        <td>⚠️ Unsafe block</td>
+                        <td>✅ Yes</td>
+                    </tr>
+                    <tr>
+                        <td>Deterministic</td>
+                        <td>✅ By design</td>
+                        <td>⚠️ Depends on usage</td>
+                        <td>⚠️ Depends on usage</td>
+                        <td>⚠️ Mostly</td>
+                    </tr>
+                    <tr>
+                        <td>Learning Curve</td>
+                        <td>✅ Simple</td>
+                        <td>✅ Simple</td>
+                        <td>❌ Steep</td>
+                        <td>⚠️ Moderate</td>
+                    </tr>
+                    <tr>
+                        <td>Compile Speed</td>
+                        <td>✅ Fast</td>
+                        <td>✅ Fast</td>
+                        <td>❌ Slow</td>
+                        <td>✅ Fast</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="code-section" id="getting-started">
+        <div class="container">
+            <h2 class="section-title">Getting Started</h2>
+            <div style="max-width: 800px; margin: 0 auto;">
+                <div class="code-example">
+                    <h4># Build the Tempo compiler</h4>
+                    <pre>git clone https://github.com/ipenas-cl/AtomicOS.git
+cd AtomicOS
+make build/tempo_compiler
+
+# Compile your first Tempo program
+./build/tempo_compiler hello.tempo hello.s
+nasm -f elf32 hello.s -o hello.o
+ld -m elf_i386 hello.o -o hello
+
+# Or build AtomicOS entirely in Tempo!
+make all</pre>
                 </div>
-                <div class="spec-item">
-                    <div class="spec-label">Memory Model</div>
-                    <p>Static allocation only. All memory requirements determined at compile time.</p>
-                </div>
-                <div class="spec-item">
-                    <div class="spec-label">Control Flow</div>
-                    <p>Structured programming with bounded loops. All paths must have provable termination.</p>
-                </div>
-                <div class="spec-item">
-                    <div class="spec-label">Function Calls</div>
-                    <p>Static dispatch only. No function pointers or dynamic binding.</p>
-                </div>
-                <div class="spec-item">
-                    <div class="spec-label">Concurrency</div>
-                    <p>Task-based model with static priorities and deadline specifications.</p>
-                </div>
-                <div class="spec-item">
-                    <div class="spec-label">Error Handling</div>
-                    <p>Explicit error codes. No exceptions or stack unwinding.</p>
+                
+                <div style="margin-top: 2rem; text-align: center;">
+                    <h3 style="margin-bottom: 1rem;">Ready to replace C?</h3>
+                    <p style="margin-bottom: 2rem;">Join us in building the next generation of systems software with Tempo!</p>
+                    <a href="https://github.com/ipenas-cl/AtomicOS" class="btn btn-primary" style="background: #667eea; color: white;">
+                        Get Tempo Compiler
+                    </a>
                 </div>
             </div>
         </div>
@@ -427,14 +601,30 @@
 
     <footer>
         <div class="container">
-            <div class="footer-links">
-                <a href="../">AtomicOS Homepage</a>
-                <a href="https://github.com/ipenas-cl/AtomicOS">GitHub Repository</a>
-                <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/tools">Compiler Source</a>
-                <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/examples">Code Examples</a>
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/tools">Compiler Source</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/examples/tempo_v1">Code Examples</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/blob/main/RELEASE_NOTES_v1.0.0.md">Release Notes</a>
+                </div>
+                <div class="footer-section">
+                    <h4>Documentation</h4>
+                    <a href="TEMPO_V4_SPEC.md">Language Specification</a>
+                    <a href="tempo_improvement_plan.md">Roadmap</a>
+                    <a href="../">AtomicOS Project</a>
+                </div>
+                <div class="footer-section">
+                    <h4>Community</h4>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/issues">Report Issues</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/discussions">Discussions</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/blob/main/LICENSE">License</a>
+                </div>
             </div>
-            <p>&copy; 2024 AtomicOS Project | Tempo v3.0 Programming Language</p>
-            <p><strong>Deterministic • Secure • Real-Time</strong></p>
+            <div style="border-top: 1px solid #7f8c8d; padding-top: 2rem; margin-top: 3rem; color: #bdc3c7;">
+                <p>Tempo v1.0.0 - Part of the AtomicOS Project</p>
+                <p>© 2024 AtomicOS Contributors. All rights reserved.</p>
+            </div>
         </div>
     </footer>
 </body>

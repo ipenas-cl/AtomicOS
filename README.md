@@ -1,4 +1,4 @@
-# AtomicOS v0.8.0
+# AtomicOS v1.0.0
 
 **Deterministic Real-Time Security Operating System**
 
@@ -24,16 +24,18 @@ AtomicOS is a deterministic operating system designed for security-critical appl
 - **Interrupt System**: Full IDT with ISRs, IRQs, and deterministic interrupt handling
 - **Process Management**: Context switching with real-time task support
 
-### 🛠️ Tempo Programming Language v3.0.0
+### 🛠️ Tempo Programming Language v1.0.0
 
 📚 **[Tempo Language Documentation](https://ipenas-cl.github.io/AtomicOS/tempo)**
 
-- **Current Status**: Full-featured compiler with advanced OS capabilities
-- **Working**: Functions, variables, arithmetic, WCET analysis, security annotations
-- **Security**: Process sandboxing, capability restrictions, trusted execution
-- **Real-Time**: EDF/RMS scheduling, bounded execution, interrupt handling  
-- **Analysis**: Automatic WCET calculation, security verification, deterministic guarantees
-- **Testing**: Comprehensive test suite with regression testing and quality assurance
+**"No more C needed!"** - Tempo is now a complete systems programming language.
+
+- **Complete Type System**: Structs, pointers, arrays, all integer types
+- **Hardware Control**: Inline assembly support for direct hardware access
+- **Memory Safety**: Bounded pointers with compile-time checks
+- **Zero Overhead**: All abstractions compile to optimal assembly
+- **Deterministic**: WCET analysis, bounded loops, predictable execution
+- **Systems Ready**: Can implement entire OS kernel without C
 
 ## Quick Start
 

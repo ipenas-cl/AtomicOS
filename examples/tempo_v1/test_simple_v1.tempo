@@ -1,0 +1,14 @@
+// Simple test for Tempo v1.0
+
+struct Point {
+    x: int32,
+    y: int32
+}
+
+function main() -> int32 {
+    let a: int32 = 10;
+    let b: int32 = 20;
+    let sum: int32 = a + b;
+    
+    return sum;
+}

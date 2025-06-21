@@ -1,0 +1,8 @@
+// Hello World en Tempo - Ejemplo básico
+// Demuestra la sintaxis mínima del lenguaje
+
+function hello(): int32 {
+    // Por ahora solo podemos retornar valores
+    // TODO: Cuando tengamos print(), actualizar este ejemplo
+    return 42  // La respuesta a todo
+}

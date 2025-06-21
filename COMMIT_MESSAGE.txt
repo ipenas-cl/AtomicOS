@@ -1,0 +1,28 @@
+Tempo v1.0.0 - Complete Systems Programming Language
+
+Major release: Tempo can now replace C entirely for OS development!
+
+New Features:
+- Struct support with memory layout control (@packed, @align)
+- Pointer types: safe bounded pointers ptr<T,N> and raw_ptr<T>
+- Inline assembly support for hardware control
+- Complete type system: int8/16/32/64, bool, arrays, unions
+- String and character literals
+- Enhanced control flow: for loops, break, continue
+- Arrow operator (->) for pointer field access
+- Array indexing and field access operators
+- Module system foundation
+
+Compiler Enhancements:
+- Full recursive descent parser with precedence climbing
+- Complete expression parsing for all operators
+- Enhanced code generation for x86 assembly
+- Improved WCET analysis for new constructs
+- Better error reporting with line/column info
+
+This release marks a revolutionary milestone - AtomicOS can now be
+written entirely in Tempo without any C code. The language provides
+zero runtime overhead, deterministic execution, memory safety, and
+direct hardware control when needed.
+
+"No more C needed!"

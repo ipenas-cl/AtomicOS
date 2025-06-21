@@ -1,0 +1,425 @@
+// Tempo v4 Bootloader - Replacing GRUB with deterministic boot
+// This demonstrates how to write low-level boot code in Tempo
+
+// Boot sector constants
+const BOOT_SECTOR_SIZE: int32 = 512;
+const BOOT_SIGNATURE: int16 = 0xAA55;
+const KERNEL_LOAD_ADDR: int32 = 0x100000;  // 1MB
+const KERNEL_SECTORS: int32 = 128;         // 64KB kernel
+
+// Real mode segment addresses
+const BOOT_SEGMENT: int16 = 0x07C0;
+const STACK_SEGMENT: int16 = 0x9000;
+const STACK_POINTER: int16 = 0xFFFF;
+
+// BIOS disk services
+const DISK_READ: int8 = 0x02;
+const DISK_RESET: int8 = 0x00;
+
+// VGA text mode
+const VGA_SEGMENT: int16 = 0xB800;
+const VGA_WIDTH: int32 = 80;
+const VGA_HEIGHT: int32 = 25;
+
+// GDT entries
+@packed
+struct GDTEntry {
+    limit_low: int16,
+    base_low: int16,
+    base_middle: int8,
+    access: int8,
+    granularity: int8,
+    base_high: int8
+}
+
+@packed
+struct GDTPointer {
+    limit: int16,
+    base: int32
+}
+
+// Boot information passed to kernel
+@packed
+struct BootInfo {
+    memory_map_count: int32,
+    memory_map_addr: int32,
+    kernel_size: int32,
+    kernel_entry: int32,
+    boot_drive: int8,
+    vga_mode: int8,
+    cpu_features: int32
+}
+
+// Memory map entry from BIOS
+@packed
+struct MemoryMapEntry {
+    base_low: int32,
+    base_high: int32,
+    length_low: int32,
+    length_high: int32,
+    type: int32
+}
+
+// Module for 16-bit real mode code
+@mode(real16)
+module boot16 {
+    // Entry point - BIOS loads us at 0x7C00
+    @wcet(1000)
+    @org(0x7C00)
+    @naked
+    pub function _start(): void {
+        // Set up segments
+        asm {
+            "cli"                       // Disable interrupts
+            "xor ax, ax"
+            "mov ds, ax"
+            "mov es, ax"
+            "mov ss, ax"
+            "mov sp, 0x7C00"           // Stack below bootloader
+            "sti"                       // Re-enable interrupts
+        }
+        
+        // Save boot drive
+        asm {
+            "mov [boot_drive], dl"
+        }
+        
+        // Clear screen
+        clear_screen();
+        
+        // Print boot message
+        print_string("AtomicOS Tempo Bootloader v1.0\r\n");
+        print_string("Loading kernel...\r\n");
+        
+        // Load kernel from disk
+        if (!load_kernel()) {
+            print_string("Error loading kernel!\r\n");
+            halt();
+        }
+        
+        // Get memory map
+        if (!get_memory_map()) {
+            print_string("Error getting memory map!\r\n");
+            halt();
+        }
+        
+        // Enter protected mode
+        enter_protected_mode();
+    }
+    
+    @wcet(500)
+    function clear_screen(): void {
+        asm {
+            "mov ax, 0xB800"
+            "mov es, ax"
+            "xor di, di"
+            "mov cx, 2000"             // 80*25 characters
+            "mov ax, 0x0720"           // Space with white on black
+            "rep stosw"
+            : // no outputs
+            : // no inputs
+            : "ax", "cx", "di", "es"
+        }
+    }
+    
+    @wcet(100)
+    function print_char(c: int8): void {
+        asm {
+            "mov ah, 0x0E"             // BIOS teletype output
+            "mov al, {c}"
+            "xor bx, bx"               // Page 0
+            "int 0x10"
+            : // no outputs
+            : "r"(c)
+            : "ax", "bx"
+        }
+    }
+    
+    @wcet(1000)
+    function print_string(msg: raw_ptr<int8>): void {
+        let i: int32 = 0;
+        while (msg[i] != 0) [max 100] {
+            print_char(msg[i]);
+            i++;
+        }
+    }
+    
+    @wcet(5000)
+    function load_kernel(): bool {
+        // Reset disk controller
+        asm {
+            "mov ah, 0x00"
+            "mov dl, [boot_drive]"
+            "int 0x13"
+            "jc .disk_error"
+            : // no outputs
+            : // no inputs
+            : "ax", "dx", "cc"
+        }
+        
+        // Load kernel sectors
+        let segment: int16 = 0x1000;   // Load at 0x10000
+        let sector: int8 = 2;          // Skip boot sector
+        
+        for (i: int32 = 0; i < KERNEL_SECTORS; i++) [max 128] {
+            asm {
+                "mov ax, {segment}"
+                "mov es, ax"
+                "mov ah, 0x02"         // Read sectors
+                "mov al, 1"            // 1 sector
+                "mov ch, 0"            // Cylinder 0
+                "mov cl, {sector}"     // Sector
+                "mov dh, 0"            // Head 0
+                "mov dl, [boot_drive]"
+                "xor bx, bx"           // ES:BX = buffer
+                "int 0x13"
+                "jc .disk_error"
+                : // no outputs
+                : "r"(segment), "r"(sector)
+                : "ax", "bx", "cx", "dx", "es", "cc"
+            }
+            
+            segment = segment + 0x20;  // Next 512 bytes
+            sector++;
+            if (sector > 18) {         // Floppy has 18 sectors/track
+                sector = 1;
+                // TODO: Handle cylinder/head changes
+            }
+        }
+        
+        return true;
+        
+        asm {
+            ".disk_error:"
+            : // label only
+        }
+        return false;
+    }
+    
+    @wcet(2000)
+    function get_memory_map(): bool {
+        let entries: int32 = 0;
+        let cont: int32 = 0;
+        let buffer: raw_ptr<MemoryMapEntry> = 0x8000 as raw_ptr<MemoryMapEntry>;
+        
+        do {
+            asm {
+                "mov eax, 0xE820"      // BIOS memory map function
+                "mov ebx, {cont}"      // Continuation value
+                "mov ecx, 24"          // Size of buffer
+                "mov edx, 0x534D4150"  // 'SMAP'
+                "mov di, {buffer}"
+                "int 0x15"
+                "jc .memory_error"
+                "mov {cont}, ebx"
+                : "=m"(cont)
+                : "m"(cont), "r"(buffer)
+                : "eax", "ebx", "ecx", "edx", "di", "cc"
+            }
+            
+            entries++;
+            buffer = buffer + sizeof(MemoryMapEntry);
+            
+        } while (cont != 0 && entries < 32) [max 32];
+        
+        // Store count in boot info
+        boot_info.memory_map_count = entries;
+        boot_info.memory_map_addr = 0x8000;
+        
+        return true;
+        
+        asm {
+            ".memory_error:"
+            : // label only
+        }
+        return false;
+    }
+    
+    @wcet(1000)
+    function enter_protected_mode(): void {
+        // Disable interrupts
+        asm { "cli" }
+        
+        // Enable A20 line
+        enable_a20();
+        
+        // Load GDT
+        setup_gdt();
+        
+        // Switch to protected mode
+        asm {
+            "mov eax, cr0"
+            "or al, 1"                 // Set PE bit
+            "mov cr0, eax"
+            
+            // Far jump to 32-bit code
+            "jmp 0x08:.protected_mode"
+            
+            ".code32"
+            ".protected_mode:"
+            : // no outputs
+            : // no inputs
+            : "eax"
+        }
+        
+        // Now in 32-bit protected mode
+        jump_to_kernel();
+    }
+    
+    @wcet(500)
+    function enable_a20(): void {
+        // Try keyboard controller method
+        asm {
+            "in al, 0x64"
+            "test al, 2"
+            "jnz $"                    // Wait for input buffer empty
+            
+            "mov al, 0xAD"             // Disable keyboard
+            "out 0x64, al"
+            
+            "in al, 0x64"
+            "test al, 2"
+            "jnz $"
+            
+            "mov al, 0xD0"             // Read output port
+            "out 0x64, al"
+            
+            "in al, 0x64"
+            "test al, 1"
+            "jz $"                     // Wait for data
+            
+            "in al, 0x60"
+            "push eax"
+            
+            "in al, 0x64"
+            "test al, 2"
+            "jnz $"
+            
+            "mov al, 0xD1"             // Write output port
+            "out 0x64, al"
+            
+            "in al, 0x64"
+            "test al, 2"
+            "jnz $"
+            
+            "pop eax"
+            "or al, 2"                 // Set A20 bit
+            "out 0x60, al"
+            
+            "in al, 0x64"
+            "test al, 2"
+            "jnz $"
+            
+            "mov al, 0xAE"             // Enable keyboard
+            "out 0x64, al"
+            : // no outputs
+            : // no inputs
+            : "eax", "cc"
+        }
+    }
+    
+    // Global variables in boot sector
+    static boot_drive: int8;
+    static boot_info: BootInfo;
+    static gdt: GDTEntry[3];
+    static gdt_pointer: GDTPointer;
+}
+
+// Module for 32-bit protected mode code
+@mode(protected32)
+module boot32 {
+    @wcet(200)
+    function setup_gdt(): void {
+        // Null descriptor
+        gdt[0] = GDTEntry {
+            limit_low: 0,
+            base_low: 0,
+            base_middle: 0,
+            access: 0,
+            granularity: 0,
+            base_high: 0
+        };
+        
+        // Code segment
+        gdt[1] = GDTEntry {
+            limit_low: 0xFFFF,
+            base_low: 0,
+            base_middle: 0,
+            access: 0x9A,              // Present, ring 0, code, readable
+            granularity: 0xCF,         // 4KB pages, 32-bit
+            base_high: 0
+        };
+        
+        // Data segment
+        gdt[2] = GDTEntry {
+            limit_low: 0xFFFF,
+            base_low: 0,
+            base_middle: 0,
+            access: 0x92,              // Present, ring 0, data, writable
+            granularity: 0xCF,         // 4KB pages, 32-bit
+            base_high: 0
+        };
+        
+        // Load GDT
+        gdt_pointer.limit = sizeof(gdt) - 1;
+        gdt_pointer.base = &gdt as int32;
+        
+        asm {
+            "lgdt [gdt_pointer]"
+            : // no outputs
+            : // no inputs
+            : "memory"
+        }
+    }
+    
+    @wcet(100)
+    @noreturn
+    function jump_to_kernel(): void {
+        // Set up segments
+        asm {
+            "mov ax, 0x10"             // Data segment
+            "mov ds, ax"
+            "mov es, ax"
+            "mov fs, ax"
+            "mov gs, ax"
+            "mov ss, ax"
+            "mov esp, 0x90000"         // Temporary stack
+        }
+        
+        // Set up boot info
+        boot_info.kernel_size = KERNEL_SECTORS * 512;
+        boot_info.kernel_entry = KERNEL_LOAD_ADDR;
+        
+        // Copy kernel to final location
+        std::mem::copy(
+            KERNEL_LOAD_ADDR as raw_ptr<int8>,
+            0x10000 as raw_ptr<int8>,
+            boot_info.kernel_size
+        );
+        
+        // Jump to kernel
+        asm {
+            "push {boot_info_addr}"    // Pass boot info pointer
+            "call {kernel_entry}"
+            : // no outputs
+            : "r"(&boot_info), "r"(KERNEL_LOAD_ADDR)
+            : // no clobbers
+        }
+        
+        // Should never return
+        halt();
+    }
+    
+    @wcet(infinite)
+    @noreturn
+    function halt(): void {
+        while (true) [max infinite] {
+            asm { "hlt" }
+        }
+    }
+}
+
+// Boot sector padding and signature
+@section(".boot_signature")
+@org(0x7DFE)
+const boot_signature: int16 = BOOT_SIGNATURE;

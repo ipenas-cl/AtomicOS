@@ -3,7 +3,7 @@
 
 # Configuration
 PROJECT_NAME = AtomicOS
-VERSION = 0.9.0
+VERSION = 1.0.0
 ARCH = i386
 
 # Directories
@@ -48,13 +48,13 @@ $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
 # Build Tempo compiler
-$(TEMPO_BIN): $(TOOLS_DIR)/tempo_compiler_v3.c | $(BUILD_DIR)
-	@echo "Building Tempo v3.0 compiler..."
+$(TEMPO_BIN): $(TOOLS_DIR)/tempo_compiler.c | $(BUILD_DIR)
+	@echo "Building Tempo v1.0.0 compiler..."
 	$(CC) -std=c99 -Wall -Wextra -O2 -o $@ $<
 
 # Build enhanced Tempo compiler (separate target)
-tempo-enhanced: $(TOOLS_DIR)/tempo_compiler_v3_enhanced.c $(TOOLS_DIR)/tempo_optimizer.c $(TOOLS_DIR)/tempo_debug.c $(SRC_DIR)/kernel/wcet_model.c | $(BUILD_DIR)
-	@echo "Building Tempo v3.0 Enhanced compiler..."
+tempo-enhanced: $(TOOLS_DIR)/tempo_compiler_enhanced.c $(TOOLS_DIR)/tempo_optimizer.c $(TOOLS_DIR)/tempo_debug.c $(SRC_DIR)/kernel/wcet_model.c | $(BUILD_DIR)
+	@echo "Building Tempo Enhanced compiler..."
 	$(CC) -std=c99 -Wall -Wextra -O2 -I$(SRC_DIR) -I$(TOOLS_DIR) -o $(BUILD_DIR)/tempo_enhanced $^
 
 # Compile Tempo source files to assembly
@@ -123,7 +123,7 @@ release-major:
 version:
 	@echo "AtomicOS $(VERSION)"
 	@echo "Architecture: $(ARCH)"
-	@echo "Tempo Compiler: v4.0.0"
+	@echo "Tempo Compiler: v1.0.0"
 
 # Run in QEMU
 .PHONY: run
