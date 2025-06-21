@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tempo Programming Language - Deterministic Systems Programming</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #ffffff;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 2rem 0;
+        }
+        
+        .header-content {
+            text-align: center;
+        }
+        
+        .logo {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .tagline {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+        
+        .nav {
+            background: #34495e;
+            padding: 1rem 0;
+        }
+        
+        .nav-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+        }
+        
+        .nav-links a {
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+        
+        .nav-links a:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .hero {
+            padding: 4rem 0;
+            text-align: center;
+            background: linear-gradient(135deg, #3498db 0%, #2c3e50 100%);
+            color: white;
+        }
+        
+        .hero h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            font-weight: 300;
+        }
+        
+        .hero p {
+            font-size: 1.3rem;
+            max-width: 700px;
+            margin: 0 auto;
+            opacity: 0.9;
+        }
+        
+        .features {
+            padding: 5rem 0;
+        }
+        
+        .section-title {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 3rem;
+            color: #2c3e50;
+            font-weight: 300;
+        }
+        
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .feature-card {
+            padding: 2rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .feature-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+        
+        .syntax-section {
+            background: #f8f9fa;
+            padding: 5rem 0;
+        }
+        
+        .code-example {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 2rem;
+            border-radius: 8px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            margin: 2rem 0;
+            overflow-x: auto;
+        }
+        
+        .code-example .comment {
+            color: #a0aec0;
+        }
+        
+        .code-example .keyword {
+            color: #63b3ed;
+        }
+        
+        .code-example .function {
+            color: #f6e05e;
+        }
+        
+        .code-example .type {
+            color: #fc8181;
+        }
+        
+        .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            margin-top: 3rem;
+        }
+        
+        .use-cases {
+            padding: 5rem 0;
+        }
+        
+        .use-case {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            border: 1px solid #e1e5e9;
+            margin-bottom: 2rem;
+        }
+        
+        .use-case h4 {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+        
+        footer {
+            background: #2c3e50;
+            color: white;
+            padding: 3rem 0;
+            text-align: center;
+        }
+        
+        .footer-links {
+            margin-bottom: 2rem;
+        }
+        
+        .footer-links a {
+            color: white;
+            text-decoration: none;
+            margin: 0 1rem;
+            opacity: 0.8;
+        }
+        
+        .footer-links a:hover {
+            opacity: 1;
+        }
+        
+        @media (max-width: 768px) {
+            .two-column {
+                grid-template-columns: 1fr;
+            }
+            
+            .nav-links {
+                flex-direction: column;
+                align-items: center;
+                gap: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">Tempo</div>
+                <div class="tagline">Deterministic Systems Programming Language</div>
+            </div>
+        </div>
+    </header>
+
+    <nav class="nav">
+        <div class="container">
+            <div class="nav-links">
+                <a href="../">← Back to AtomicOS</a>
+                <a href="#features">Features</a>
+                <a href="#syntax">Syntax</a>
+                <a href="#examples">Examples</a>
+                <a href="https://github.com/ipenas-cl/AtomicOS">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <div class="container">
+            <h1>Built for Security-Critical Systems</h1>
+            <p>Tempo is a deterministic programming language designed specifically for implementing AtomicOS security modules with guaranteed timing behavior and memory safety.</p>
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <div class="container">
+            <h2 class="section-title">Language Features</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-title">Deterministic Execution</div>
+                    <p>All operations have bounded execution time with compile-time worst-case execution time (WCET) analysis for real-time guarantees.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-title">Memory Safety</div>
+                    <p>Static memory allocation with compile-time bounds checking prevents buffer overflows and memory corruption.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-title">Security-First Design</div>
+                    <p>Language constructs designed specifically for implementing security modules like stack protection and memory guards.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-title">Formal Verification</div>
+                    <p>Simple syntax and semantics enable formal verification of critical code paths using mathematical proofs.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-title">Cross-Compilation</div>
+                    <p>Compiles to x86 assembly with support for multiple target architectures and optimization levels.</p>
+                </div>
+                
+                <div class="feature-card">
+                    <div class="feature-title">Real-Time Ready</div>
+                    <p>Built-in support for real-time constraints, deadlines, and priority-based scheduling integration.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="syntax-section" id="syntax">
+        <div class="container">
+            <h2 class="section-title">Syntax Overview</h2>
+            <div class="two-column">
+                <div>
+                    <h3>Basic Function Definition</h3>
+                    <div class="code-example">
+<span class="comment">// Stack protection canary function</span>
+<span class="keyword">function</span> <span class="function">ssp_init_canary</span>(): <span class="type">int32</span> {
+    <span class="keyword">let</span> canary = <span class="function">get_random_seed</span>()
+    <span class="keyword">return</span> canary
+}
+
+<span class="comment">// Memory guard page installer</span>
+<span class="keyword">function</span> <span class="function">install_guard_page</span>(addr: <span class="type">int32</span>): <span class="type">int32</span> {
+    <span class="keyword">if</span> addr % PAGE_SIZE() != 0 {
+        <span class="keyword">return</span> ERROR_INVALID_PARAM()
+    }
+    <span class="keyword">return</span> ERROR_NONE()
+}
+                    </div>
+                </div>
+                <div>
+                    <h3>Security Module Example</h3>
+                    <div class="code-example">
+<span class="comment">// Deterministic memory allocator</span>
+<span class="keyword">function</span> <span class="function">static_alloc_block</span>(): <span class="type">int32</span> {
+    <span class="keyword">let</span> block_index = find_free_block()
+    <span class="keyword">if</span> block_index == -1 {
+        <span class="keyword">return</span> 0  <span class="comment">// Out of memory</span>
+    }
+    
+    <span class="keyword">let</span> address = MEMORY_POOL_BASE() + 
+                 block_index * MEMORY_BLOCK_SIZE()
+    mark_block_used(block_index)
+    <span class="keyword">return</span> address
+}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="use-cases" id="examples">
+        <div class="container">
+            <h2 class="section-title">Real-World Applications</h2>
+            <div class="use-case">
+                <h4>Stack-Smashing Protection (SSP)</h4>
+                <p>Tempo implements the entire SSP subsystem for AtomicOS, including canary generation, stack frame protection, and corruption detection with deterministic response times.</p>
+            </div>
+            
+            <div class="use-case">
+                <h4>Guard Pages Implementation</h4>
+                <p>Memory protection through guard pages is implemented in Tempo, providing buffer overflow detection between memory regions with compile-time verified bounds.</p>
+            </div>
+            
+            <div class="use-case">
+                <h4>Deterministic Core Services</h4>
+                <p>Real-time scheduling, static memory management, and security level enforcement are all implemented in Tempo with WCET guarantees.</p>
+            </div>
+            
+            <div class="use-case">
+                <h4>Cryptographic Primitives</h4>
+                <p>Constant-time cryptographic operations eliminate timing side-channels while maintaining deterministic execution for real-time systems.</p>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <div class="footer-links">
+                <a href="../">AtomicOS Homepage</a>
+                <a href="https://github.com/ipenas-cl/AtomicOS">GitHub Repository</a>
+                <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/examples">Code Examples</a>
+            </div>
+            <p>&copy; 2024 AtomicOS Project | Tempo Programming Language</p>
+            <p><strong>Deterministic • Memory Safe • Security-First</strong></p>
+        </div>
+    </footer>
+</body>
+</html>
