@@ -72,7 +72,7 @@ module boot16 {
     @wcet(1000)
     @org(0x7C00)
     @naked
-    pub function _start(): void {
+    pub function _start() -> void {
         // Set up segments
         asm {
             "cli"                       // Disable interrupts
@@ -113,7 +113,7 @@ module boot16 {
     }
     
     @wcet(500)
-    function clear_screen(): void {
+    function clear_screen() -> void {
         asm {
             "mov ax, 0xB800"
             "mov es, ax"
@@ -128,7 +128,7 @@ module boot16 {
     }
     
     @wcet(100)
-    function print_char(c: int8): void {
+    function print_char(c: int8) -> void {
         asm {
             "mov ah, 0x0E"             // BIOS teletype output
             "mov al, {c}"
@@ -141,7 +141,7 @@ module boot16 {
     }
     
     @wcet(1000)
-    function print_string(msg: raw_ptr<int8>): void {
+    function print_string(msg: raw_ptr<int8>) -> void {
         let i: int32 = 0;
         while (msg[i] != 0) [max 100] {
             print_char(msg[i]);
@@ -150,7 +150,7 @@ module boot16 {
     }
     
     @wcet(5000)
-    function load_kernel(): bool {
+    function load_kernel() -> bool {
         // Reset disk controller
         asm {
             "mov ah, 0x00"
@@ -202,7 +202,7 @@ module boot16 {
     }
     
     @wcet(2000)
-    function get_memory_map(): bool {
+    function get_memory_map() -> bool {
         let entries: int32 = 0;
         let cont: int32 = 0;
         let buffer: raw_ptr<MemoryMapEntry> = 0x8000 as raw_ptr<MemoryMapEntry>;
@@ -241,7 +241,7 @@ module boot16 {
     }
     
     @wcet(1000)
-    function enter_protected_mode(): void {
+    function enter_protected_mode() -> void {
         // Disable interrupts
         asm { "cli" }
         
@@ -272,7 +272,7 @@ module boot16 {
     }
     
     @wcet(500)
-    function enable_a20(): void {
+    function enable_a20() -> void {
         // Try keyboard controller method
         asm {
             "in al, 0x64"
@@ -334,7 +334,7 @@ module boot16 {
 @mode(protected32)
 module boot32 {
     @wcet(200)
-    function setup_gdt(): void {
+    function setup_gdt() -> void {
         // Null descriptor
         gdt[0] = GDTEntry {
             limit_low: 0,
@@ -379,7 +379,7 @@ module boot32 {
     
     @wcet(100)
     @noreturn
-    function jump_to_kernel(): void {
+    function jump_to_kernel() -> void {
         // Set up segments
         asm {
             "mov ax, 0x10"             // Data segment
@@ -417,7 +417,7 @@ module boot32 {
     
     @wcet(infinite)
     @noreturn
-    function halt(): void {
+    function halt() -> void {
         while (true) [max infinite] {
             asm { "hlt" }
         }

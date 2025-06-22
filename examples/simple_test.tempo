@@ -1,8 +1,8 @@
-function add(a: int32, b: int32): int32 {
-    let result = a + b
-    return result
+function add(a: int32, b: int32) -> int32 {
+    let result = a + b;
+    return result;
 }
 
-function multiply(x: int32, y: int32): int32 {
-    return x * y
+function multiply(x: int32, y: int32) -> int32 {
+    return x * y;
 }

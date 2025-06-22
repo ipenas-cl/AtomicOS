@@ -1,0 +1,44 @@
+// Stack Smashing Protection for AtomicOS v2
+// Simplified version that compiles with Tempo v1.0
+
+function STACK_CANARY() -> int32 {
+    return 3735928559;  // 0xDEADBEEF
+}
+
+function ssp_init() -> int32 {
+    // Initialize SSP subsystem
+    return 1;
+}
+
+function ssp_check_stack(base: int32) -> int32 {
+    // Check if stack is within valid bounds
+    if base < 4194304 {    // 0x400000
+        return 0;
+    }
+    if base > 6291456 {    // 0x600000
+        return 0;
+    }
+    return 1;
+}
+
+function ssp_protect_function(stack_ptr: int32) -> int32 {
+    // Simplified protection - just validate stack
+    if ssp_check_stack(stack_ptr) == 0 {
+        return 0;
+    }
+    return stack_ptr - 4;  // Return canary address
+}
+
+function ssp_verify_function(canary_addr: int32) -> int32 {
+    // Simplified verification
+    if ssp_check_stack(canary_addr) == 0 {
+        return 0;
+    }
+    return 1;  // Success
+}
+
+function ssp_panic() -> int32 {
+    // Stack corruption detected - halt system
+    // In real implementation would halt CPU
+    return 3735936685;  // 0xDEADDEAD
+}

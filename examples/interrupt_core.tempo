@@ -2,10 +2,10 @@
 // Simplified version for Tempo v3 compiler
 
 // Basic interrupt functions for deterministic handling
-function interrupt_init(): int32 {
+function interrupt_init() -> int32 {
     
     // Initialize interrupt counters
-    let i: int32 = 0
+    let i: int32 = 0;
     
     // Clear interrupt statistics
     while (i < 256) {
@@ -13,30 +13,30 @@ function interrupt_init(): int32 {
         i = i + 1
     }
     
-    return 1
+    return 1;
 }
 
 // Handle timer interrupt
-function handle_timer(): int32 {
+function handle_timer() -> int32 {
     
     // Increment system tick
-    let tick_count: int32 = 0
+    let tick_count: int32 = 0;
     tick_count = tick_count + 1
     
-    return tick_count
+    return tick_count;
 }
 
 // Check interrupt health
-function check_interrupt_health(): int32 {
+function check_interrupt_health() -> int32 {
     
-    let health_status: int32 = 1
+    let health_status: int32 = 1;
     
     // Check for overruns
-    let overruns: int32 = 0
+    let overruns: int32 = 0;
     
     if (overruns > 0) {
         health_status = 0
     }
     
-    return health_status
+    return health_status;
 }

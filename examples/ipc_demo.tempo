@@ -2,23 +2,23 @@
 // Shows inter-process communication using message passing
 
 // IPC system call wrappers
-function ipc_create_channel(permissions: int32): int32 {
+function ipc_create_channel(permissions: int32) -> int32 {
     // Simplified - would use inline assembly in real implementation
     return 1  // Mock channel ID
 }
 
-function ipc_send_message(channel: int32, msg: int32): int32 {
+function ipc_send_message(channel: int32, msg: int32) -> int32 {
     // Send a simple integer message
     return 0  // Success
 }
 
-function ipc_receive_message(channel: int32): int32 {
+function ipc_receive_message(channel: int32) -> int32 {
     // Receive a message
     return 42  // Mock received value
 }
 
 // Producer process - sends data through IPC
-function producer_process(): int32 {
+function producer_process() -> int32 {
     // Create a channel for sending data
     let channel: int32 = ipc_create_channel(3)  // Read/Write permissions
     
@@ -34,7 +34,7 @@ function producer_process(): int32 {
 }
 
 // Consumer process - receives data through IPC
-function consumer_process(channel: int32): int32 {
+function consumer_process(channel: int32) -> int32 {
     let sum: int32 = 0
     let count: int32 = 0
     
@@ -49,7 +49,7 @@ function consumer_process(channel: int32): int32 {
 }
 
 // Bidirectional communication example
-function ping_pong_demo(): int32 {
+function ping_pong_demo() -> int32 {
     // Create two channels for bidirectional communication
     let channel_a_to_b: int32 = ipc_create_channel(3)
     let channel_b_to_a: int32 = ipc_create_channel(3)
@@ -70,7 +70,7 @@ function ping_pong_demo(): int32 {
 }
 
 // Main demonstration
-function main(): int32 {
+function main() -> int32 {
     // Test producer/consumer pattern
     let prod_channel: int32 = producer_process()
     let result: int32 = consumer_process(prod_channel)

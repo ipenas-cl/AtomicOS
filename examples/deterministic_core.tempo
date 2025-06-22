@@ -3,282 +3,282 @@
 // Tempo v3.0 Implementation
 
 // 1. PREDICTABLE EXECUTION TIMING
-function constant_time_compare(a: int32, b: int32): int32 {
-    let diff = a ^ b
-    let result = 0
+function constant_time_compare(a: int32, b: int32) -> int32 {
+    let diff = a ^ b;
+    let result = 0;
     
-    if (diff & 0xFF000000) != 0 { 
-        let temp = result | 1
-        result = temp
+    if (diff & 4278190080) != 0 { 
+        let temp = result | 1;
+        result = temp;
     }
-    if (diff & 0x00FF0000) != 0 { 
-        let temp = result | 1
-        result = temp
+    if (diff & 16711680) != 0 { 
+        let temp = result | 1;
+        result = temp;
     }
-    if (diff & 0x0000FF00) != 0 { 
-        let temp = result | 1
-        result = temp
+    if (diff & 65280) != 0 { 
+        let temp = result | 1;
+        result = temp;
     }
-    if (diff & 0x000000FF) != 0 { 
-        let temp = result | 1
-        result = temp
+    if (diff & 255) != 0 { 
+        let temp = result | 1;
+        result = temp;
     }
     
-    return 1 - result
+    return 1 - result;
 }
 
 // 2. STATIC RESOURCE ALLOCATION
-function MEMORY_POOL_SIZE(): int32 {
-    return 65536
+function MEMORY_POOL_SIZE() -> int32 {
+    return 65536;
 }
 
-function MEMORY_BLOCK_SIZE(): int32 {
-    return 256
+function MEMORY_BLOCK_SIZE() -> int32 {
+    return 256;
 }
 
-function static_memory_init(): int32 {
-    let pool_base = 0x500000
-    let total_blocks = MEMORY_POOL_SIZE() / MEMORY_BLOCK_SIZE()
+function static_memory_init() -> int32 {
+    let pool_base = 0x500000;
+    let total_blocks = MEMORY_POOL_SIZE() / MEMORY_BLOCK_SIZE();
     
     if total_blocks > 255 {
-        return 0
+        return 0;
     }
     
-    return pool_base
+    return pool_base;
 }
 
-function static_alloc_block(pool_base: int32, block_index: int32): int32 {
+function static_alloc_block(pool_base: int32, block_index: int32) -> int32 {
     if block_index < 0 || block_index >= 255 {
-        return 0
+        return 0;
     }
     
-    let block_addr = pool_base + (block_index * MEMORY_BLOCK_SIZE())
-    return block_addr
+    let block_addr = pool_base + (block_index * MEMORY_BLOCK_SIZE());
+    return block_addr;
 }
 
 // 3. DETERMINISTIC RANDOM GENERATION
-function DETERMINISTIC_SEED(): int32 {
-    return 0x12345678
+function DETERMINISTIC_SEED() -> int32 {
+    return 0x12345678;
 }
 
-function deterministic_random(seed: int32): int32 {
-    let a = 1664525
-    let c = 1013904223
-    let m = 0xFFFFFFFF
+function deterministic_random(seed: int32) -> int32 {
+    let a = 1664525;
+    let c = 1013904223;
+    let m = 4294967295;
     
-    let next = (a * seed + c) & m
-    return next
+    let next = (a * seed + c) & m;
+    return next;
 }
 
-function secure_deterministic_random(seed: int32, counter: int32): int32 {
-    let mixed = seed ^ counter
-    let step1 = deterministic_random(mixed)
-    let step2 = deterministic_random(step1)
-    return step2 ^ (counter << 16)
+function secure_deterministic_random(seed: int32, counter: int32) -> int32 {
+    let mixed = seed ^ counter;
+    let step1 = deterministic_random(mixed);
+    let step2 = deterministic_random(step1);
+    return step2 ^ (counter << 16);
 }
 
 // 4. REAL-TIME SCHEDULING
-function RT_PRIORITY_HIGH(): int32 {
-    return 100
+function RT_PRIORITY_HIGH() -> int32 {
+    return 100;
 }
 
-function RT_PRIORITY_NORMAL(): int32 {
-    return 50
+function RT_PRIORITY_NORMAL() -> int32 {
+    return 50;
 }
 
-function RT_PRIORITY_LOW(): int32 {
-    return 10
+function RT_PRIORITY_LOW() -> int32 {
+    return 10;
 }
 
-function rt_task_create(priority: int32, deadline: int32): int32 {
+function rt_task_create(priority: int32, deadline: int32) -> int32 {
     if priority < RT_PRIORITY_LOW() || priority > RT_PRIORITY_HIGH() {
-        return 0
+        return 0;
     }
     
     if deadline <= 0 || deadline > 1000000 {
-        return 0
+        return 0;
     }
     
-    let task_id = (priority << 16) | (deadline & 0xFFFF)
-    return task_id
+    let task_id = (priority << 16) | (deadline & 0xFFFF);
+    return task_id;
 }
 
-function rt_check_deadline(task_id: int32, current_time: int32, start_time: int32): int32 {
-    let deadline = task_id & 0xFFFF
-    let elapsed = current_time - start_time
+function rt_check_deadline(task_id: int32, current_time: int32, start_time: int32) -> int32 {
+    let deadline = task_id & 0xFFFF;
+    let elapsed = current_time - start_time;
     
     if elapsed <= deadline {
-        return 1
+        return 1;
     }
     
-    return 0
+    return 0;
 }
 
 // 5. SECURITY WITH DETERMINISM
-function SECURITY_LEVEL_KERNEL(): int32 {
-    return 3
+function SECURITY_LEVEL_KERNEL() -> int32 {
+    return 3;
 }
 
-function SECURITY_LEVEL_SYSTEM(): int32 {
-    return 2
+function SECURITY_LEVEL_SYSTEM() -> int32 {
+    return 2;
 }
 
-function SECURITY_LEVEL_USER(): int32 {
-    return 1
+function SECURITY_LEVEL_USER() -> int32 {
+    return 1;
 }
 
-function SECURITY_LEVEL_GUEST(): int32 {
-    return 0
+function SECURITY_LEVEL_GUEST() -> int32 {
+    return 0;
 }
 
-function security_check_access(subject_level: int32, object_level: int32, operation: int32): int32 {
+function security_check_access(subject_level: int32, object_level: int32, operation: int32) -> int32 {
     if subject_level < SECURITY_LEVEL_GUEST() || subject_level > SECURITY_LEVEL_KERNEL() {
-        return 0
+        return 0;
     }
     
     if object_level < SECURITY_LEVEL_GUEST() || object_level > SECURITY_LEVEL_KERNEL() {
-        return 0
+        return 0;
     }
     
     if operation == 1 && subject_level < object_level {
-        return 0
+        return 0;
     }
     
     if operation == 2 && subject_level > object_level {
-        return 0
+        return 0;
     }
     
     if operation == 3 && subject_level < object_level {
-        return 0
+        return 0;
     }
     
-    return 1
+    return 1;
 }
 
 // 6. DETERMINISTIC CRYPTO
-function crypto_simple_hash(data: int32, length: int32): int32 {
-    let hash = 0x811C9DC5
-    let prime = 0x01000193
+function crypto_simple_hash(data: int32, length: int32) -> int32 {
+    let hash = 0x811C9DC5;
+    let prime = 0x01000193;
     
     if length >= 1 {
-        let byte_val = data & 0xFF
-        let temp1 = hash ^ byte_val
+        let byte_val = data & 0xFF;
+        let temp1 = hash ^ byte_val;
         hash = temp1
-        let temp2 = hash * prime
+        let temp2 = hash * prime;
         hash = temp2
     }
     if length >= 2 {
-        let byte_val = (data + 1) & 0xFF
-        let temp1 = hash ^ byte_val
+        let byte_val = (data + 1) & 0xFF;
+        let temp1 = hash ^ byte_val;
         hash = temp1
-        let temp2 = hash * prime
+        let temp2 = hash * prime;
         hash = temp2
     }
     if length >= 3 {
-        let byte_val = (data + 2) & 0xFF
-        let temp1 = hash ^ byte_val
+        let byte_val = (data + 2) & 0xFF;
+        let temp1 = hash ^ byte_val;
         hash = temp1
-        let temp2 = hash * prime
+        let temp2 = hash * prime;
         hash = temp2
     }
     if length >= 4 {
-        let byte_val = (data + 3) & 0xFF
-        let temp1 = hash ^ byte_val
+        let byte_val = (data + 3) & 0xFF;
+        let temp1 = hash ^ byte_val;
         hash = temp1
-        let temp2 = hash * prime
+        let temp2 = hash * prime;
         hash = temp2
     }
     
-    return hash
+    return hash;
 }
 
 // 7. ERROR HANDLING
-function ERROR_NONE(): int32 {
-    return 0
+function ERROR_NONE() -> int32 {
+    return 0;
 }
 
-function ERROR_INVALID_PARAM(): int32 {
-    return 1
+function ERROR_INVALID_PARAM() -> int32 {
+    return 1;
 }
 
-function ERROR_OUT_OF_BOUNDS(): int32 {
-    return 2
+function ERROR_OUT_OF_BOUNDS() -> int32 {
+    return 2;
 }
 
-function ERROR_TIMEOUT(): int32 {
-    return 3
+function ERROR_TIMEOUT() -> int32 {
+    return 3;
 }
 
-function ERROR_SECURITY_VIOLATION(): int32 {
-    return 4
+function ERROR_SECURITY_VIOLATION() -> int32 {
+    return 4;
 }
 
-function deterministic_error_handler(error_code: int32, context: int32): int32 {
+function deterministic_error_handler(error_code: int32, context: int32) -> int32 {
     if error_code == ERROR_NONE() {
-        return 1
+        return 1;
     }
     
     if error_code == ERROR_INVALID_PARAM() {
-        return 0
+        return 0;
     }
     
     if error_code == ERROR_OUT_OF_BOUNDS() {
-        return context & 0xFFFF
+        return context & 0xFFFF;
     }
     
     if error_code == ERROR_TIMEOUT() {
-        return -1
+        return -1;
     }
     
     if error_code == ERROR_SECURITY_VIOLATION() {
-        return -2
+        return -2;
     }
     
-    return 0
+    return 0;
 }
 
 // 8. SYSTEM INTEGRATION
-function atomicos_system_call(call_id: int32, param1: int32, param2: int32): int32 {
+function atomicos_system_call(call_id: int32, param1: int32, param2: int32) -> int32 {
     if call_id < 0 || call_id > 255 {
-        return ERROR_INVALID_PARAM()
+        return ERROR_INVALID_PARAM();
     }
     
     if call_id == 1 {
-        return static_alloc_block(param1, param2)
+        return static_alloc_block(param1, param2);
     }
     
     if call_id == 2 {
-        return security_check_access(param1, param2, 1)
+        return security_check_access(param1, param2, 1);
     }
     
     if call_id == 3 {
-        return rt_task_create(param1, param2)
+        return rt_task_create(param1, param2);
     }
     
-    return ERROR_INVALID_PARAM()
+    return ERROR_INVALID_PARAM();
 }
 
 // 9. MAIN SYSTEM INITIALIZATION
-function deterministic_system_init(): int32 {
-    let memory_base = static_memory_init()
+function deterministic_system_init() -> int32 {
+    let memory_base = static_memory_init();
     if memory_base == 0 {
-        return ERROR_INVALID_PARAM()
+        return ERROR_INVALID_PARAM();
     }
     
-    let security_check = security_check_access(SECURITY_LEVEL_KERNEL(), SECURITY_LEVEL_KERNEL(), 1)
+    let security_check = security_check_access(SECURITY_LEVEL_KERNEL(), SECURITY_LEVEL_KERNEL(), 1);
     if security_check == 0 {
-        return ERROR_SECURITY_VIOLATION()
+        return ERROR_SECURITY_VIOLATION();
     }
     
-    let rt_task = rt_task_create(RT_PRIORITY_HIGH(), 1000)
+    let rt_task = rt_task_create(RT_PRIORITY_HIGH(), 1000);
     if rt_task == 0 {
-        return ERROR_INVALID_PARAM()
+        return ERROR_INVALID_PARAM();
     }
     
-    let random_test = deterministic_random(DETERMINISTIC_SEED())
+    let random_test = deterministic_random(DETERMINISTIC_SEED());
     if random_test == 0 {
-        return ERROR_INVALID_PARAM()
+        return ERROR_INVALID_PARAM();
     }
     
-    return ERROR_NONE()
+    return ERROR_NONE();
 }

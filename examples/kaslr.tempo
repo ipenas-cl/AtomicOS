@@ -1,0 +1,163 @@
+// KASLR (Kernel Address Space Layout Randomization) for AtomicOS
+// Deterministic but unpredictable kernel relocation
+
+// Constants for KASLR
+function KASLR_MIN_OFFSET() -> int32 {
+    return 0x100000;  // 1MB minimum offset
+}
+
+function KASLR_MAX_OFFSET() -> int32 {
+    return 0x400000;  // 4MB maximum offset  
+}
+
+function KASLR_ALIGNMENT() -> int32 {
+    return 0x1000;    // 4KB page alignment
+}
+
+// Get boot-time seed (from BIOS timer or TSC)
+function get_boot_seed() -> int32 @wcet(10) {
+    // Read BIOS timer at 0x46C (ticks since midnight)
+    asm {
+        "push ds"
+        "xor ax, ax"
+        "mov ds, ax"
+        "mov eax, [0x46C]"
+        "pop ds"
+    };
+    return 0; // Placeholder - asm will set EAX
+}
+
+// Calculate deterministic but unpredictable kernel offset
+function calculate_kaslr_offset() -> int32 @wcet(50) {
+    let seed = get_boot_seed();
+    
+    // Mix with fixed entropy sources
+    let entropy1 = 0xDEADBEEF;
+    let entropy2 = 0xCAFEBABE;
+    
+    // Linear congruential generator
+    let a = 1664525;
+    let c = 1013904223;
+    
+    // Multiple rounds for better mixing
+    let state = seed ^ entropy1;
+    state = (a * state + c) & 0xFFFFFFFF;
+    state = state ^ entropy2;
+    state = (a * state + c) & 0xFFFFFFFF;
+    
+    // Constrain to valid range
+    let range = KASLR_MAX_OFFSET() - KASLR_MIN_OFFSET();
+    let offset = (state % range) + KASLR_MIN_OFFSET();
+    
+    // Align to page boundary
+    offset = offset & ~(KASLR_ALIGNMENT() - 1);
+    
+    return offset;
+}
+
+// Relocate kernel to randomized address
+function relocate_kernel(kernel_base: int32, kernel_size: int32, new_base: int32) -> int32 @wcet(100000) {
+    // Validate parameters
+    if kernel_size > 0x100000 {  // Max 1MB kernel
+        return 0;
+    }
+    
+    if new_base < KASLR_MIN_OFFSET() {
+        return 0;
+    }
+    
+    if new_base > KASLR_MAX_OFFSET() {
+        return 0;
+    }
+    
+    // Copy kernel to new location
+    let src = kernel_base;
+    let dst = new_base;
+    let remaining = kernel_size;
+    
+    while remaining > 0 @wcet(1000) {
+        // Copy 4 bytes at a time
+        asm {
+            "mov eax, [esi]"
+            "mov [edi], eax"
+            "add esi, 4"
+            "add edi, 4"
+        };
+        remaining = remaining - 4;
+    }
+    
+    return new_base;
+}
+
+// Update page tables for new kernel location
+function update_kernel_mappings(old_base: int32, new_base: int32, size: int32) -> int32 @wcet(1000) {
+    // This would update page directory/tables
+    // For now, identity map the new region
+    let pages = (size + 0xFFF) / 0x1000;
+    let i = 0;
+    
+    while i < pages @wcet(100) {
+        let old_addr = old_base + (i * 0x1000);
+        let new_addr = new_base + (i * 0x1000);
+        
+        // Update page table entry
+        // (Implementation depends on paging structure)
+        
+        i = i + 1;
+    }
+    
+    return 1;
+}
+
+// Main KASLR initialization
+function init_kaslr() -> int32 @wcet(200000) @security(3) {
+    // Calculate random offset
+    let offset = calculate_kaslr_offset();
+    
+    // Current kernel location (compile-time constant)
+    let current_base = 0x10000;
+    let kernel_size = 0x10000;  // 64KB kernel
+    
+    // Relocate kernel
+    let new_base = relocate_kernel(current_base, kernel_size, offset);
+    if new_base == 0 {
+        return 0;  // Relocation failed
+    }
+    
+    // Update memory mappings
+    let result = update_kernel_mappings(current_base, new_base, kernel_size);
+    if result == 0 {
+        return 0;
+    }
+    
+    // Jump to relocated kernel
+    asm {
+        "mov eax, [new_base]"
+        "add eax, kernel_main - _start"  
+        "jmp eax"
+    };
+    
+    return 1;  // Should never reach here
+}
+
+// Get current kernel base (for runtime use)
+function get_kernel_base() -> int32 @wcet(5) {
+    // This would be set during KASLR init
+    // For now, return compile-time base
+    return 0x10000;
+}
+
+// Validate kernel address 
+function is_kernel_address(addr: int32) -> int32 @wcet(10) @constant_time {
+    let base = get_kernel_base();
+    let size = 0x10000;
+    
+    let in_range = 0;
+    if addr >= base {
+        if addr < base + size {
+            in_range = 1;
+        }
+    }
+    
+    return in_range;
+}

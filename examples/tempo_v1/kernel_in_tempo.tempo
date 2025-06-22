@@ -65,7 +65,7 @@ module kernel::memory {
     // Page allocator with WCET guarantees
     @wcet(100)
     @security(kernel)
-    pub function allocate_page(): Result<PhysAddr<Page>, KernelError> {
+    pub function allocate_page() -> Result<PhysAddr<Page>, KernelError> {
         // Get next free page from bitmap
         for (i: int32 = 0; i < MAX_PAGES; i++) [max 1024] {
             if (page_bitmap[i] == 0) {
@@ -79,7 +79,7 @@ module kernel::memory {
     
     @wcet(50)
     @security(kernel)
-    pub function free_page(page: PhysAddr<Page>): void {
+    pub function free_page(page: PhysAddr<Page>) -> void {
         let index: int32 = page.addr / 4096;
         page_bitmap[index] = 0;
     }
@@ -87,7 +87,7 @@ module kernel::memory {
     // Map virtual to physical address
     @wcet(200)
     @security(kernel)
-    pub function map_page(virt: VirtAddr<Page>, phys: PhysAddr<Page>, flags: int32): void {
+    pub function map_page(virt: VirtAddr<Page>, phys: PhysAddr<Page>, flags: int32) -> void {
         let pd_index: int32 = (virt.addr >> 22) & 0x3FF;
         let pt_index: int32 = (virt.addr >> 12) & 0x3FF;
         
@@ -153,7 +153,7 @@ module kernel::process {
     @wcet(300)
     @security(kernel)
     @interrupt(0x20) // Timer interrupt
-    pub function schedule(): void {
+    pub function schedule() -> void {
         // Save current context
         asm {
             "pushad"
@@ -196,7 +196,7 @@ module kernel::ipc {
     
     @wcet(200)
     @security(kernel)
-    pub function create_channel(owner: pid_t, perms: int32): Result<int32, KernelError> {
+    pub function create_channel(owner: pid_t, perms: int32) -> Result<int32, KernelError> {
         if (channel_count >= MAX_CHANNELS) {
             return Result::Err(KernelError::TooManyChannels);
         }
@@ -214,7 +214,7 @@ module kernel::ipc {
     @wcet(300)
     @security(kernel)
     @constant_time
-    pub function send_message(channel_id: int32, msg: ptr<Message, 1>): Result<void, KernelError> {
+    pub function send_message(channel_id: int32, msg: ptr<Message, 1>) -> Result<void, KernelError> {
         // Validate channel
         if (channel_id >= channel_count) {
             return Result::Err(KernelError::InvalidChannel);
@@ -243,16 +243,16 @@ module kernel::hal {
     // Port I/O
     @wcet(10)
     @intrinsic("inb")
-    pub function inb(port: int16): int8;
+    pub function inb(port: int16) -> int8;
     
     @wcet(10)
     @intrinsic("outb")
-    pub function outb(port: int16, value: int8): void;
+    pub function outb(port: int16, value: int8) -> void;
     
     // Interrupt management
     @wcet(50)
     @security(kernel)
-    pub function enable_interrupts(): void {
+    pub function enable_interrupts() -> void {
         asm {
             "sti"
             : // no outputs
@@ -263,7 +263,7 @@ module kernel::hal {
     
     @wcet(50)
     @security(kernel)
-    pub function disable_interrupts(): void {
+    pub function disable_interrupts() -> void {
         asm {
             "cli"
             : // no outputs
@@ -275,7 +275,7 @@ module kernel::hal {
     // Control register access
     @wcet(20)
     @security(kernel)
-    pub function read_cr3(): int32 {
+    pub function read_cr3() -> int32 {
         let value: int32;
         asm {
             "mov {value}, cr3"
@@ -288,7 +288,7 @@ module kernel::hal {
     
     @wcet(20)
     @security(kernel)
-    pub function write_cr3(value: int32): void {
+    pub function write_cr3(value: int32) -> void {
         asm {
             "mov cr3, {value}"
             : // no outputs
@@ -303,7 +303,7 @@ module std {
     // Memory operations
     @wcet(n * 4)
     @constant_time
-    pub function memcpy(dst: raw_ptr<int8>, src: raw_ptr<int8>, n: int32): void {
+    pub function memcpy(dst: raw_ptr<int8>, src: raw_ptr<int8>, n: int32) -> void {
         for (i: int32 = 0; i < n; i++) [max 4096] {
             dst[i] = src[i];
         }
@@ -311,14 +311,14 @@ module std {
     
     @wcet(n * 2)
     @constant_time
-    pub function memset(dst: raw_ptr<int8>, value: int8, n: int32): void {
+    pub function memset(dst: raw_ptr<int8>, value: int8, n: int32) -> void {
         for (i: int32 = 0; i < n; i++) [max 4096] {
             dst[i] = value;
         }
     }
     
     @wcet(100)
-    pub function strlen(s: ptr<int8, ?>, max: int32): int32 {
+    pub function strlen(s: ptr<int8, ?>, max: int32) -> int32 {
         let len: int32 = 0;
         while (len < max && s[len] != 0) [max 256] {
             len++;
@@ -331,7 +331,7 @@ module std {
 @wcet(1000)
 @security(kernel)
 @export
-function kernel_main(): void {
+function kernel_main() -> void {
     // Initialize memory management
     memory::init();
     

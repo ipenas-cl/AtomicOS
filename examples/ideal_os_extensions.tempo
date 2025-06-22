@@ -6,14 +6,14 @@
 // 1. PROCESS SANDBOXING SYSTEM
 // =================================================================
 
-function PLEDGE_STDIO(): int32 { return 0x01 }
-function PLEDGE_RPATH(): int32 { return 0x02 }
-function PLEDGE_WPATH(): int32 { return 0x04 }
-function PLEDGE_INET(): int32 { return 0x08 }
-function PLEDGE_UNIX(): int32 { return 0x10 }
-function PLEDGE_EXEC(): int32 { return 0x20 }
+function PLEDGE_STDIO() -> int32 { return 0x01 }
+function PLEDGE_RPATH() -> int32 { return 0x02 }
+function PLEDGE_WPATH() -> int32 { return 0x04 }
+function PLEDGE_INET() -> int32 { return 0x08 }
+function PLEDGE_UNIX() -> int32 { return 0x10 }
+function PLEDGE_EXEC() -> int32 { return 0x20 }
 
-function pledge_init_process(process_id: int32, promises: int32): int32 {
+function pledge_init_process(process_id: int32, promises: int32) -> int32 {
     // Validate process ID range
     if process_id < 1 || process_id > 65535 {
         return 0
@@ -29,7 +29,7 @@ function pledge_init_process(process_id: int32, promises: int32): int32 {
     return pledge_entry
 }
 
-function pledge_check_syscall(process_id: int32, syscall_id: int32, pledge_entry: int32): int32 {
+function pledge_check_syscall(process_id: int32, syscall_id: int32, pledge_entry: int32) -> int32 {
     let stored_pid = pledge_entry >> 16
     let promises = pledge_entry & 0xFFFF
     
@@ -48,7 +48,7 @@ function pledge_check_syscall(process_id: int32, syscall_id: int32, pledge_entry
 }
 
 // Unveil filesystem restrictions
-function unveil_add_path(process_id: int32, path_hash: int32, permissions: int32): int32 {
+function unveil_add_path(process_id: int32, path_hash: int32, permissions: int32) -> int32 {
     // path_hash: deterministic hash of filesystem path
     // permissions: 1=read, 2=write, 4=execute
     
@@ -59,7 +59,7 @@ function unveil_add_path(process_id: int32, path_hash: int32, permissions: int32
     return unveil_entry
 }
 
-function unveil_check_access(path_hash: int32, requested_perm: int32, unveil_entry: int32): int32 {
+function unveil_check_access(path_hash: int32, requested_perm: int32, unveil_entry: int32) -> int32 {
     let stored_path = unveil_entry >> 8
     let allowed_perms = unveil_entry & 0xFF
     
@@ -73,12 +73,12 @@ function unveil_check_access(path_hash: int32, requested_perm: int32, unveil_ent
 // 2. SECURITY MODULE FRAMEWORK SIMULATION
 // =================================================================
 
-function SEC_HOOK_FILE_OPEN(): int32 { return 1 }
-function SEC_HOOK_TASK_CREATE(): int32 { return 2 }
-function SEC_HOOK_SOCKET_CREATE(): int32 { return 3 }
-function SEC_HOOK_MODULE_LOAD(): int32 { return 4 }
+function SEC_HOOK_FILE_OPEN() -> int32 { return 1 }
+function SEC_HOOK_TASK_CREATE() -> int32 { return 2 }
+function SEC_HOOK_SOCKET_CREATE() -> int32 { return 3 }
+function SEC_HOOK_MODULE_LOAD() -> int32 { return 4 }
 
-function sec_security_context(subject_type: int32, object_type: int32, action: int32): int32 {
+function sec_security_context(subject_type: int32, object_type: int32, action: int32) -> int32 {
     // Type enforcement security model (simplified)
     // subject_type: 1=unconfined, 2=confined, 3=system, 4=kernel
     // object_type: 1=user_file, 2=system_file, 3=device, 4=socket
@@ -110,7 +110,7 @@ function sec_security_context(subject_type: int32, object_type: int32, action: i
     return 0  // Deny by default
 }
 
-function sec_hook_handler(hook_type: int32, subject_ctx: int32, object_ctx: int32, action: int32): int32 {
+function sec_hook_handler(hook_type: int32, subject_ctx: int32, object_ctx: int32, action: int32) -> int32 {
     let subject_type = (subject_ctx >> 16) & 0xFF
     let object_type = (object_ctx >> 16) & 0xFF
     
@@ -140,10 +140,10 @@ function sec_hook_handler(hook_type: int32, subject_ctx: int32, object_ctx: int3
 // 3. TRUSTED EXECUTION FRAMEWORK
 // =================================================================
 
-function TRUST_DB_SIZE(): int32 { return 256 }
-function TRUST_SIGNATURE_SIZE(): int32 { return 32 }
+function TRUST_DB_SIZE() -> int32 { return 256 }
+function TRUST_SIGNATURE_SIZE() -> int32 { return 32 }
 
-function trusted_signature_verify(binary_hash: int32, signature: int32): int32 {
+function trusted_signature_verify(binary_hash: int32, signature: int32) -> int32 {
     // Simplified signature verification (constant-time)
     let expected_sig = crypto_simple_hash(binary_hash, 4)
     
@@ -151,7 +151,7 @@ function trusted_signature_verify(binary_hash: int32, signature: int32): int32 {
     return constant_time_compare(signature, expected_sig)
 }
 
-function trusted_db_lookup(binary_hash: int32, db_index: int32): int32 {
+function trusted_db_lookup(binary_hash: int32, db_index: int32) -> int32 {
     // Deterministic trust database lookup
     if db_index < 0 || db_index >= TRUST_DB_SIZE() { return 0 }
     
@@ -160,7 +160,7 @@ function trusted_db_lookup(binary_hash: int32, db_index: int32): int32 {
     return stored_signature
 }
 
-function trusted_execution_check(binary_hash: int32, provided_signature: int32): int32 {
+function trusted_execution_check(binary_hash: int32, provided_signature: int32) -> int32 {
     // Search trust database (deterministic loop)
     let i = 0
     let verified = 0
@@ -192,10 +192,10 @@ function trusted_execution_check(binary_hash: int32, provided_signature: int32):
 // 4. COPY-ON-WRITE DETERMINISTIC FILESYSTEM
 // =================================================================
 
-function FS_BLOCK_SIZE(): int32 { return 4096 }
-function FS_MAX_SNAPSHOTS(): int32 { return 16 }
+function FS_BLOCK_SIZE() -> int32 { return 4096 }
+function FS_MAX_SNAPSHOTS() -> int32 { return 16 }
 
-function fs_checksum(data_block: int32, block_size: int32): int32 {
+function fs_checksum(data_block: int32, block_size: int32) -> int32 {
     // Fletcher64-inspired checksum (simplified, deterministic)
     let sum1 = 0
     let sum2 = 0
@@ -230,7 +230,7 @@ function fs_checksum(data_block: int32, block_size: int32): int32 {
     return (sum2 << 16) | (sum1 & 0xFFFF)
 }
 
-function fs_create_snapshot(filesystem_id: int32, snapshot_id: int32): int32 {
+function fs_create_snapshot(filesystem_id: int32, snapshot_id: int32) -> int32 {
     if filesystem_id < 1 || filesystem_id > 255 { return 0 }
     if snapshot_id < 1 || snapshot_id > FS_MAX_SNAPSHOTS() { return 0 }
     
@@ -239,7 +239,7 @@ function fs_create_snapshot(filesystem_id: int32, snapshot_id: int32): int32 {
     return snapshot_meta
 }
 
-function fs_verify_integrity(block_addr: int32, stored_checksum: int32): int32 {
+function fs_verify_integrity(block_addr: int32, stored_checksum: int32) -> int32 {
     let computed_checksum = fs_checksum(block_addr, FS_BLOCK_SIZE())
     return constant_time_compare(computed_checksum, stored_checksum)
 }
@@ -248,10 +248,10 @@ function fs_verify_integrity(block_addr: int32, stored_checksum: int32): int32 {
 // 5. HARDWARE-ASSISTED SECURITY (POWER/SPARC-inspired)
 // =================================================================
 
-function SECURE_ENCLAVE_SIZE(): int32 { return 65536 }
-function TPM_PCR_COUNT(): int32 { return 24 }
+function SECURE_ENCLAVE_SIZE() -> int32 { return 65536 }
+function TPM_PCR_COUNT() -> int32 { return 24 }
 
-function secure_enclave_create(base_addr: int32, size: int32): int32 {
+function secure_enclave_create(base_addr: int32, size: int32) -> int32 {
     // Validate enclave parameters
     if size > SECURE_ENCLAVE_SIZE() { return 0 }
     if (base_addr & 0xFFF) != 0 { return 0 }  // Must be page-aligned
@@ -261,7 +261,7 @@ function secure_enclave_create(base_addr: int32, size: int32): int32 {
     return enclave_id
 }
 
-function secure_enclave_enter(enclave_id: int32, entry_point: int32): int32 {
+function secure_enclave_enter(enclave_id: int32, entry_point: int32) -> int32 {
     if enclave_id == 0 { return 0 }
     
     // Verify entry point is within enclave bounds
@@ -273,7 +273,7 @@ function secure_enclave_enter(enclave_id: int32, entry_point: int32): int32 {
     return 1  // Enter enclave
 }
 
-function tpm_extend_pcr(pcr_index: int32, measurement: int32): int32 {
+function tpm_extend_pcr(pcr_index: int32, measurement: int32) -> int32 {
     if pcr_index < 0 || pcr_index >= TPM_PCR_COUNT() { return 0 }
     
     // Simulate PCR extension (SHA1-like)
@@ -283,7 +283,7 @@ function tpm_extend_pcr(pcr_index: int32, measurement: int32): int32 {
     return new_pcr
 }
 
-function secure_boot_verify(boot_stage: int32, measurement: int32): int32 {
+function secure_boot_verify(boot_stage: int32, measurement: int32) -> int32 {
     // Verify boot measurement against expected values
     let expected_measurement = 0
     
@@ -298,10 +298,10 @@ function secure_boot_verify(boot_stage: int32, measurement: int32): int32 {
 // 6. REAL-TIME NETWORKING (TSN-inspired)
 // =================================================================
 
-function TSN_PRIORITY_LEVELS(): int32 { return 8 }
-function TSN_MAX_LATENCY_NS(): int32 { return 1000000 }  // 1ms
+function TSN_PRIORITY_LEVELS() -> int32 { return 8 }
+function TSN_MAX_LATENCY_NS() -> int32 { return 1000000 }  // 1ms
 
-function tsn_create_stream(priority: int32, bandwidth_kbps: int32, max_latency_ns: int32): int32 {
+function tsn_create_stream(priority: int32, bandwidth_kbps: int32, max_latency_ns: int32) -> int32 {
     if priority < 0 || priority >= TSN_PRIORITY_LEVELS() { return 0 }
     if bandwidth_kbps <= 0 || bandwidth_kbps > 1000000 { return 0 }  // Max 1Gbps
     if max_latency_ns <= 0 || max_latency_ns > TSN_MAX_LATENCY_NS() { return 0 }
@@ -311,7 +311,7 @@ function tsn_create_stream(priority: int32, bandwidth_kbps: int32, max_latency_n
     return stream_id
 }
 
-function tsn_schedule_packet(stream_id: int32, packet_size: int32, current_time_ns: int32): int32 {
+function tsn_schedule_packet(stream_id: int32, packet_size: int32, current_time_ns: int32) -> int32 {
     let priority = stream_id >> 24
     let bandwidth = stream_id & 0xFFFFFF
     
@@ -329,7 +329,7 @@ function tsn_schedule_packet(stream_id: int32, packet_size: int32, current_time_
 // 7. INTEGRATED INITIALIZATION
 // =================================================================
 
-function ideal_os_init(): int32 {
+function ideal_os_init() -> int32 {
     // Initialize all subsystems in deterministic order
     
     // 1. Core deterministic system

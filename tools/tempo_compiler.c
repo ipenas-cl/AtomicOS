@@ -3,7 +3,7 @@
  * Part of AtomicOS Project - https://github.com/ipenas-cl/AtomicOS
  * Licensed under MIT License - see LICENSE file for details
  *
- * Tempo Compiler v1.0.0 - Complete Systems Programming Language
+ * Tempo Compiler v1.1.0 - Complete Systems Programming Language
  * Deterministic Programming Language for AtomicOS
  * Features: Structs, Pointers, Inline Assembly, WCET analysis, Full type system
  * 
@@ -164,6 +164,7 @@ typedef struct ast_node {
             int is_public;
             int is_inline;
             int is_trusted;
+            int is_constant_time;
         } function;
         
         struct {
@@ -261,6 +262,56 @@ static int max_function_cycles = 0;
 static int current_security_level = 0;
 static int trusted_function_count = 0;
 
+// Symbol table for variable tracking
+typedef struct symbol {
+    char* name;
+    int offset;
+    type_info_t* type;
+    int scope_level;
+    struct symbol* next;
+} symbol_t;
+
+static symbol_t* symbol_table = NULL;
+static int current_scope_level = 0;
+static int current_stack_offset = 0;
+
+// Symbol table functions
+static void push_symbol(const char* name, int offset, type_info_t* type) {
+    symbol_t* sym = malloc(sizeof(symbol_t));
+    sym->name = strdup(name);
+    sym->offset = offset;
+    sym->type = type;
+    sym->scope_level = current_scope_level;
+    sym->next = symbol_table;
+    symbol_table = sym;
+}
+
+static symbol_t* find_symbol(const char* name) {
+    symbol_t* sym = symbol_table;
+    while (sym) {
+        if (strcmp(sym->name, name) == 0) {
+            return sym;
+        }
+        sym = sym->next;
+    }
+    return NULL;
+}
+
+static void enter_scope() {
+    current_scope_level++;
+}
+
+static void exit_scope() {
+    // Remove symbols from current scope
+    while (symbol_table && symbol_table->scope_level == current_scope_level) {
+        symbol_t* temp = symbol_table;
+        symbol_table = symbol_table->next;
+        free(temp->name);
+        free(temp);
+    }
+    current_scope_level--;
+}
+
 // Error handling
 static void error(const char* fmt, ...) {
     va_list args;
@@ -268,6 +319,11 @@ static void error(const char* fmt, ...) {
     fprintf(stderr, "Tempo Compiler Error [%d:%d]: ", line, col);
     vfprintf(stderr, fmt, args);
     fprintf(stderr, "\n");
+    fprintf(stderr, "Debug: token_pos=%d, token_count=%d\n", token_pos, token_count);
+    if (token_pos < token_count) {
+        fprintf(stderr, "Current token: type=%d, value='%s'\n", 
+                tokens[token_pos].type, tokens[token_pos].value ? tokens[token_pos].value : "(null)");
+    }
     va_end(args);
     exit(1);
 }
@@ -309,8 +365,28 @@ static void tokenize() {
         }
         
         if (isdigit(c)) {
-            char buffer[32]; int i = 0;
-            while (isdigit(peek()) && i < 31) { buffer[i++] = peek(); advance(); }
+            char buffer[32] = {0}; 
+            int i = 0;
+            buffer[i++] = c;  // Add the first digit
+            advance(); // Move past the first digit
+            
+            // Check for hex numbers (0x prefix)
+            if (c == '0' && (peek() == 'x' || peek() == 'X')) {
+                buffer[i++] = peek(); advance(); // 'x' or 'X'
+                
+                // Parse hex digits
+                while ((isdigit(peek()) || (peek() >= 'a' && peek() <= 'f') || 
+                        (peek() >= 'A' && peek() <= 'F')) && i < 31) {
+                    buffer[i++] = peek(); 
+                    advance();
+                }
+            } else {
+                // Regular decimal number
+                while (isdigit(peek()) && i < 31) { 
+                    buffer[i++] = peek(); 
+                    advance(); 
+                }
+            }
             buffer[i] = '\0';
             tokens[token_count++] = make_token(TOK_NUMBER, buffer);
         } else if (isalpha(c) || c == '_') {
@@ -665,18 +741,30 @@ static ast_node_t* parse_asm() {
         node->data.asm_block.is_volatile = 1;
     }
     
-    if (!match(TOK_LPAREN)) error("Expected '(' after asm");
-    if (!match(TOK_STRING)) error("Expected assembly code string");
+    if (!match(TOK_LBRACE)) error("Expected '{' after asm");
     
-    node->data.asm_block.code = strdup(tokens[token_pos-1].value);
+    // Concatenate all strings until we hit '}'
+    char asm_code[1024] = "";
+    int code_len = 0;
     
-    // Parse outputs, inputs, clobbers
-    if (match(TOK_COLON)) {
-        // Output operands
-        // TODO: Parse output operands
+    while (!match(TOK_RBRACE)) {
+        if (match(TOK_STRING)) {
+            char* str = tokens[token_pos-1].value;
+            int len = strlen(str);
+            if (code_len + len + 2 < 1024) {
+                if (code_len > 0) {
+                    strcat(asm_code, "\n");
+                    code_len++;
+                }
+                strcat(asm_code, str);
+                code_len += len;
+            }
+        } else {
+            error("Expected string or '}' in asm block");
+        }
     }
     
-    if (!match(TOK_RPAREN)) error("Expected ')'");
+    node->data.asm_block.code = strdup(asm_code);
     
     return node;
 }
@@ -687,7 +775,16 @@ static ast_node_t* parse_primary() {
     
     if (match(TOK_NUMBER)) {
         node = create_node(AST_NUMBER);
-        node->data.num_value = atol(tokens[token_pos-1].value);
+        char* num_str = tokens[token_pos-1].value;
+        
+        // Check if it's a hex number
+        if (num_str[0] == '0' && (num_str[1] == 'x' || num_str[1] == 'X')) {
+            // Parse hexadecimal
+            node->data.num_value = strtol(num_str, NULL, 16);
+        } else {
+            // Parse decimal
+            node->data.num_value = atol(num_str);
+        }
     }
     else if (match(TOK_STRING)) {
         node = create_node(AST_STRING);
@@ -958,9 +1055,12 @@ static ast_node_t* parse_statement() {
         node = parse_block();
     }
     else {
-        // Expression statement
-        node = parse_expression();
-        if (!match(TOK_SEMICOLON)) error("Expected ';' after expression");
+        // Check if we have a valid expression to parse
+        if (peek_token() && peek_token()->type != TOK_RBRACE && peek_token()->type != TOK_EOF) {
+            // Expression statement
+            node = parse_expression();
+            if (!match(TOK_SEMICOLON)) error("Expected ';' after expression");
+        }
     }
     
     return node;
@@ -1023,14 +1123,34 @@ static ast_node_t* parse_function() {
         if (match(TOK_WCET)) {
             if (!match(TOK_LPAREN)) error("Expected '(' after @wcet");
             if (!match(TOK_NUMBER)) error("Expected WCET bound");
-            node->data.function.wcet_bound = atoi(tokens[token_pos-1].value);
+            char* num_str = tokens[token_pos-1].value;
+            if (num_str[0] == '0' && (num_str[1] == 'x' || num_str[1] == 'X')) {
+                node->data.function.wcet_bound = strtol(num_str, NULL, 16);
+            } else {
+                node->data.function.wcet_bound = atoi(num_str);
+            }
             if (!match(TOK_RPAREN)) error("Expected ')'");
         }
         else if (match(TOK_SECURITY)) {
             if (!match(TOK_LPAREN)) error("Expected '(' after @security");
             if (!match(TOK_NUMBER)) error("Expected security level");
-            node->data.function.security_level = atoi(tokens[token_pos-1].value);
+            char* sec_str = tokens[token_pos-1].value;
+            if (sec_str[0] == '0' && (sec_str[1] == 'x' || sec_str[1] == 'X')) {
+                node->data.function.security_level = strtol(sec_str, NULL, 16);
+            } else {
+                node->data.function.security_level = atoi(sec_str);
+            }
             if (!match(TOK_RPAREN)) error("Expected ')'");
+        }
+        else if (match(TOK_CONSTANT_TIME)) {
+            node->data.function.is_constant_time = 1;
+            // @constant_time doesn't require parameters
+        }
+        else if (match(TOK_TRUSTED)) {
+            node->data.function.is_trusted = 1;
+        }
+        else if (match(TOK_INLINE)) {
+            node->data.function.is_inline = 1;
         }
     }
     
@@ -1069,7 +1189,8 @@ static ast_node_t* parse_module() {
             if (!match(TOK_SEMICOLON)) error("Expected ';' after global declaration");
         }
         else {
-            error("Expected top-level declaration");
+            // If we hit an unexpected token, it's an error
+            error("Expected top-level declaration (function, struct, const, etc.)");
         }
         
         if (item) {
@@ -1251,6 +1372,17 @@ static void generate_assembly(ast_node_t* node, FILE* output) {
             fprintf(output, "    push ebp\n");
             fprintf(output, "    mov ebp, esp\n");
             
+            // Reset stack offset for local variables
+            current_stack_offset = 0;
+            enter_scope();
+            
+            // Add parameters to symbol table (parameters are at positive offsets)
+            for (int i = 0; i < node->data.function.param_count; i++) {
+                ast_node_t* param = node->data.function.params[i];
+                int param_offset = 8 + (i * 4); // Skip old ebp and return address
+                push_symbol(param->data.var_decl.name, param_offset, param->data.var_decl.type);
+            }
+            
             // Allocate stack frame if needed
             fprintf(output, "    sub esp, 64    ; Local variable space\n");
             
@@ -1260,6 +1392,12 @@ static void generate_assembly(ast_node_t* node, FILE* output) {
             
             generate_assembly(node->data.function.body, output);
             
+            // Clean up scope
+            exit_scope();
+            
+            // Add implicit return if function doesn't end with explicit return
+            // This handles void functions or missing returns
+            fprintf(output, "    ; Implicit return\n");
             fprintf(output, "    mov esp, ebp\n");
             fprintf(output, "    pop ebp\n");
             fprintf(output, "    ret\n");
@@ -1294,7 +1432,12 @@ static void generate_assembly(ast_node_t* node, FILE* output) {
             
         case AST_IDENT:
             fprintf(output, "    ; Load variable %s\n", node->data.str_value);
-            fprintf(output, "    mov eax, [ebp-8]    ; TODO: proper var offset\n");
+            symbol_t* sym = find_symbol(node->data.str_value);
+            if (sym) {
+                fprintf(output, "    mov eax, [ebp%+d]\n", sym->offset);
+            } else {
+                error("Undefined variable: %s", node->data.str_value);
+            }
             break;
             
         case AST_BINARY_OP:
@@ -1468,16 +1611,22 @@ static void generate_assembly(ast_node_t* node, FILE* output) {
             
         case AST_LET:
             fprintf(output, "    ; Variable: %s\n", node->data.var_decl.name);
+            // Allocate space on stack
+            current_stack_offset -= 4; // Assume 32-bit variables for now
+            push_symbol(node->data.var_decl.name, current_stack_offset, node->data.var_decl.type);
+            
             if (node->data.var_decl.init) {
                 generate_assembly(node->data.var_decl.init, output);
-                fprintf(output, "    mov [ebp-8], eax    ; TODO: proper var offset\n");
+                fprintf(output, "    mov [ebp%+d], eax\n", current_stack_offset);
             }
             break;
             
         case AST_BLOCK:
+            enter_scope();
             for (int i = 0; i < node->data.block.stmt_count; i++) {
                 generate_assembly(node->data.block.statements[i], output);
             }
+            exit_scope();
             break;
             
         case AST_RETURN:
@@ -1576,13 +1725,14 @@ int main(int argc, char* argv[]) {
     printf("     ██║   ███████╗██║ ╚═╝ ██║██║     ╚██████╔╝\n");
     printf("     ╚═╝   ╚══════╝╚═╝     ╚═╝╚═╝      ╚═════╝ \n");
     printf("\n");
-    printf("  Tempo v1.0.0 - Complete Systems Programming Language\n");
+    printf("  Tempo v1.1.0 - Complete Systems Programming Language\n");
     printf("  Processing: %s\n", argv[1]);
     printf("  ================================================\n\n");
     
     // Tokenize
     tokenize();
     printf("Tokenized %d tokens\n", token_count);
+    
     
     // Parse the module
     ast_node_t* ast = parse_module();
@@ -1602,7 +1752,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         
-        fprintf(output, "; Generated by Tempo v1.0.0 Compiler\n");
+        fprintf(output, "; Generated by Tempo v1.1.0 Compiler\n");
         fprintf(output, "; Source: %s\n", argv[1]);
         fprintf(output, "; Total WCET: %d cycles\n", total_cycles);
         fprintf(output, "; Max function WCET: %d cycles\n", max_function_cycles);

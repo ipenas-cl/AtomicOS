@@ -64,7 +64,7 @@ static shell: ShellState;
 // Main shell entry point
 @wcet(infinite)
 @export
-function shell_main(): int32 {
+function shell_main() -> int32 {
     // Initialize shell
     init_shell();
     
@@ -101,7 +101,7 @@ function shell_main(): int32 {
 }
 
 @wcet(100)
-function init_shell(): void {
+function init_shell() -> void {
     // Set initial directory
     str::copy(shell.current_dir, "/", MAX_PATH);
     
@@ -116,14 +116,14 @@ function init_shell(): void {
 }
 
 @wcet(50)
-function print_prompt(): void {
+function print_prompt() -> void {
     write_string("[");
     write_string(shell.current_dir);
     write_string("]$ ");
 }
 
 @wcet(200)
-function add_to_history(cmd: ptr<int8, MAX_COMMAND_LENGTH>): void {
+function add_to_history(cmd: ptr<int8, MAX_COMMAND_LENGTH>) -> void {
     if (shell.history_count < HISTORY_SIZE) {
         str::copy(shell.history[shell.history_count], cmd, MAX_COMMAND_LENGTH);
         shell.history_count++;
@@ -138,7 +138,7 @@ function add_to_history(cmd: ptr<int8, MAX_COMMAND_LENGTH>): void {
 }
 
 @wcet(500)
-function parse_command(line: ptr<int8, MAX_COMMAND_LENGTH>, cmd: ptr<Command, 1>): bool {
+function parse_command(line: ptr<int8, MAX_COMMAND_LENGTH>, cmd: ptr<Command, 1>) -> bool {
     // Initialize command structure
     cmd.arg_count = 0;
     cmd.input_redirect[0] = 0;
@@ -238,7 +238,7 @@ function parse_command(line: ptr<int8, MAX_COMMAND_LENGTH>, cmd: ptr<Command, 1>
 }
 
 @wcet(100)
-function execute_command(cmd: ptr<Command, 1>): int32 {
+function execute_command(cmd: ptr<Command, 1>) -> int32 {
     // Check for built-in commands
     let builtin_id: int32 = get_builtin_id(cmd.name);
     if (builtin_id >= 0) {
@@ -250,7 +250,7 @@ function execute_command(cmd: ptr<Command, 1>): int32 {
 }
 
 @wcet(50)
-function get_builtin_id(name: ptr<int8, 64>): int32 {
+function get_builtin_id(name: ptr<int8, 64>) -> int32 {
     if (str::compare(name, "cd", 64) == 0) return BUILTIN_CD;
     if (str::compare(name, "pwd", 64) == 0) return BUILTIN_PWD;
     if (str::compare(name, "ls", 64) == 0) return BUILTIN_LS;
@@ -264,7 +264,7 @@ function get_builtin_id(name: ptr<int8, 64>): int32 {
 }
 
 @wcet(1000)
-function execute_builtin(id: int32, cmd: ptr<Command, 1>): int32 {
+function execute_builtin(id: int32, cmd: ptr<Command, 1>) -> int32 {
     match id {
         BUILTIN_CD => return builtin_cd(cmd),
         BUILTIN_PWD => return builtin_pwd(cmd),
@@ -282,7 +282,7 @@ function execute_builtin(id: int32, cmd: ptr<Command, 1>): int32 {
 // Built-in command implementations
 
 @wcet(200)
-function builtin_cd(cmd: ptr<Command, 1>): int32 {
+function builtin_cd(cmd: ptr<Command, 1>) -> int32 {
     let path: ptr<int8, MAX_PATH>;
     
     if (cmd.arg_count <= 1) {
@@ -324,14 +324,14 @@ function builtin_cd(cmd: ptr<Command, 1>): int32 {
 }
 
 @wcet(50)
-function builtin_pwd(cmd: ptr<Command, 1>): int32 {
+function builtin_pwd(cmd: ptr<Command, 1>) -> int32 {
     write_string(shell.current_dir);
     write_string("\n");
     return 0;
 }
 
 @wcet(2000)
-function builtin_ls(cmd: ptr<Command, 1>): int32 {
+function builtin_ls(cmd: ptr<Command, 1>) -> int32 {
     let path: ptr<int8, MAX_PATH> = shell.current_dir;
     
     if (cmd.arg_count > 1) {
@@ -388,7 +388,7 @@ function builtin_ls(cmd: ptr<Command, 1>): int32 {
 }
 
 @wcet(5000)
-function builtin_cat(cmd: ptr<Command, 1>): int32 {
+function builtin_cat(cmd: ptr<Command, 1>) -> int32 {
     if (cmd.arg_count <= 1) {
         write_string("cat: missing operand\n");
         return 1;
@@ -417,7 +417,7 @@ function builtin_cat(cmd: ptr<Command, 1>): int32 {
 }
 
 @wcet(200)
-function builtin_echo(cmd: ptr<Command, 1>): int32 {
+function builtin_echo(cmd: ptr<Command, 1>) -> int32 {
     for (i: int32 = 0; i < cmd.arg_count - 1; i++) [max MAX_ARGS] {
         write_string(cmd.args[i]);
         if (i < cmd.arg_count - 2) {
@@ -429,7 +429,7 @@ function builtin_echo(cmd: ptr<Command, 1>): int32 {
 }
 
 @wcet(50)
-function builtin_exit(cmd: ptr<Command, 1>): int32 {
+function builtin_exit(cmd: ptr<Command, 1>) -> int32 {
     let exit_code: int32 = 0;
     
     if (cmd.arg_count > 1) {
@@ -444,7 +444,7 @@ function builtin_exit(cmd: ptr<Command, 1>): int32 {
 }
 
 @wcet(500)
-function builtin_help(cmd: ptr<Command, 1>): int32 {
+function builtin_help(cmd: ptr<Command, 1>) -> int32 {
     write_string("AtomicOS Tempo Shell Built-in Commands:\n\n");
     write_string("  cd [dir]     - Change directory\n");
     write_string("  pwd          - Print working directory\n");
@@ -464,7 +464,7 @@ function builtin_help(cmd: ptr<Command, 1>): int32 {
 }
 
 @wcet(1000)
-function builtin_ps(cmd: ptr<Command, 1>): int32 {
+function builtin_ps(cmd: ptr<Command, 1>) -> int32 {
     write_string("PID\tSTATE\tNAME\n");
     
     let procs: ProcessInfo[64];
@@ -493,7 +493,7 @@ function builtin_ps(cmd: ptr<Command, 1>): int32 {
 }
 
 @wcet(100)
-function builtin_kill(cmd: ptr<Command, 1>): int32 {
+function builtin_kill(cmd: ptr<Command, 1>) -> int32 {
     if (cmd.arg_count <= 1) {
         write_string("kill: missing pid\n");
         return 1;
@@ -517,7 +517,7 @@ function builtin_kill(cmd: ptr<Command, 1>): int32 {
 
 // External command execution
 @wcet(1000)
-function execute_external(cmd: ptr<Command, 1>): int32 {
+function execute_external(cmd: ptr<Command, 1>) -> int32 {
     // Search for command in PATH
     let full_path: int8[MAX_PATH];
     if (!find_in_path(cmd.name, full_path)) {
@@ -558,7 +558,7 @@ function execute_external(cmd: ptr<Command, 1>): int32 {
 
 // Utility functions
 @wcet(500)
-function find_in_path(name: ptr<int8, 64>, result: ptr<int8, MAX_PATH>): bool {
+function find_in_path(name: ptr<int8, 64>, result: ptr<int8, MAX_PATH>) -> bool {
     // If name contains /, use as-is
     if (str::find_char(name, '/', 64) >= 0) {
         str::copy(result, name, MAX_PATH);
@@ -601,7 +601,7 @@ function find_in_path(name: ptr<int8, 64>, result: ptr<int8, MAX_PATH>): bool {
 }
 
 @wcet(100)
-function set_env(name: ptr<int8, 32>, value: ptr<int8, 128>): void {
+function set_env(name: ptr<int8, 32>, value: ptr<int8, 128>) -> void {
     for (i: int32 = 0; i < shell.env_count; i++) [max 32] {
         if (str::compare(shell.env_vars[i].name, name, 32) == 0) {
             str::copy(shell.env_vars[i].value, value, 128);
@@ -617,7 +617,7 @@ function set_env(name: ptr<int8, 32>, value: ptr<int8, 128>): void {
 }
 
 @wcet(50)
-function get_env(name: ptr<int8, 32>): ptr<int8, 128> {
+function get_env(name: ptr<int8, 32>) -> ptr<int8, 128> {
     for (i: int32 = 0; i < shell.env_count; i++) [max 32] {
         if (str::compare(shell.env_vars[i].name, name, 32) == 0) {
             return shell.env_vars[i].value;
