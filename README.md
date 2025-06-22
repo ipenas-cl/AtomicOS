@@ -1,4 +1,4 @@
-# AtomicOS v1.2.2
+# AtomicOS v1.3.0
 
 **Deterministic Real-Time Security Operating System**
 
@@ -21,19 +21,32 @@ AtomicOS is a deterministic operating system designed for **security-critical ap
 
 **Tempo** is AtomicOS's systems programming language - think C, but deterministic and secure by design.
 
-### Tempo Features (v1.2.2)
+### Tempo Features (v1.3.0)
 
 ```tempo
+// NEW in v1.3.0: Assignment expressions!
+struct Point { x: int32, y: int32 }
+
+function update_position(p: ptr<Point>, dx: int32, dy: int32) {
+    p->x = p->x + dx;  // Struct field assignment
+    p->y = p->y + dy;  // Automatic offset calculation
+}
+
 // Direct hardware access without C!
-function vga_write(ch: int32) -> int32 {
-    memory_write8(0xB8000, ch);      // Write to VGA buffer
-    io_out8(0x3D4, 0x0F);           // Update cursor
+function vga_write(pos: int32, ch: int32) -> int32 {
+    let vga = 0xB8000;
+    memory_write8(vga + pos * 2, ch);      // Character
+    memory_write8(vga + pos * 2 + 1, 0x0F); // Attribute
     return 0;
 }
 
 // Security annotations
-function crypto_compare(a: int32, b: int32) -> int32 @constant_time {
-    // Timing-safe comparison
+function crypto_compare(a: ptr<int8, 32>, b: ptr<int8, 32>) -> bool @constant_time {
+    let diff = 0;
+    for i in 0..32 {
+        diff = diff | (a[i] ^ b[i]);
+    }
+    return diff == 0;
 }
 ```
 
@@ -101,9 +114,10 @@ AtomicOS/
 - 🏗️ **[Building from Source](docs/BUILD.md)**
 - 🔒 **[Security Model](docs/SECURITY.md)**
 
-## Latest Release: v1.2.2
+## Latest Release: v1.3.0
 
 ### What's New
+- **v1.3.x**: Assignment expressions, automatic struct field offsets, enhanced type system
 - **v1.2.x**: Hardware intrinsics for memory/IO access
 - **v1.1.x**: Hex literals, inline assembly, security annotations
 - **v1.0.x**: Initial release with complete kernel and Tempo compiler
