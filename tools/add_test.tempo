@@ -1,4 +1,0 @@
-function add(a: int32, b: int32): int32 { 
-    let result = a + b
-    return result 
-}

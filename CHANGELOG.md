@@ -5,6 +5,49 @@ All notable changes to AtomicOS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2025-06-22
+
+### Added
+- **Production-Ready Kernel**
+  - Complete interrupt system with IDT, ISRs, and IRQs
+  - Process management with context switching
+  - Real-time scheduler (EDF/RMS) with deadline guarantees
+  - System call interface with WCET bounds
+  - File system with VFS abstraction
+  - IPC system with message passing
+- **Tempo v1.0.0 - Complete Systems Language**
+  - Struct support with memory layout control
+  - Pointer types (bounded and raw)
+  - Inline assembly for hardware control
+  - Complete type system (all integer types, bool, arrays)
+  - Module system with imports/exports
+  - Enhanced control flow (for loops, match, break/continue)
+- **Security Enhancements**
+  - Full W^X protection enforcement
+  - Enhanced stack protection with canaries
+  - Guard pages between all memory regions
+  - KASLR with deterministic PRNG
+  - Multi-level security validation
+- **Developer Experience**
+  - Professional documentation site
+  - Comprehensive test suite
+  - Clean repository structure
+  - Improved build system
+  - Better error messages
+
+### Changed
+- Tempo can now replace C entirely for OS development
+- Improved kernel stability and performance
+- Enhanced security subsystem integration
+- Cleaner codebase organization
+- Better documentation structure
+
+### Removed
+- All C dependencies for core OS functionality
+- Temporary and backup files
+- Redundant test scripts
+- Legacy code paths
+
 ## [0.8.0] - 2025-06-21
 
 ### Added

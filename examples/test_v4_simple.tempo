@@ -1,6 +1,0 @@
-// Simple test for Tempo v4 compiler
-function main() -> int32 {
-    let x: int32 = 10;
-    let y: int32 = 20;
-    return x + y;
-}

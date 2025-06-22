@@ -205,12 +205,13 @@ safe_memory_access:
     cmp eax, 3
     jg .invalid_access
     
-    ; Check address bounds (0x10000 <= addr < 0x500000)
+    ; Check address bounds (0x10000 <= addr <= 0x510000)
+    ; Allow access to deterministic memory pool at 0x500000 (64KB)
     mov eax, [ebp+8]     ; addr parameter
     cmp eax, 0x10000
     jl .out_of_bounds
-    cmp eax, 0x500000
-    jge .out_of_bounds
+    cmp eax, 0x510000    ; 0x500000 + 64KB
+    jg .out_of_bounds
     
     mov eax, 1           ; Access allowed
     jmp .func_end

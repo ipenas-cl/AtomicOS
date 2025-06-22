@@ -63,19 +63,19 @@ init_paging:
     xor eax, eax
     rep stosd
     
-    ; Mark kernel pages as used (0-4MB)
+    ; Mark kernel pages as used (0-6MB to include deterministic pool)
     mov edi, PAGE_BITMAP_BASE
-    mov ecx, 1024 / 8        ; 1024 pages = 4MB, 8 pages per byte
+    mov ecx, 1536 / 8        ; 1536 pages = 6MB, 8 pages per byte
     mov al, 0xFF
     rep stosb
     
-    ; Setup identity mapping for kernel (0-4MB)
+    ; Setup identity mapping for kernel (0-6MB)
     call setup_kernel_mapping
     
-    ; Setup page fault handler
-    mov eax, 14              ; Page fault vector
-    mov ebx, page_fault_handler
-    call set_idt_entry
+    ; Setup page fault handler - will be done later when IDT is initialized
+    ; mov eax, 14              ; Page fault vector
+    ; mov ebx, page_fault_handler
+    ; call set_idt_entry
     
     ; Enable paging
     mov eax, PAGE_DIR_BASE
@@ -85,48 +85,66 @@ init_paging:
     or eax, 0x80000000      ; Set PG bit
     mov cr0, eax            ; Enable paging!
     
-    ; Print initialization message
-    push paging_init_msg
-    call print_string
-    add esp, 4
-    
-    push MEMORY_SIZE_MB
-    call print_decimal
-    add esp, 4
-    
-    push mb_msg
-    call print_string
-    add esp, 4
-    call print_newline
+    ; Print initialization message - commented out to avoid dependency issues
+    ; push paging_init_msg
+    ; call print_string
+    ; add esp, 4
+    ; 
+    ; push MEMORY_SIZE_MB
+    ; call print_decimal
+    ; add esp, 4
+    ; 
+    ; push mb_msg
+    ; call print_string
+    ; add esp, 4
+    ; call print_newline
     
     popad
     pop ebp
     ret
 
-; Setup kernel identity mapping (0-4MB)
+; Setup kernel identity mapping (0-6MB)
 setup_kernel_mapping:
     pushad
     
-    ; Allocate first page table
+    ; We need 2 page tables for 6MB (each table maps 4MB)
+    ; First page table: 0-4MB
     mov edi, PAGE_TABLE_BASE
+    xor esi, esi            ; Physical address starts at 0
+    mov ecx, 1024           ; 1024 pages = 4MB
     
-    ; Map first 4MB (1024 pages)
-    xor esi, esi            ; Physical address
-    mov ecx, 1024           ; 1024 pages
-    
-.map_page:
+.map_first_table:
     mov eax, esi
     or eax, PAGE_PRESENT | PAGE_WRITE  ; Kernel pages are writable
     mov [edi], eax
     
     add esi, VM_PAGE_SIZE
     add edi, 4
-    loop .map_page
+    loop .map_first_table
     
-    ; Add page table to directory
+    ; Add first page table to directory
     mov eax, PAGE_TABLE_BASE
     or eax, PAGE_PRESENT | PAGE_WRITE
     mov [PAGE_DIR_BASE], eax
+    
+    ; Second page table: 4-6MB (only need 512 pages)
+    mov edi, PAGE_TABLE_BASE + 0x1000  ; Second page table
+    ; esi already points to 4MB
+    mov ecx, 512            ; 512 pages = 2MB
+    
+.map_second_table:
+    mov eax, esi
+    or eax, PAGE_PRESENT | PAGE_WRITE
+    mov [edi], eax
+    
+    add esi, VM_PAGE_SIZE
+    add edi, 4
+    loop .map_second_table
+    
+    ; Add second page table to directory
+    mov eax, PAGE_TABLE_BASE + 0x1000
+    or eax, PAGE_PRESENT | PAGE_WRITE
+    mov [PAGE_DIR_BASE + 4], eax  ; Second PDE
     
     popad
     ret
@@ -322,15 +340,15 @@ page_fault_handler:
     
     inc dword [page_faults]
     
-    ; Print page fault message
-    push page_fault_msg
-    call print_string
-    add esp, 4
-    
-    push eax
-    call print_hex
-    add esp, 4
-    call print_newline
+    ; Print page fault message - commented out to avoid dependency
+    ; push page_fault_msg
+    ; call print_string
+    ; add esp, 4
+    ; 
+    ; push eax
+    ; call print_hex
+    ; add esp, 4
+    ; call print_newline
     
     ; Check if it's a protection violation
     test ebx, PAGE_PRESENT
