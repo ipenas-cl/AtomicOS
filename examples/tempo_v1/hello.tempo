@@ -9,5 +9,5 @@
 function hello() -> int32 {
     // Por ahora solo podemos retornar valores
     // TODO: Cuando tengamos print(), actualizar este ejemplo
-    return 42  // La respuesta a todo
+    return 42  // La respuesta a todo;
 }

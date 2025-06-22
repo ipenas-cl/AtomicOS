@@ -16,7 +16,7 @@ function ssp_store_canary(canary_addr: int32) -> int32 @wcet(10) {
         return 0;
     }
     
-    // For now, just return success
+    // For now, just return success;
     // Real implementation would store STACK_CANARY() at canary_addr
     return 1;
 }
@@ -31,7 +31,7 @@ function ssp_read_canary(canary_addr: int32) -> int32 @wcet(10) {
         return 0;
     }
     
-    // For now, return expected canary value
+    // For now, return expected canary value;
     // Real implementation would read from memory
     return STACK_CANARY();
 }
@@ -65,7 +65,7 @@ function ssp_verify_canary(canary_addr: int32) -> int32 @wcet(15) {
 // Handle stack corruption detection
 function ssp_handle_corruption(canary_addr: int32) -> int32 @wcet(50) {
     // Log the corruption (would write to security log)
-    // For now, return error code
+    // For now, return error code;
     // Real implementation would halt the system
     
     return CANARY_DEAD();

@@ -266,16 +266,16 @@ function get_builtin_id(name: ptr<int8, 64>) -> int32 {
 @wcet(1000)
 function execute_builtin(id: int32, cmd: ptr<Command, 1>) -> int32 {
     match id {
-        BUILTIN_CD => return builtin_cd(cmd),
-        BUILTIN_PWD => return builtin_pwd(cmd),
-        BUILTIN_LS => return builtin_ls(cmd),
-        BUILTIN_CAT => return builtin_cat(cmd),
-        BUILTIN_ECHO => return builtin_echo(cmd),
-        BUILTIN_EXIT => return builtin_exit(cmd),
-        BUILTIN_HELP => return builtin_help(cmd),
-        BUILTIN_PS => return builtin_ps(cmd),
-        BUILTIN_KILL => return builtin_kill(cmd),
-        _ => return -1
+        BUILTIN_CD => return builtin_cd(cmd),;
+        BUILTIN_PWD => return builtin_pwd(cmd),;
+        BUILTIN_LS => return builtin_ls(cmd),;
+        BUILTIN_CAT => return builtin_cat(cmd),;
+        BUILTIN_ECHO => return builtin_echo(cmd),;
+        BUILTIN_EXIT => return builtin_exit(cmd),;
+        BUILTIN_HELP => return builtin_help(cmd),;
+        BUILTIN_PS => return builtin_ps(cmd),;
+        BUILTIN_KILL => return builtin_kill(cmd),;
+        _ => return -1;
     }
 }
 

@@ -4,17 +4,17 @@
 // IPC system call wrappers
 function ipc_create_channel(permissions: int32) -> int32 {
     // Simplified - would use inline assembly in real implementation
-    return 1  // Mock channel ID
+    return 1  // Mock channel ID;
 }
 
 function ipc_send_message(channel: int32, msg: int32) -> int32 {
     // Send a simple integer message
-    return 0  // Success
+    return 0  // Success;
 }
 
 function ipc_receive_message(channel: int32) -> int32 {
     // Receive a message
-    return 42  // Mock received value
+    return 42  // Mock received value;
 }
 
 // Producer process - sends data through IPC
@@ -30,7 +30,7 @@ function producer_process() -> int32 {
         i = i + 1
     }
     
-    return channel
+    return channel;
 }
 
 // Consumer process - receives data through IPC
@@ -45,7 +45,7 @@ function consumer_process(channel: int32) -> int32 {
         count = count + 1
     }
     
-    return sum
+    return sum;
 }
 
 // Bidirectional communication example
@@ -66,7 +66,7 @@ function ping_pong_demo() -> int32 {
     // Process A receives pong
     let pong: int32 = ipc_receive_message(channel_b_to_a)
     
-    return pong
+    return pong;
 }
 
 // Main demonstration
@@ -79,5 +79,5 @@ function main() -> int32 {
     let pong_result: int32 = ping_pong_demo()
     
     // Return combined result
-    return result + pong_result
+    return result + pong_result;
 }

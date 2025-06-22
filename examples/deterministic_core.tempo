@@ -163,30 +163,30 @@ function crypto_simple_hash(data: int32, length: int32) -> int32 {
     if length >= 1 {
         let byte_val = data & 0xFF;
         let temp1 = hash ^ byte_val;
-        hash = temp1
+        hash = temp1;
         let temp2 = hash * prime;
-        hash = temp2
+        hash = temp2;
     }
     if length >= 2 {
         let byte_val = (data + 1) & 0xFF;
         let temp1 = hash ^ byte_val;
-        hash = temp1
+        hash = temp1;
         let temp2 = hash * prime;
-        hash = temp2
+        hash = temp2;
     }
     if length >= 3 {
         let byte_val = (data + 2) & 0xFF;
         let temp1 = hash ^ byte_val;
-        hash = temp1
+        hash = temp1;
         let temp2 = hash * prime;
-        hash = temp2
+        hash = temp2;
     }
     if length >= 4 {
         let byte_val = (data + 3) & 0xFF;
         let temp1 = hash ^ byte_val;
-        hash = temp1
+        hash = temp1;
         let temp2 = hash * prime;
-        hash = temp2
+        hash = temp2;
     }
     
     return hash;
