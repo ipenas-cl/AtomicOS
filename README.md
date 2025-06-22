@@ -1,4 +1,4 @@
-# AtomicOS v1.0.0
+# AtomicOS v1.1.0
 
 **Deterministic Real-Time Security Operating System**
 
