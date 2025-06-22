@@ -3,7 +3,7 @@
  * Part of AtomicOS Project - https://github.com/ipenas-cl/AtomicOS
  * Licensed under MIT License - see LICENSE file for details
  *
- * Tempo Compiler v1.1.0 - Complete Systems Programming Language
+ * Tempo Compiler v1.2.0 - Complete Systems Programming Language
  * Deterministic Programming Language for AtomicOS
  * Features: Structs, Pointers, Inline Assembly, WCET analysis, Full type system
  * 
@@ -1276,7 +1276,25 @@ static void analyze_wcet(ast_node_t* node) {
             break;
             
         case AST_CALL:
-            node->wcet_cycles = 10;  // Assume 10 cycles for function call
+            // Check for intrinsic functions with known WCET
+            if (strncmp(node->data.call.name, "memory_read", 11) == 0 ||
+                strncmp(node->data.call.name, "memory_write", 12) == 0) {
+                node->wcet_cycles = 4;  // Memory access intrinsics
+            }
+            else if (strncmp(node->data.call.name, "io_in", 5) == 0 ||
+                     strncmp(node->data.call.name, "io_out", 6) == 0) {
+                node->wcet_cycles = 20;  // I/O operations are slower
+            }
+            else if (strcmp(node->data.call.name, "cpu_cli") == 0 ||
+                     strcmp(node->data.call.name, "cpu_sti") == 0) {
+                node->wcet_cycles = 2;  // Fast CPU control instructions
+            }
+            else if (strcmp(node->data.call.name, "cpu_hlt") == 0) {
+                node->wcet_cycles = 1;  // Halt is immediate
+            }
+            else {
+                node->wcet_cycles = 10;  // Regular function call overhead
+            }
             break;
             
         case AST_CONSTANT_TIME_BLOCK:
@@ -1545,17 +1563,134 @@ static void generate_assembly(ast_node_t* node, FILE* output) {
             break;
             
         case AST_CALL:
-            // Push arguments in reverse order
-            for (int i = node->data.call.arg_count - 1; i >= 0; i--) {
-                generate_assembly(node->data.call.args[i], output);
-                fprintf(output, "    push eax\n");
+            // Check for intrinsic functions
+            if (strcmp(node->data.call.name, "memory_read8") == 0) {
+                // memory_read8(address) -> byte
+                if (node->data.call.arg_count != 1) error("memory_read8 expects 1 argument");
+                generate_assembly(node->data.call.args[0], output);
+                fprintf(output, "    movzx eax, byte [eax]\n");
             }
-            
-            fprintf(output, "    call %s\n", node->data.call.name);
-            
-            // Clean up stack
-            if (node->data.call.arg_count > 0) {
-                fprintf(output, "    add esp, %d\n", node->data.call.arg_count * 4);
+            else if (strcmp(node->data.call.name, "memory_read16") == 0) {
+                // memory_read16(address) -> word
+                if (node->data.call.arg_count != 1) error("memory_read16 expects 1 argument");
+                generate_assembly(node->data.call.args[0], output);
+                fprintf(output, "    movzx eax, word [eax]\n");
+            }
+            else if (strcmp(node->data.call.name, "memory_read32") == 0) {
+                // memory_read32(address) -> dword
+                if (node->data.call.arg_count != 1) error("memory_read32 expects 1 argument");
+                generate_assembly(node->data.call.args[0], output);
+                fprintf(output, "    mov eax, [eax]\n");
+            }
+            else if (strcmp(node->data.call.name, "memory_write8") == 0) {
+                // memory_write8(address, value)
+                if (node->data.call.arg_count != 2) error("memory_write8 expects 2 arguments");
+                generate_assembly(node->data.call.args[1], output);  // value
+                fprintf(output, "    push eax\n");
+                generate_assembly(node->data.call.args[0], output);  // address
+                fprintf(output, "    pop ebx\n");
+                fprintf(output, "    mov [eax], bl\n");
+            }
+            else if (strcmp(node->data.call.name, "memory_write16") == 0) {
+                // memory_write16(address, value)
+                if (node->data.call.arg_count != 2) error("memory_write16 expects 2 arguments");
+                generate_assembly(node->data.call.args[1], output);  // value
+                fprintf(output, "    push eax\n");
+                generate_assembly(node->data.call.args[0], output);  // address
+                fprintf(output, "    pop ebx\n");
+                fprintf(output, "    mov [eax], bx\n");
+            }
+            else if (strcmp(node->data.call.name, "memory_write32") == 0) {
+                // memory_write32(address, value)
+                if (node->data.call.arg_count != 2) error("memory_write32 expects 2 arguments");
+                generate_assembly(node->data.call.args[1], output);  // value
+                fprintf(output, "    push eax\n");
+                generate_assembly(node->data.call.args[0], output);  // address
+                fprintf(output, "    pop ebx\n");
+                fprintf(output, "    mov [eax], ebx\n");
+            }
+            else if (strcmp(node->data.call.name, "io_in8") == 0) {
+                // io_in8(port) -> byte
+                if (node->data.call.arg_count != 1) error("io_in8 expects 1 argument");
+                generate_assembly(node->data.call.args[0], output);
+                fprintf(output, "    mov dx, ax\n");
+                fprintf(output, "    in al, dx\n");
+                fprintf(output, "    movzx eax, al\n");
+            }
+            else if (strcmp(node->data.call.name, "io_in16") == 0) {
+                // io_in16(port) -> word
+                if (node->data.call.arg_count != 1) error("io_in16 expects 1 argument");
+                generate_assembly(node->data.call.args[0], output);
+                fprintf(output, "    mov dx, ax\n");
+                fprintf(output, "    in ax, dx\n");
+                fprintf(output, "    movzx eax, ax\n");
+            }
+            else if (strcmp(node->data.call.name, "io_in32") == 0) {
+                // io_in32(port) -> dword
+                if (node->data.call.arg_count != 1) error("io_in32 expects 1 argument");
+                generate_assembly(node->data.call.args[0], output);
+                fprintf(output, "    mov dx, ax\n");
+                fprintf(output, "    in eax, dx\n");
+            }
+            else if (strcmp(node->data.call.name, "io_out8") == 0) {
+                // io_out8(port, value)
+                if (node->data.call.arg_count != 2) error("io_out8 expects 2 arguments");
+                generate_assembly(node->data.call.args[1], output);  // value
+                fprintf(output, "    push eax\n");
+                generate_assembly(node->data.call.args[0], output);  // port
+                fprintf(output, "    mov dx, ax\n");
+                fprintf(output, "    pop eax\n");
+                fprintf(output, "    out dx, al\n");
+            }
+            else if (strcmp(node->data.call.name, "io_out16") == 0) {
+                // io_out16(port, value)
+                if (node->data.call.arg_count != 2) error("io_out16 expects 2 arguments");
+                generate_assembly(node->data.call.args[1], output);  // value
+                fprintf(output, "    push eax\n");
+                generate_assembly(node->data.call.args[0], output);  // port
+                fprintf(output, "    mov dx, ax\n");
+                fprintf(output, "    pop eax\n");
+                fprintf(output, "    out dx, ax\n");
+            }
+            else if (strcmp(node->data.call.name, "io_out32") == 0) {
+                // io_out32(port, value)
+                if (node->data.call.arg_count != 2) error("io_out32 expects 2 arguments");
+                generate_assembly(node->data.call.args[1], output);  // value
+                fprintf(output, "    push eax\n");
+                generate_assembly(node->data.call.args[0], output);  // port
+                fprintf(output, "    mov dx, ax\n");
+                fprintf(output, "    pop eax\n");
+                fprintf(output, "    out dx, eax\n");
+            }
+            else if (strcmp(node->data.call.name, "cpu_cli") == 0) {
+                // cpu_cli() - disable interrupts
+                if (node->data.call.arg_count != 0) error("cpu_cli expects no arguments");
+                fprintf(output, "    cli\n");
+            }
+            else if (strcmp(node->data.call.name, "cpu_sti") == 0) {
+                // cpu_sti() - enable interrupts
+                if (node->data.call.arg_count != 0) error("cpu_sti expects no arguments");
+                fprintf(output, "    sti\n");
+            }
+            else if (strcmp(node->data.call.name, "cpu_hlt") == 0) {
+                // cpu_hlt() - halt CPU
+                if (node->data.call.arg_count != 0) error("cpu_hlt expects no arguments");
+                fprintf(output, "    hlt\n");
+            }
+            else {
+                // Regular function call
+                // Push arguments in reverse order
+                for (int i = node->data.call.arg_count - 1; i >= 0; i--) {
+                    generate_assembly(node->data.call.args[i], output);
+                    fprintf(output, "    push eax\n");
+                }
+                
+                fprintf(output, "    call %s\n", node->data.call.name);
+                
+                // Clean up stack
+                if (node->data.call.arg_count > 0) {
+                    fprintf(output, "    add esp, %d\n", node->data.call.arg_count * 4);
+                }
             }
             break;
             
@@ -1725,7 +1860,7 @@ int main(int argc, char* argv[]) {
     printf("     ██║   ███████╗██║ ╚═╝ ██║██║     ╚██████╔╝\n");
     printf("     ╚═╝   ╚══════╝╚═╝     ╚═╝╚═╝      ╚═════╝ \n");
     printf("\n");
-    printf("  Tempo v1.1.0 - Complete Systems Programming Language\n");
+    printf("  Tempo v1.2.0 - Complete Systems Programming Language\n");
     printf("  Processing: %s\n", argv[1]);
     printf("  ================================================\n\n");
     
@@ -1752,7 +1887,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         
-        fprintf(output, "; Generated by Tempo v1.1.0 Compiler\n");
+        fprintf(output, "; Generated by Tempo v1.2.0 Compiler\n");
         fprintf(output, "; Source: %s\n", argv[1]);
         fprintf(output, "; Total WCET: %d cycles\n", total_cycles);
         fprintf(output, "; Max function WCET: %d cycles\n", max_function_cycles);

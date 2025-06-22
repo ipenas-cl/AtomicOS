@@ -1,0 +1,45 @@
+// VGA Hello World using Memory Intrinsics
+
+function vga_hello() -> int32 {
+    // VGA text buffer at 0xB8000
+    let base = 0xB8000;
+    
+    // Write "HELLO" at top-left corner
+    // Each character needs 2 bytes: char + attribute
+    
+    // H (ASCII 72)
+    memory_write8(base, 72);
+    memory_write8(base + 1, 0x0F);  // White on black
+    
+    // E (ASCII 69)
+    memory_write8(base + 2, 69);
+    memory_write8(base + 3, 0x0F);
+    
+    // L (ASCII 76)
+    memory_write8(base + 4, 76);
+    memory_write8(base + 5, 0x0F);
+    
+    // L (ASCII 76)
+    memory_write8(base + 6, 76);
+    memory_write8(base + 7, 0x0F);
+    
+    // O (ASCII 79)
+    memory_write8(base + 8, 79);
+    memory_write8(base + 9, 0x0F);
+    
+    return 0;
+}
+
+// Test I/O ports
+function test_ports() -> int32 {
+    // Disable interrupts
+    cpu_cli();
+    
+    // Read keyboard status
+    let status = io_in8(0x64);
+    
+    // Enable interrupts
+    cpu_sti();
+    
+    return status;
+}
