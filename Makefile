@@ -3,7 +3,7 @@
 
 # Configuration
 PROJECT_NAME = AtomicOS
-VERSION = 1.2.1
+VERSION = 1.2.2
 ARCH = i386
 
 # Directories
@@ -49,7 +49,7 @@ $(BUILD_DIR):
 
 # Build Tempo compiler
 $(TEMPO_BIN): $(TOOLS_DIR)/tempo_compiler.c | $(BUILD_DIR)
-	@echo "Building Tempo v1.2.1 compiler..."
+	@echo "Building Tempo v1.2.2 compiler..."
 	$(CC) -std=c99 -Wall -Wextra -O2 -o $@ $<
 
 # Build enhanced Tempo compiler (separate target)
@@ -123,7 +123,7 @@ release-major:
 version:
 	@echo "AtomicOS $(VERSION)"
 	@echo "Architecture: $(ARCH)"
-	@echo "Tempo Compiler: v1.2.1"
+	@echo "Tempo Compiler: v1.2.2"
 
 # Run in QEMU
 .PHONY: run
