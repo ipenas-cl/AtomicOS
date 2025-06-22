@@ -2,125 +2,149 @@
 
 **Deterministic Real-Time Security Operating System**
 
-🌐 **Website**: [ipenas-cl.github.io/AtomicOS](https://ipenas-cl.github.io/AtomicOS)
+🌐 **[Documentation](https://ipenas-cl.github.io/AtomicOS)** | 📦 **[Downloads](https://github.com/ipenas-cl/AtomicOS/releases)** | 📚 **[Tempo Language](https://ipenas-cl.github.io/AtomicOS/tempo)**
 
-AtomicOS is a deterministic operating system designed for security-critical applications requiring predictable timing and robust security guarantees.
+---
 
-## Features
+## What is AtomicOS?
 
-### 🔒 Security
-- **W^X Protection**: Memory pages cannot be both writable and executable
-- **Stack-Smashing Protection (SSP)**: Deterministic canary-based stack corruption detection
-- **Guard Pages**: Empty pages between memory regions to detect buffer overflows
-- **KASLR**: Kernel Address Space Layout Randomization with deterministic PRNG
-- **Multi-level Security**: Bell-LaPadula inspired access control with 4 security levels
+AtomicOS is a deterministic operating system designed for **security-critical applications** requiring predictable timing and robust security guarantees. Written in x86 assembly and our custom **Tempo programming language**, it follows the principle: *"Security First, Stability Second, Performance Third"*.
 
-### ⚡ Determinism & Real-Time
-- **Predictable Execution Timing**: WCET-bounded operations for real-time guarantees
-- **Static Resource Allocation**: Fixed 64KB memory pool with deterministic allocation
-- **Reproducible Behavior**: Deterministic PRNG with fixed seed for testing
-- **Real-Time Scheduling**: EDF (Earliest Deadline First) and RMS (Rate Monotonic Scheduling)
-- **Constant-Time Operations**: No timing side-channels in cryptographic operations
-- **Interrupt System**: Full IDT with ISRs, IRQs, and deterministic interrupt handling
-- **Process Management**: Context switching with real-time task support
+### Key Features
 
-### 🛠️ Tempo Programming Language
+- 🔒 **Multi-layered Security**: W^X protection, stack-smashing protection, guard pages, KASLR
+- ⏱️ **Real-Time Guarantees**: WCET analysis, EDF/RMS scheduling, bounded interrupt latency
+- 🎯 **Deterministic Execution**: Reproducible behavior, static allocation, no timing variations
+- 🛡️ **Zero Trust Architecture**: Bell-LaPadula security model with 4 privilege levels
 
-📚 **[Tempo Language Documentation](https://ipenas-cl.github.io/AtomicOS/tempo)**
+## What is Tempo?
 
-AtomicOS features Tempo, a deterministic systems programming language designed for security-critical applications:
+**Tempo** is AtomicOS's systems programming language - think C, but deterministic and secure by design.
 
-- **Type Safety**: Strong static typing with compile-time verification
-- **Memory Safety**: Bounded operations with no buffer overflows
-- **Deterministic**: WCET analysis for all operations
-- **Real-Time**: Built-in support for deadline scheduling
-- **Security Levels**: Compile-time security verification
-- **Zero Overhead**: Compiles directly to optimized assembly
+### Tempo Features (v1.2.2)
+
+```tempo
+// Direct hardware access without C!
+function vga_write(ch: int32) -> int32 {
+    memory_write8(0xB8000, ch);      // Write to VGA buffer
+    io_out8(0x3D4, 0x0F);           // Update cursor
+    return 0;
+}
+
+// Security annotations
+function crypto_compare(a: int32, b: int32) -> int32 @constant_time {
+    // Timing-safe comparison
+}
+```
+
+- ✨ **Hardware Intrinsics**: Direct memory/IO access (`memory_read32`, `io_out8`, etc.)
+- 🔢 **Modern Syntax**: Hex literals (`0xFF`), inline assembly, type inference
+- 🔐 **Security Annotations**: `@constant_time`, `@wcet(100)`, `@trusted`
+- ⚡ **Zero Overhead**: Compiles to optimized x86 assembly
+- 📊 **WCET Analysis**: Compile-time timing guarantees
 
 ## Quick Start
 
+### 1. Download & Build
+
 ```bash
-# Build the operating system
+# Clone the repository
+git clone https://github.com/ipenas-cl/AtomicOS.git
+cd AtomicOS
+
+# Build everything (OS + Tempo compiler)
 make all
 
 # Run in QEMU
 make run
-
-# Run comprehensive test suite
-make test
-
-# Run pre-commit checks
-scripts/pre-commit.sh
 ```
+
+### 2. Try Tempo
+
+```bash
+# Compile a Tempo program
+./build/tempo_compiler examples/hello.tempo output.s
+
+# Run tests
+make test
+```
+
+### 3. Explore Examples
+
+Check the `examples/` directory for Tempo code:
+- `intrinsics_vga_hello.tempo` - Hardware access demo
+- `deterministic_core.tempo` - Core OS functions
+- `realtime_scheduler.tempo` - Real-time scheduling
+- `kaslr.tempo` - Security features
 
 ## Project Structure
 
 ```
 AtomicOS/
 ├── src/
-│   ├── kernel/          # Kernel source code
-│   ├── bootloader/      # Boot loaders
-│   ├── libc/           # C standard library
-│   └── userspace/      # User applications
-├── include/            # Header files
-├── build/             # Build artifacts
-├── docs/              # Documentation
-├── tests/             # Test suites
-├── tools/             # Development tools
-└── examples/          # Example programs
+│   ├── kernel/          # Kernel (assembly + Tempo)
+│   ├── bootloader/      # x86 bootloader
+│   └── libc/           # Minimal C library
+├── tools/
+│   └── tempo_compiler.c # Tempo compiler v1.2.2
+├── examples/           # Tempo example programs
+├── docs/              # Documentation & website
+├── build/             # Build output
+└── tests/             # Test suite
 ```
 
-## Security Philosophy
+## Documentation
 
-**"Security First, Stability Second, Performance Third"**
+- 📖 **[Getting Started Guide](https://ipenas-cl.github.io/AtomicOS)**
+- 🔧 **[Tempo Language Reference](https://ipenas-cl.github.io/AtomicOS/tempo)**
+- 📚 **[API Documentation](docs/API.md)**
+- 🏗️ **[Building from Source](docs/BUILD.md)**
+- 🔒 **[Security Model](docs/SECURITY.md)**
 
-AtomicOS prioritizes security over performance, ensuring that:
-1. All security subsystems must initialize successfully or the system halts
-2. Memory operations are bounds-checked and deterministic
-3. Timing side-channels are eliminated through constant-time operations
-4. Process isolation is enforced through multiple security layers
+## Latest Release: v1.2.2
 
-## Real-Time Guarantees
+### What's New
+- **v1.2.x**: Hardware intrinsics for memory/IO access
+- **v1.1.x**: Hex literals, inline assembly, security annotations
+- **v1.0.x**: Initial release with complete kernel and Tempo compiler
 
-- **WCET Analysis**: All code paths have provable worst-case execution times
-- **Fixed Priority Scheduling**: Deterministic task scheduling with deadline guarantees
-- **Static Memory Management**: No dynamic allocation to prevent unpredictable delays
-- **Bounded Interrupt Latency**: Hardware interrupts serviced within fixed time windows
+[View all releases](https://github.com/ipenas-cl/AtomicOS/releases)
 
-## What's New in v1.0.0
+## Requirements
 
-### 🎉 Production Ready
-- **Stable Kernel**: Fully functional with interrupt handling and process management
-- **Complete Tempo Language**: Production-ready systems programming language
-- **Real-Time Scheduler**: EDF and RMS scheduling with deadline guarantees
-- **Comprehensive Testing**: Extensive test suite ensuring reliability
-- **Professional Documentation**: Complete user and developer guides
-
-### Key Components
-- **Interrupt System**: Full IDT with 256 handlers, nested interrupt support
-- **Process Management**: Context switching, PCB management, priority scheduling
-- **Memory Protection**: W^X, guard pages, KASLR, stack protection
-- **File System**: Basic VFS with deterministic operations
-- **IPC System**: Message passing with security validation
-- **System Calls**: Complete syscall interface with WCET bounds
-
-## License
-
-MIT License - See LICENSE file for details.
+- **Architecture**: i386 (32-bit x86)
+- **Build Tools**: GCC, NASM, Make
+- **Runtime**: QEMU (for testing)
+- **Memory**: 64KB minimum
 
 ## Contributing
 
-AtomicOS follows strict coding standards for security and determinism:
-- All code must have WCET analysis
-- Memory operations must be bounds-checked
-- Cryptographic operations must be constant-time
-- Security features must be formally verified where possible
+AtomicOS is an open-source project. We welcome contributions!
 
-For detailed contributing guidelines, see `docs/CONTRIBUTING.md`.
+1. Fork the repository
+2. Create a feature branch
+3. Run `scripts/pre-commit.sh` before committing
+4. Submit a pull request
 
-## Links
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
-- 🌐 **Official Website**: [ipenas-cl.github.io/AtomicOS](https://ipenas-cl.github.io/AtomicOS)
-- 📚 **Tempo Language Documentation**: [ipenas-cl.github.io/AtomicOS/tempo](https://ipenas-cl.github.io/AtomicOS/tempo)
-- 🔧 **GitHub Repository**: [github.com/ipenas-cl/AtomicOS](https://github.com/ipenas-cl/AtomicOS)
-- 📦 **Releases**: [github.com/ipenas-cl/AtomicOS/releases](https://github.com/ipenas-cl/AtomicOS/releases)
+## Security
+
+Found a security issue? Please email security@atomicos.org (or open an issue if non-critical).
+
+## License
+
+AtomicOS is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+## Philosophy
+
+> "Security First, Stability Second, Performance Third"
+
+We prioritize correctness and security over performance. Every line of code must be:
+- **Deterministic**: Same input → same output → same timing
+- **Verifiable**: Provable security and timing properties
+- **Minimal**: No unnecessary complexity
+
+---
+
+**Ready to build secure, real-time systems?** [Get Started →](https://ipenas-cl.github.io/AtomicOS)

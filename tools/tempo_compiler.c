@@ -3,7 +3,7 @@
  * Part of AtomicOS Project - https://github.com/ipenas-cl/AtomicOS
  * Licensed under MIT License - see LICENSE file for details
  *
- * Tempo Compiler v1.2.2 - Complete Systems Programming Language
+ * Tempo Compiler v1.3.0 - Complete Systems Programming Language
  * Deterministic Programming Language for AtomicOS
  * Features: Structs, Pointers, Inline Assembly, WCET analysis, Full type system
  * 
@@ -297,6 +297,123 @@ static symbol_t* find_symbol(const char* name) {
     return NULL;
 }
 
+// Struct symbol table
+typedef struct struct_symbol {
+    char* name;
+    field_info_t* fields;
+    int field_count;
+    int is_packed;
+    int alignment;
+    int total_size;
+    struct struct_symbol* next;
+} struct_symbol_t;
+
+static struct_symbol_t* struct_table = NULL;
+
+// Register a struct definition
+static void register_struct(const char* name, field_info_t* fields, int field_count, int is_packed, int alignment) {
+    struct_symbol_t* sym = malloc(sizeof(struct_symbol_t));
+    sym->name = strdup(name);
+    sym->fields = fields;
+    sym->field_count = field_count;
+    sym->is_packed = is_packed;
+    sym->alignment = alignment;
+    sym->total_size = 0;
+    sym->next = struct_table;
+    struct_table = sym;
+}
+
+// Find a struct definition
+static struct_symbol_t* find_struct(const char* name) {
+    struct_symbol_t* sym = struct_table;
+    while (sym) {
+        if (strcmp(sym->name, name) == 0) {
+            return sym;
+        }
+        sym = sym->next;
+    }
+    return NULL;
+}
+
+// Get size of a type
+static int get_type_size(type_info_t* type) {
+    if (!type) return 4; // Default to int32
+    
+    switch (type->kind) {
+        case TYPE_INT8: return 1;
+        case TYPE_INT16: return 2;
+        case TYPE_INT32: return 4;
+        case TYPE_INT64: return 8;
+        case TYPE_BOOL: return 1;
+        case TYPE_VOID: return 0;
+        case TYPE_POINTER: return 4; // 32-bit pointers
+        case TYPE_ARRAY:
+            return type->array.size * get_type_size(type->array.elem_type);
+        case TYPE_STRUCT: {
+            struct_symbol_t* sym = find_struct(type->struct_type.name);
+            if (sym) return sym->total_size;
+            return 0;
+        }
+        default: return 4;
+    }
+}
+
+// Get alignment requirement for a type
+static int get_type_alignment(type_info_t* type) {
+    if (!type) return 4;
+    
+    switch (type->kind) {
+        case TYPE_INT8: return 1;
+        case TYPE_INT16: return 2;
+        case TYPE_INT32: return 4;
+        case TYPE_INT64: return 8;
+        case TYPE_BOOL: return 1;
+        case TYPE_POINTER: return 4;
+        case TYPE_ARRAY: return get_type_alignment(type->array.elem_type);
+        case TYPE_STRUCT: {
+            struct_symbol_t* sym = find_struct(type->struct_type.name);
+            if (sym && sym->alignment > 0) return sym->alignment;
+            return 4; // Default struct alignment
+        }
+        default: return 4;
+    }
+}
+
+// Calculate field offsets for a struct
+static void calculate_struct_offsets(struct_symbol_t* sym) {
+    int offset = 0;
+    int max_alignment = 1;
+    
+    for (int i = 0; i < sym->field_count; i++) {
+        field_info_t* field = &sym->fields[i];
+        int size = get_type_size(field->type);
+        int align = get_type_alignment(field->type);
+        
+        // Track maximum alignment for the struct
+        if (align > max_alignment) {
+            max_alignment = align;
+        }
+        
+        // Apply alignment unless struct is packed
+        if (!sym->is_packed && offset % align != 0) {
+            offset = (offset + align - 1) & ~(align - 1);
+        }
+        
+        field->offset = offset;
+        offset += size;
+    }
+    
+    // Apply struct alignment to total size unless packed
+    if (!sym->is_packed) {
+        int struct_align = sym->alignment > 0 ? sym->alignment : max_alignment;
+        if (offset % struct_align != 0) {
+            offset = (offset + struct_align - 1) & ~(struct_align - 1);
+        }
+    }
+    
+    sym->total_size = offset;
+}
+
 static void enter_scope() {
     current_scope_level++;
 }
@@ -459,6 +576,15 @@ static void tokenize() {
             else if (strcmp(buffer, "interrupt") == 0) type = TOK_INTERRUPT;
             else if (strcmp(buffer, "priority") == 0) type = TOK_PRIORITY;
             else if (strcmp(buffer, "wcet") == 0) type = TOK_WCET;
+            
+            // Annotations
+            else if (strcmp(buffer, "packed") == 0) type = TOK_PACKED;
+            else if (strcmp(buffer, "repr") == 0) type = TOK_REPR;
+            else if (strcmp(buffer, "align") == 0) type = TOK_ALIGN;
+            else if (strcmp(buffer, "inline") == 0) type = TOK_INLINE;
+            else if (strcmp(buffer, "no_inline") == 0) type = TOK_NO_INLINE;
+            else if (strcmp(buffer, "must_use") == 0) type = TOK_MUST_USE;
+            else if (strcmp(buffer, "deprecated") == 0) type = TOK_DEPRECATED;
             
             tokens[token_count++] = make_token(type, buffer);
         } else if (c == '"') {
@@ -730,6 +856,19 @@ static ast_node_t* parse_struct() {
         }
     }
     
+    // Register the struct and calculate offsets
+    register_struct(node->data.struct_decl.name, 
+                   node->data.struct_decl.fields,
+                   node->data.struct_decl.field_count,
+                   node->data.struct_decl.is_packed,
+                   node->data.struct_decl.alignment);
+    
+    struct_symbol_t* sym = find_struct(node->data.struct_decl.name);
+    if (sym) {
+        calculate_struct_offsets(sym);
+        
+    }
+    
     return node;
 }
 
@@ -830,12 +969,11 @@ static ast_node_t* parse_primary() {
             // Parse field initializers
             while (!match(TOK_RBRACE)) {
                 if (!match(TOK_IDENT)) error("Expected field name");
-                char* field_name = strdup(tokens[token_pos-1].value);
+                // Field name already consumed by match
                 if (!match(TOK_COLON)) error("Expected ':' after field name");
-                ast_node_t* value = parse_expression();
+                parse_expression(); // Parse but ignore for now
                 
-                // Store field initializer
-                // TODO: Add to struct literal
+                // TODO: Add field initializer to struct literal
                 
                 if (!match(TOK_COMMA) && peek_token()->type != TOK_RBRACE) {
                     error("Expected ',' or '}' in struct literal");
@@ -845,6 +983,12 @@ static ast_node_t* parse_primary() {
         else {
             node = create_node(AST_IDENT);
             node->data.str_value = name;
+            
+            // Look up the variable in the symbol table and attach its type
+            symbol_t* sym = find_symbol(name);
+            if (sym && sym->type) {
+                node->data_type = sym->type;
+            }
         }
     }
     else if (match(TOK_LPAREN)) {
@@ -878,6 +1022,20 @@ static ast_node_t* parse_primary() {
             ast_node_t* field = create_node(AST_FIELD_ACCESS);
             field->data.field_access.object = node;
             field->data.field_access.field = strdup(tokens[token_pos-1].value);
+            
+            // If the object has struct type, look up field type
+            if (node->data_type && node->data_type->kind == TYPE_STRUCT) {
+                struct_symbol_t* sym = find_struct(node->data_type->struct_type.name);
+                if (sym) {
+                    for (int i = 0; i < sym->field_count; i++) {
+                        if (strcmp(sym->fields[i].name, field->data.field_access.field) == 0) {
+                            field->data_type = sym->fields[i].type;
+                            break;
+                        }
+                    }
+                }
+            }
+            
             node = field;
         }
         else if (match(TOK_ARROW)) {
@@ -938,6 +1096,7 @@ static ast_node_t* parse_binary(int min_prec) {
             case TOK_BITOR: prec = 3; break;
             case TOK_AND: prec = 2; break;
             case TOK_OR: prec = 1; break;
+            case TOK_ASSIGN: prec = 0; break; // Assignment has lowest precedence
             default: return left;
         }
         
@@ -1535,6 +1694,82 @@ static void generate_assembly(ast_node_t* node, FILE* output) {
                     fprintf(output, "    setge al\n");
                     fprintf(output, "    movzx eax, al\n");
                     break;
+                case TOK_ASSIGN: {
+                    // Assignment: left = right
+                    // We need to handle different types of lvalues
+                    ast_node_t* left = node->data.binary.left;
+                    
+                    if (left->type == AST_IDENT) {
+                        // Simple variable assignment
+                        symbol_t* sym = find_symbol(left->data.str_value);
+                        if (sym) {
+                            fprintf(output, "    mov [ebp%+d], eax\n", sym->offset);
+                        } else {
+                            error("Undefined variable: %s", left->data.str_value);
+                        }
+                    } else if (left->type == AST_FIELD_ACCESS) {
+                        // Field assignment: obj.field = value
+                        // Save value in ebx
+                        fprintf(output, "    mov ebx, eax\n");
+                        
+                        // Generate address of object
+                        // We need the address, not the value
+                        if (left->data.field_access.object->type == AST_IDENT) {
+                            symbol_t* sym = find_symbol(left->data.field_access.object->data.str_value);
+                            if (sym) {
+                                fprintf(output, "    lea eax, [ebp%+d]\n", sym->offset);
+                            } else {
+                                error("Undefined variable: %s", left->data.field_access.object->data.str_value);
+                            }
+                        } else {
+                            // For other types, generate normally (they should produce an address)
+                            generate_assembly(left->data.field_access.object, output);
+                        }
+                        
+                        // Add field offset
+                        if (left->data.field_access.object->data_type && 
+                            left->data.field_access.object->data_type->kind == TYPE_STRUCT) {
+                            struct_symbol_t* sym = find_struct(left->data.field_access.object->data_type->struct_type.name);
+                            if (sym) {
+                                int offset = 0;
+                                for (int i = 0; i < sym->field_count; i++) {
+                                    if (strcmp(sym->fields[i].name, left->data.field_access.field) == 0) {
+                                        offset = sym->fields[i].offset;
+                                        break;
+                                    }
+                                }
+                                fprintf(output, "    add eax, %d    ; field offset\n", offset);
+                            }
+                        }
+                        
+                        // Store value at field address
+                        fprintf(output, "    mov [eax], ebx\n");
+                        fprintf(output, "    mov eax, ebx    ; return assigned value\n");
+                    } else if (left->type == AST_INDEX) {
+                        // Array assignment: arr[idx] = value
+                        // Save value
+                        fprintf(output, "    push eax\n");
+                        
+                        // Generate array address
+                        generate_assembly(left->data.index.array, output);
+                        fprintf(output, "    push eax\n");
+                        
+                        // Generate index
+                        generate_assembly(left->data.index.index, output);
+                        
+                        // Calculate element address
+                        fprintf(output, "    pop ebx\n");
+                        fprintf(output, "    lea eax, [ebx + eax*4]    ; Assume 4-byte elements\n");
+                        
+                        // Store value
+                        fprintf(output, "    pop ebx\n");
+                        fprintf(output, "    mov [eax], ebx\n");
+                        fprintf(output, "    mov eax, ebx    ; return assigned value\n");
+                    } else {
+                        error("Invalid assignment target");
+                    }
+                    break;
+                }
             }
             break;
             
@@ -1781,12 +2016,52 @@ static void generate_assembly(ast_node_t* node, FILE* output) {
             fprintf(output, "    jmp .L_loop_continue    ; TODO: track loop context\n");
             break;
             
-        case AST_FIELD_ACCESS:
-            generate_assembly(node->data.field_access.object, output);
+        case AST_FIELD_ACCESS: {
             fprintf(output, "    ; Access field %s\n", node->data.field_access.field);
-            fprintf(output, "    add eax, 0    ; TODO: field offset\n");
+            
+            // Generate address of object
+            if (node->data.field_access.object->type == AST_IDENT) {
+                symbol_t* sym = find_symbol(node->data.field_access.object->data.str_value);
+                if (sym) {
+                    fprintf(output, "    lea eax, [ebp%+d]\n", sym->offset);
+                } else {
+                    error("Undefined variable: %s", node->data.field_access.object->data.str_value);
+                }
+            } else {
+                // For other types, generate normally (they should produce an address)
+                generate_assembly(node->data.field_access.object, output);
+            }
+            
+            // Get the type of the object to find the struct
+            if (node->data.field_access.object->data_type && 
+                node->data.field_access.object->data_type->kind == TYPE_STRUCT) {
+                struct_symbol_t* sym = find_struct(node->data.field_access.object->data_type->struct_type.name);
+                if (sym) {
+                    // Find the field offset
+                    int offset = 0;
+                    int found = 0;
+                    for (int i = 0; i < sym->field_count; i++) {
+                        if (strcmp(sym->fields[i].name, node->data.field_access.field) == 0) {
+                            offset = sym->fields[i].offset;
+                            found = 1;
+                            break;
+                        }
+                    }
+                    if (found) {
+                        fprintf(output, "    add eax, %d    ; field offset\n", offset);
+                    } else {
+                        fprintf(output, "    add eax, 0    ; field not found\n");
+                    }
+                } else {
+                    fprintf(output, "    add eax, 0    ; struct not found\n");
+                }
+            } else {
+                fprintf(output, "    add eax, 0    ; no type info\n");
+            }
+            
             fprintf(output, "    mov eax, [eax]\n");
             break;
+        }
             
         case AST_INDEX:
             generate_assembly(node->data.index.array, output);
@@ -1860,7 +2135,7 @@ int main(int argc, char* argv[]) {
     printf("     ██║   ███████╗██║ ╚═╝ ██║██║     ╚██████╔╝\n");
     printf("     ╚═╝   ╚══════╝╚═╝     ╚═╝╚═╝      ╚═════╝ \n");
     printf("\n");
-    printf("  Tempo v1.2.2 - Complete Systems Programming Language\n");
+    printf("  Tempo v1.3.0 - Complete Systems Programming Language\n");
     printf("  Processing: %s\n", argv[1]);
     printf("  ================================================\n\n");
     
@@ -1887,7 +2162,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         
-        fprintf(output, "; Generated by Tempo v1.2.2 Compiler\n");
+        fprintf(output, "; Generated by Tempo v1.3.0 Compiler\n");
         fprintf(output, "; Source: %s\n", argv[1]);
         fprintf(output, "; Total WCET: %d cycles\n", total_cycles);
         fprintf(output, "; Max function WCET: %d cycles\n", max_function_cycles);

@@ -5,6 +5,96 @@ All notable changes to AtomicOS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-06-22
+
+### Added
+- **Tempo v1.3.0 - Assignment Expressions**
+  - Assignment operator support (`x = y`)
+  - Field assignment for structs (`obj.field = value`)
+  - Array element assignment (`arr[i] = value`)
+  - Proper lvalue handling in code generation
+- **Struct Enhancements**
+  - Automatic field offset calculation
+  - Support for `@packed` structs
+  - Struct size computation with alignment
+  - Field type propagation for type checking
+- **Documentation Reorganization**
+  - New organized docs structure under `docs/`
+  - Comprehensive developer guide
+  - Installation and quick start guides
+  - Architecture overview
+  - Consolidated release notes in `docs/releases/`
+
+### Changed
+- Tempo compiler architecture improvements
+  - Better type information propagation
+  - Enhanced struct handling
+  - Improved error messages
+- Documentation structure completely reorganized
+- Makefile updated to version 1.3.0
+
+### Fixed
+- Struct field access now properly uses calculated offsets
+- Type information correctly attached to identifiers
+- Assignment to struct fields generates correct assembly
+
+## [1.2.2] - 2025-06-22
+
+### Added
+- Documentation updates for v1.2.0 features
+- Updated GitHub Pages website
+
+### Changed
+- Version references updated throughout documentation
+- Improved release notes formatting
+
+## [1.2.1] - 2025-06-22
+
+### Fixed
+- Multiple syntax issues in example Tempo files
+- Missing semicolons after statements
+- Function return type syntax (`:` → `->`)
+
+### Known Issues
+- Some complex example files still have syntax errors
+
+## [1.2.0] - 2025-06-22
+
+### Added
+- **Hardware Intrinsics** - Direct memory and I/O access without C
+  - `memory_read8/16/32()` - Read from memory
+  - `memory_write8/16/32()` - Write to memory
+  - `io_in8/16/32()` - Read from I/O ports
+  - `io_out8/16/32()` - Write to I/O ports
+  - `cpu_cli()`, `cpu_sti()`, `cpu_hlt()` - CPU control
+- New example: `intrinsics_vga_hello.tempo` demonstrating hardware access
+
+### Changed
+- Tempo can now write complete device drivers without C dependencies
+- Updated compiler to v1.2.0
+
+## [1.1.0] - 2025-06-22
+
+### Added
+- **Tempo Compiler Enhancements**
+  - Hexadecimal number support (`0xFF`, `0xDEADBEEF`)
+  - Inline assembly with `asm { }` blocks
+  - Security annotation `@constant_time` for timing-safe operations
+  - Modern function syntax with `->` return types
+- **New Keywords**
+  - `packed`, `repr`, `align` for struct attributes
+  - `inline`, `no_inline` for functions
+  - `must_use`, `deprecated` for API design
+
+### Changed
+- Updated all example files to use new `->` syntax for return types
+- Improved tokenizer to handle hex numbers correctly
+- Enhanced parser for inline assembly support
+
+### Fixed
+- Hex number tokenization bug
+- Missing keyword recognition in tokenizer
+
 ## [1.0.0] - 2025-06-22
 
 ### Added

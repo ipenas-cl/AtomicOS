@@ -326,7 +326,7 @@
 </head>
 <body>
     <div class="announcement-banner">
-        🎉 NEW: Tempo v1.2.2 - Hardware Intrinsics for Direct Memory/IO Access!
+        🎉 NEW: Tempo v1.3.0 - Assignment Expressions & Automatic Struct Field Offsets!
     </div>
     
     <header>
@@ -334,7 +334,7 @@
             <div class="header-content">
                 <div class="logo-section">
                     <div class="logo">Tempo</div>
-                    <div class="version">v1.2.2</div>
+                    <div class="version">v1.3.0</div>
                 </div>
                 <nav class="nav-links">
                     <a href="#features">Features</a>
@@ -355,9 +355,9 @@
    ██║   ██╔══╝  ██║╚██╔╝██║██╔═══╝ ██║   ██║
    ██║   ███████╗██║ ╚═╝ ██║██║     ╚██████╔╝
    ╚═╝   ╚══════╝╚═╝     ╚═╝╚═╝      ╚═════╝</pre>
-            <h1>No More C Needed!</h1>
-            <p class="hero-subtitle">Tempo v1.2.2 is a complete systems programming language with hardware intrinsics, inline assembly, 
-            memory safety, and deterministic execution. Write your entire OS in Tempo!</p>
+            <h1>Modern Systems Programming!</h1>
+            <p class="hero-subtitle">Tempo v1.3.0 brings assignment expressions, automatic struct field offsets, enhanced type system, 
+            and everything you need to write a complete OS without C!</p>
             <div class="cta-section">
                 <a href="#getting-started" class="btn btn-primary">Get Started</a>
                 <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/examples/tempo_v1" class="btn btn-secondary">View Examples</a>
@@ -367,8 +367,32 @@
 
     <section class="features-section" id="features">
         <div class="container">
-            <h2 class="section-title">Enhanced Systems Programming</h2>
+            <h2 class="section-title">🆕 New in v1.3.0</h2>
             <div class="features-grid">
+                <div class="feature">
+                    <div class="feature-icon">✏️</div>
+                    <h3>Assignment Expressions</h3>
+                    <p>Full support for assignment as an expression. Assign to variables, struct fields, and array elements. 
+                    Write natural code like <code>x = y = 0</code> or <code>point.x = 100</code>.</p>
+                </div>
+                
+                <div class="feature">
+                    <div class="feature-icon">📐</div>
+                    <h3>Automatic Field Offsets</h3>
+                    <p>Struct fields now have automatically calculated offsets with proper alignment. Support for @packed 
+                    structs to eliminate padding. The compiler handles all offset calculations.</p>
+                </div>
+                
+                <div class="feature">
+                    <div class="feature-icon">🔍</div>
+                    <h3>Enhanced Type System</h3>
+                    <p>Better type propagation throughout parsing. Variables carry type information for validation. 
+                    Improved error messages for type mismatches and invalid operations.</p>
+                </div>
+            </div>
+            
+            <h2 class="section-title" style="margin-top: 4rem;">Core Features</h2>
+            <div class="features-grid" style="margin-top: 2rem;">
                 <div class="feature">
                     <div class="feature-icon">🏗️</div>
                     <h3>Structs with Layout Control</h3>
@@ -606,7 +630,7 @@ make all</pre>
                     <h4>Resources</h4>
                     <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/tools">Compiler Source</a>
                     <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/examples/tempo_v1">Code Examples</a>
-                    <a href="https://github.com/ipenas-cl/AtomicOS/blob/main/RELEASE_NOTES_v1.2.2.md">Release Notes</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS/blob/main/docs/releases/v1.3.0.md">Release Notes</a>
                 </div>
                 <div class="footer-section">
                     <h4>Documentation</h4>
@@ -622,7 +646,7 @@ make all</pre>
                 </div>
             </div>
             <div style="border-top: 1px solid #7f8c8d; padding-top: 2rem; margin-top: 3rem; color: #bdc3c7;">
-                <p>Tempo v1.2.2 - Part of the AtomicOS Project</p>
+                <p>Tempo v1.3.0 - Part of the AtomicOS Project</p>
                 <p>© 2024 AtomicOS Contributors. All rights reserved.</p>
             </div>
         </div>

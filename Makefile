@@ -3,7 +3,7 @@
 
 # Configuration
 PROJECT_NAME = AtomicOS
-VERSION = 1.2.2
+VERSION = 1.3.0
 ARCH = i386
 
 # Directories

@@ -1,0 +1,15 @@
+// Simple struct test
+
+struct Point {
+    x: int32,
+    y: int32
+}
+
+function test_point() -> int32 {
+    let p: Point;
+    return 0;
+}
+
+function main() -> int32 {
+    return test_point();
+}
