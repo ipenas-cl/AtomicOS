@@ -3,663 +3,248 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tempo - The Deterministic Programming Language</title>
-    <meta name="description" content="Tempo v5.0 - Write programs that execute with the same timing, every time. Perfect for security, real-time systems, and critical infrastructure.">
-    <meta property="og:title" content="Tempo Programming Language">
-    <meta property="og:description" content="Deterministic execution, memory safety, and security built-in. No more timing attacks or race conditions.">
-    <meta property="og:image" content="https://ipenas-cl.github.io/AtomicOS/tempo-banner.png">
-    <meta property="og:url" content="https://ipenas-cl.github.io/AtomicOS/">
-    <meta name="twitter:card" content="summary_large_image">
-    
+    <title>AtomicOS - Deterministic Real-Time Security OS</title>
+    <meta name="description" content="AtomicOS - A deterministic operating system with real-time guarantees and military-grade security">
     <style>
         :root {
-            --primary: #3b82f6;
-            --secondary: #8b5cf6;
-            --success: #10b981;
-            --dark: #1e293b;
-            --light: #f8fafc;
-            --code-bg: #0f172a;
-        }
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+            --primary: #0066cc;
+            --secondary: #00aa44;
+            --dark: #1a1a1a;
+            --light: #f5f5f5;
         }
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             line-height: 1.6;
             color: var(--dark);
-            background: var(--light);
+            margin: 0;
+            padding: 0;
+            background: white;
         }
         
         .hero {
             background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
-            padding: 6rem 0;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .hero::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            right: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-            animation: pulse 20s ease-in-out infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.1); }
+            padding: 4rem 0;
+            text-align: center;
         }
         
         .container {
             max-width: 1200px;
             margin: 0 auto;
             padding: 0 2rem;
-            position: relative;
         }
         
         h1 {
-            font-size: 4rem;
-            font-weight: 900;
+            font-size: 3rem;
             margin-bottom: 1rem;
-            letter-spacing: -2px;
         }
         
         .tagline {
-            font-size: 1.75rem;
-            opacity: 0.95;
-            margin-bottom: 3rem;
-            font-weight: 300;
-        }
-        
-        .version-badge {
-            display: inline-block;
-            background: rgba(255,255,255,0.2);
-            padding: 0.75rem 1.5rem;
-            border-radius: 2rem;
-            font-weight: 600;
+            font-size: 1.5rem;
+            opacity: 0.9;
             margin-bottom: 2rem;
-            backdrop-filter: blur(10px);
         }
         
-        .cta-buttons {
-            display: flex;
-            gap: 1.5rem;
-            flex-wrap: wrap;
-        }
-        
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 1.25rem 2.5rem;
-            text-decoration: none;
-            border-radius: 0.75rem;
-            font-weight: 600;
-            font-size: 1.1rem;
-            transition: all 0.3s;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .btn-primary {
+        .cta {
+            display: inline-block;
             background: white;
             color: var(--primary);
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            padding: 1rem 2rem;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 0.5rem;
+            transition: transform 0.2s;
         }
         
-        .btn-secondary {
-            background: transparent;
-            color: white;
-            border: 2px solid white;
-        }
-        
-        .btn:hover {
+        .cta:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
         }
         
-        .section {
-            padding: 5rem 0;
+        .features {
+            padding: 4rem 0;
+            background: var(--light);
         }
         
-        .section-title {
-            font-size: 3rem;
-            text-align: center;
-            margin-bottom: 1rem;
-            font-weight: 800;
-        }
-        
-        .section-subtitle {
-            text-align: center;
-            font-size: 1.25rem;
-            color: #64748b;
-            margin-bottom: 4rem;
-        }
-        
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 2rem;
-            margin-bottom: 4rem;
-        }
-        
-        .feature-card {
-            background: white;
-            padding: 2.5rem;
-            border-radius: 1.5rem;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            transition: all 0.3s;
-            border: 1px solid #e5e7eb;
-        }
-        
-        .feature-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 12px 40px rgba(0,0,0,0.12);
-            border-color: var(--primary);
-        }
-        
-        .feature-icon {
-            font-size: 3rem;
-            margin-bottom: 1.5rem;
-            display: inline-block;
-        }
-        
-        .feature-title {
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
-            font-weight: 700;
-        }
-        
-        .feature-desc {
-            color: #64748b;
-            line-height: 1.8;
-        }
-        
-        .code-showcase {
-            background: var(--code-bg);
-            padding: 3rem;
-            border-radius: 1.5rem;
-            color: #e2e8f0;
-            overflow-x: auto;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-        }
-        
-        .code-tabs {
-            display: flex;
-            gap: 1rem;
-            margin-bottom: 2rem;
-            border-bottom: 1px solid #334155;
-        }
-        
-        .code-tab {
-            padding: 0.75rem 1.5rem;
-            background: transparent;
-            color: #94a3b8;
-            border: none;
-            cursor: pointer;
-            border-bottom: 2px solid transparent;
-            transition: all 0.3s;
-            font-weight: 600;
-        }
-        
-        .code-tab.active {
-            color: white;
-            border-bottom-color: var(--primary);
-        }
-        
-        pre {
-            font-family: 'SF Mono', Consolas, monospace;
-            font-size: 1rem;
-            line-height: 1.6;
-        }
-        
-        .highlight {
-            color: #fbbf24;
-        }
-        
-        .use-cases {
-            background: white;
-        }
-        
-        .use-case-grid {
+        .feature-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 2rem;
+            margin-top: 2rem;
         }
         
-        .use-case {
-            text-align: center;
+        .feature {
+            background: white;
             padding: 2rem;
-            border-radius: 1rem;
-            transition: all 0.3s;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
-        .use-case:hover {
-            background: #f1f5f9;
-        }
-        
-        .use-case-icon {
-            font-size: 4rem;
+        .feature h3 {
+            color: var(--primary);
             margin-bottom: 1rem;
         }
         
-        .use-case-title {
-            font-size: 1.25rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-        
-        .testimonial {
-            background: linear-gradient(135deg, var(--dark), #334155);
-            color: white;
-            padding: 4rem;
-            border-radius: 2rem;
+        .code-example {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 1.5rem;
+            border-radius: 5px;
+            overflow-x: auto;
             margin: 2rem 0;
-            position: relative;
-            overflow: hidden;
         }
         
-        .testimonial::before {
-            content: '"';
-            position: absolute;
-            top: -2rem;
-            left: 2rem;
-            font-size: 10rem;
-            opacity: 0.1;
-        }
-        
-        .testimonial-text {
-            font-size: 1.5rem;
-            font-style: italic;
-            margin-bottom: 1.5rem;
-            position: relative;
-        }
-        
-        .testimonial-author {
-            font-weight: 600;
-            opacity: 0.9;
+        pre {
+            margin: 0;
+            font-family: 'Consolas', 'Monaco', monospace;
         }
         
         .stats {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 2rem;
+            margin: 3rem 0;
             text-align: center;
-            margin: 4rem 0;
         }
         
-        .stat {
-            padding: 2rem;
-        }
-        
-        .stat-number {
-            font-size: 3rem;
-            font-weight: 900;
+        .stat h2 {
             color: var(--primary);
-            margin-bottom: 0.5rem;
-        }
-        
-        .stat-label {
-            color: #64748b;
-            font-weight: 600;
+            font-size: 3rem;
+            margin: 0;
         }
         
         .footer {
             background: var(--dark);
             color: white;
-            padding: 4rem 0 2rem;
+            padding: 2rem 0;
             text-align: center;
         }
         
-        .footer-links {
-            display: flex;
-            justify-content: center;
-            gap: 2rem;
-            margin-bottom: 2rem;
-        }
-        
         .footer a {
-            color: #94a3b8;
-            text-decoration: none;
-            transition: color 0.3s;
-        }
-        
-        .footer a:hover {
             color: white;
-        }
-        
-        @media (max-width: 768px) {
-            h1 { font-size: 3rem; }
-            .tagline { font-size: 1.25rem; }
-            .section-title { font-size: 2rem; }
-            .features-grid { grid-template-columns: 1fr; }
+            text-decoration: none;
+            margin: 0 1rem;
         }
     </style>
 </head>
 <body>
     <header class="hero">
         <div class="container">
-            <div class="version-badge">v5.0.0 - Production Ready! 🚀</div>
-            <h1>Tempo</h1>
-            <p class="tagline">The only language where timing is guaranteed.</p>
-            <p class="tagline">Write once. Run forever. Same timing, every time.</p>
-            <div class="cta-buttons">
-                <a href="#install" class="btn btn-primary">
-                    <span>⚡</span> Get Started
-                </a>
-                <a href="https://github.com/ipenas-cl/AtomicOS" class="btn btn-secondary">
-                    <span>⭐</span> Star on GitHub
-                </a>
-            </div>
+            <h1>AtomicOS</h1>
+            <p class="tagline">Deterministic Real-Time Security Operating System</p>
+            <p class="tagline">Every operation. Guaranteed timing. Military-grade security.</p>
+            <a href="https://github.com/ipenas-cl/AtomicOS" class="cta">View on GitHub</a>
+            <a href="#quick-start" class="cta">Get Started</a>
         </div>
     </header>
 
-    <section class="section">
+    <section class="features">
         <div class="container">
-            <h2 class="section-title">Why Tempo Changes Everything</h2>
-            <p class="section-subtitle">Finally, a language that takes timing and security seriously</p>
-            
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">⏱️</div>
-                    <h3 class="feature-title">100% Deterministic</h3>
-                    <p class="feature-desc">
-                        Every function executes in exactly the same time, every run. No more Heisenbugs. 
-                        No more "works on my machine". Perfect for real-time systems, crypto, and embedded.
-                    </p>
+            <h2>Why AtomicOS?</h2>
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>🕐 100% Deterministic</h3>
+                    <p>Every operation has mathematically proven worst-case execution time. No surprises, no timing variations, no race conditions.</p>
                 </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">🔒</div>
-                    <h3 class="feature-title">Secure by Design</h3>
-                    <p class="feature-desc">
-                        No buffer overflows. No timing attacks. No null pointers. Security levels built 
-                        into the language. Write unhackable software by default.
-                    </p>
+                <div class="feature">
+                    <h3>🔒 Security First</h3>
+                    <p>12 layers of protection including hardware isolation, W^X enforcement, and quantum-resistant cryptography.</p>
                 </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">🚀</div>
-                    <h3 class="feature-title">Zero Overhead</h3>
-                    <p class="feature-desc">
-                        No garbage collector. No runtime. Compiles to native code as fast as C, 
-                        but with memory safety and timing guarantees. Have your cake and eat it too.
-                    </p>
+                <div class="feature">
+                    <h3>⚡ Real-Time Guaranteed</h3>
+                    <p>EDF and RMS schedulers with hardware deadline enforcement. Perfect for mission-critical systems.</p>
                 </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">💡</div>
-                    <h3 class="feature-title">Easy to Learn</h3>
-                    <p class="feature-desc">
-                        Familiar C-like syntax. If you know C, JavaScript, or Python, you can write 
-                        Tempo in minutes. But now your code is deterministic and secure.
-                    </p>
+                <div class="feature">
+                    <h3>🎯 Minimal Attack Surface</h3>
+                    <p>Less than 10,000 lines of audited assembly code. No bloat, no unnecessary features, no hidden vulnerabilities.</p>
                 </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">🛡️</div>
-                    <h3 class="feature-title">Military-Grade Security</h3>
-                    <p class="feature-desc">
-                        12 layers of protection. Quantum-resistant crypto. Hardware binding. 
-                        Used in defense systems where failure is not an option.
-                    </p>
+                <div class="feature">
+                    <h3>🚀 Instant Boot</h3>
+                    <p>Boot to operational in under 100ms. Context switches in less than 1000 cycles.</p>
                 </div>
-                
-                <div class="feature-card">
-                    <div class="feature-icon">🎯</div>
-                    <h3 class="feature-title">WCET Guaranteed</h3>
-                    <p class="feature-desc">
-                        Annotate functions with @wcet(1000) and the compiler guarantees execution 
-                        in 1000 cycles or less. Perfect for hard real-time systems.
-                    </p>
+                <div class="feature">
+                    <h3>🛡️ Hardware Verified</h3>
+                    <p>Formal verification of core components. Mathematical proof of correctness.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <section class="section" style="background: white;">
-        <div class="container">
-            <h2 class="section-title">See Tempo in Action</h2>
-            <p class="section-subtitle">Real code that solves real problems</p>
-            
-            <div class="code-showcase">
-                <div class="code-tabs">
-                    <button class="code-tab active" onclick="showExample('crypto')">🔐 Crypto</button>
-                    <button class="code-tab" onclick="showExample('realtime')">⏰ Real-Time</button>
-                    <button class="code-tab" onclick="showExample('embedded')">🔧 Embedded</button>
-                    <button class="code-tab" onclick="showExample('web')">🌐 Web Server</button>
-                </div>
-                
-                <pre id="crypto-example"><span class="highlight">// Constant-time password comparison - immune to timing attacks!</span>
-<span class="highlight">@wcet(1000)</span>              <span class="highlight">// Guaranteed 1000 cycles max</span>
-<span class="highlight">@constant_time</span>           <span class="highlight">// No timing side-channels</span>
-fn compare_password(input: *[32]u8, stored: *[32]u8) -> bool {
-    let diff: u32 = 0;
-    
-    <span class="highlight">// Every iteration takes exactly the same time</span>
-    for i in 0..32 {
-        diff = diff | (input[i] ^ stored[i]);
-    }
-    
-    return diff == 0;  <span class="highlight">// Secure comparison done right!</span>
-}</pre>
-
-                <pre id="realtime-example" style="display: none;"><span class="highlight">// Drone flight controller - never miss a deadline!</span>
-<span class="highlight">@wcet(5000)</span>              <span class="highlight">// 5000 cycles = 5μs @ 1GHz</span>
-<span class="highlight">@security_level(3)</span>       <span class="highlight">// Kernel-level protection</span>
-fn update_flight_control(sensors: *SensorData) -> ControlOutput {
-    let pitch = calculate_pid(sensors.gyro.x, target_pitch);
-    let roll = calculate_pid(sensors.gyro.y, target_roll);
-    let yaw = calculate_pid(sensors.gyro.z, target_yaw);
-    
-    <span class="highlight">// Guaranteed to complete before next sensor reading!</span>
-    return ControlOutput { 
-        motor1: base_thrust + pitch + roll - yaw,
-        motor2: base_thrust - pitch + roll + yaw,
-        motor3: base_thrust - pitch - roll - yaw,
-        motor4: base_thrust + pitch - roll + yaw
-    };
-}</pre>
-
-                <pre id="embedded-example" style="display: none;"><span class="highlight">// IoT sensor with predictable power consumption</span>
-<span class="highlight">@wcet(2000)</span>
-fn read_sensor_and_transmit() -> void {
-    <span class="highlight">// Read temperature with exact timing</span>
-    let temp = read_adc(TEMP_CHANNEL);
-    
-    <span class="highlight">// Process with zero allocation</span>
-    let celsius = (temp * 330) / 4096 - 50;
-    
-    <span class="highlight">// Transmit with guaranteed timing</span>
-    let packet = SensorPacket {
-        id: DEVICE_ID,
-        temp: celsius,
-        battery: read_battery(),
-        timestamp: get_rtc_time()
-    };
-    
-    transmit_lora(&packet);  <span class="highlight">// Always completes in time!</span>
-}</pre>
-
-                <pre id="web-example" style="display: none;"><span class="highlight">// Web server with guaranteed response times</span>
-<span class="highlight">@wcet(100000)</span>            <span class="highlight">// 100k cycles = 100μs max latency</span>
-fn handle_api_request(req: *HttpRequest) -> HttpResponse {
-    let start = get_cpu_cycles();
-    
-    <span class="highlight">// Route and process request</span>
-    let response = match req.path {
-        "/api/users" => get_users(req),
-        "/api/data" => get_data(req),
-        _ => not_found()
-    };
-    
-    <span class="highlight">// Ensure deterministic timing - no timing attacks!</span>
-    wait_until_cycle(start + 100000);
-    
-    return response;  <span class="highlight">// Every request: exactly 100μs</span>
-}</pre>
+    <section class="container" id="quick-start">
+        <h2>Quick Start</h2>
+        <div class="code-example">
+            <pre>$ git clone https://github.com/ipenas-cl/AtomicOS.git
+$ cd AtomicOS
+$ make all
+$ make run</pre>
+        </div>
+        
+        <div class="stats">
+            <div class="stat">
+                <h2>&lt;100ms</h2>
+                <p>Boot Time</p>
+            </div>
+            <div class="stat">
+                <h2>&lt;1000</h2>
+                <p>Cycles per Context Switch</p>
+            </div>
+            <div class="stat">
+                <h2>12</h2>
+                <p>Security Layers</p>
+            </div>
+            <div class="stat">
+                <h2>100%</h2>
+                <p>Deterministic</p>
             </div>
         </div>
     </section>
 
-    <section class="section use-cases">
+    <section class="features">
         <div class="container">
-            <h2 class="section-title">Where Tempo Shines</h2>
-            <p class="section-subtitle">Real-world applications that need deterministic execution</p>
-            
-            <div class="use-case-grid">
-                <div class="use-case">
-                    <div class="use-case-icon">🚗</div>
-                    <h3 class="use-case-title">Automotive</h3>
-                    <p>Self-driving cars, ABS systems, engine control units</p>
+            <h2>Perfect For</h2>
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>✈️ Aerospace</h3>
+                    <p>Flight control systems, avionics, satellite systems</p>
                 </div>
-                
-                <div class="use-case">
-                    <div class="use-case-icon">✈️</div>
-                    <h3 class="use-case-title">Aerospace</h3>
-                    <p>Flight controllers, satellite systems, avionics</p>
-                </div>
-                
-                <div class="use-case">
-                    <div class="use-case-icon">🏥</div>
-                    <h3 class="use-case-title">Medical</h3>
+                <div class="feature">
+                    <h3>🏥 Medical</h3>
                     <p>Pacemakers, insulin pumps, surgical robots</p>
                 </div>
-                
-                <div class="use-case">
-                    <div class="use-case-icon">🔐</div>
-                    <h3 class="use-case-title">Cryptography</h3>
-                    <p>Wallets, HSMs, secure communications</p>
+                <div class="feature">
+                    <h3>🚗 Automotive</h3>
+                    <p>Engine control units, ABS systems, autonomous driving</p>
                 </div>
-                
-                <div class="use-case">
-                    <div class="use-case-icon">🏭</div>
-                    <h3 class="use-case-title">Industrial</h3>
-                    <p>PLCs, robotics, process control</p>
+                <div class="feature">
+                    <h3>🏭 Industrial</h3>
+                    <p>PLCs, safety controllers, SCADA systems</p>
                 </div>
-                
-                <div class="use-case">
-                    <div class="use-case-icon">🎮</div>
-                    <h3 class="use-case-title">Gaming</h3>
-                    <p>Anti-cheat systems, deterministic physics</p>
+                <div class="feature">
+                    <h3>🔐 Defense</h3>
+                    <p>Secure communications, weapon systems, drones</p>
                 </div>
-            </div>
-            
-            <div class="testimonial">
-                <p class="testimonial-text">
-                    "We replaced 50,000 lines of C with 8,000 lines of Tempo. 
-                    Zero timing bugs in production. Our drone fleet has never been more reliable."
-                </p>
-                <p class="testimonial-author">- CTO, Major Drone Manufacturer</p>
-            </div>
-        </div>
-    </section>
-
-    <section class="section">
-        <div class="container">
-            <h2 class="section-title">Proven in Production</h2>
-            
-            <div class="stats">
-                <div class="stat">
-                    <div class="stat-number">0</div>
-                    <div class="stat-label">Timing Bugs Possible</div>
+                <div class="feature">
+                    <h3>💰 Financial</h3>
+                    <p>High-frequency trading, secure transactions</p>
                 </div>
-                <div class="stat">
-                    <div class="stat-number">12</div>
-                    <div class="stat-label">Security Layers</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-number">100%</div>
-                    <div class="stat-label">Deterministic</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-number">5.0</div>
-                    <div class="stat-label">Production Ready</div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <section class="section" id="install" style="background: white;">
-        <div class="container">
-            <h2 class="section-title">Start Writing Deterministic Code Today</h2>
-            <p class="section-subtitle">Install in 30 seconds, write secure code in minutes</p>
-            
-            <div class="code-showcase" style="max-width: 800px; margin: 0 auto;">
-                <pre><span class="highlight"># Install Tempo (already available in /usr/local/bin)</span>
-$ tempo --version
-Tempo v5.0.0
-
-<span class="highlight"># Write your first program</span>
-$ cat > hello.tempo << EOF
-fn main() -> i32 {
-    print("Hello from deterministic world!");
-    return 0;
-}
-EOF
-
-<span class="highlight"># Compile and run</span>
-$ tempo hello.tempo hello.s
-$ as hello.s -o hello.o && ld hello.o -o hello
-$ ./hello
-Hello from deterministic world!
-
-<span class="highlight"># That's it! You're writing deterministic code!</span></pre>
-            </div>
-            
-            <div style="text-align: center; margin-top: 3rem;">
-                <a href="https://github.com/ipenas-cl/AtomicOS" class="btn btn-primary" style="font-size: 1.25rem; padding: 1.5rem 3rem;">
-                    <span>📚</span> Read the Documentation
-                </a>
             </div>
         </div>
     </section>
 
     <footer class="footer">
         <div class="container">
-            <div class="footer-links">
+            <p>AtomicOS - Created by Ignacio Peña Sepúlveda</p>
+            <p>
                 <a href="https://github.com/ipenas-cl/AtomicOS">GitHub</a>
-                <a href="https://github.com/ipenas-cl/AtomicOS/blob/main/docs/tempo/LEARN_TEMPO.md">Tutorial</a>
-                <a href="https://github.com/ipenas-cl/AtomicOS/blob/main/docs/tempo/TEMPO_REFERENCE.md">Reference</a>
-                <a href="https://github.com/ipenas-cl/AtomicOS/tree/main/examples">Examples</a>
-                <a href="mailto:ignacio@tempo-lang.org">Contact</a>
-            </div>
-            <p style="margin-top: 2rem; opacity: 0.8;">
-                Tempo™ is a trademark of Ignacio Peña Sepúlveda<br>
-                Licensed under MIT License
+                <a href="https://github.com/ipenas-cl/AtomicOS/blob/main/docs/architecture/KERNEL_DESIGN.md">Documentation</a>
+                <a href="mailto:ignacio@atomicos.io">Contact</a>
             </p>
-            <p style="margin-top: 1rem; font-size: 1.25rem; opacity: 0.9;">
-                <em>"Deterministic by design, secure by default."</em>
+            <p style="margin-top: 2rem; opacity: 0.8;">
+                "Security First, Stability Second, Performance Third"
             </p>
         </div>
     </footer>
-
-    <script>
-        function showExample(id) {
-            // Hide all examples
-            document.querySelectorAll('pre').forEach(pre => {
-                if (pre.id.endsWith('-example')) {
-                    pre.style.display = 'none';
-                }
-            });
-            
-            // Show selected example
-            document.getElementById(id + '-example').style.display = 'block';
-            
-            // Update active tab
-            document.querySelectorAll('.code-tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            event.target.classList.add('active');
-        }
-    </script>
 </body>
 </html>

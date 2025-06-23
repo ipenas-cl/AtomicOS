@@ -1,284 +1,165 @@
-# Tempo v5.0.0 - The Deterministic Programming Language 🚀
+# AtomicOS
 
-**A revolutionary systems programming language with guaranteed execution times**
+**Deterministic Real-Time Security Operating System**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-5.0.0-green)](https://github.com/ipenas-cl/AtomicOS/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0-green)](https://github.com/ipenas-cl/AtomicOS/releases)
 
----
+## Overview
 
-## 🎯 What is Tempo?
+AtomicOS is a deterministic operating system written in x86 assembly, designed for real-time and security-critical applications. Every operation has guaranteed timing bounds (WCET) and the system provides military-grade security through hardware-enforced isolation.
 
-Tempo is a deterministic systems programming language designed for applications requiring **predictable timing**, **memory safety**, and **security guarantees**. Every Tempo program executes with the same timing, every time.
+**Note**: AtomicOS kernel modules are written in [Tempo](https://github.com/ipenas-cl/tempo-lang), a deterministic programming language designed specifically for systems programming with guaranteed timing.
 
-### ✨ Key Features
+## Key Features
 
-- **🕐 WCET Analysis** - Every function has guaranteed worst-case execution time
-- **🔒 Memory Safe** - No buffer overflows, no null pointers, no use-after-free
-- **🛡️ Security Levels** - Built-in security annotations for privilege separation
-- **⚡ Zero Dependencies** - Self-hosted compiler with no external requirements
-- **🔧 Inline Assembly** - Full control when you need it
-- **📦 Module System** - Modern import/export for code organization
+- **100% Deterministic**: Every operation has proven worst-case execution time
+- **Real-Time Guarantees**: EDF and RMS schedulers with deadline enforcement
+- **Security First**: 12 layers of protection, hardware-enforced isolation
+- **Pure Assembly**: No high-level language overhead
+- **Minimal Attack Surface**: < 10,000 lines of audited code
 
----
-
-## 🚀 Quick Start
-
-### Installation
-
-```bash
-# Install Tempo globally
-sudo cp /usr/local/bin/tempo /usr/local/bin/
-tempo --version  # Should show v5.0.0
-```
-
-### Your First Program
-
-```tempo
-// hello.tempo
-fn main() -> i32 {
-    print("Hello from Tempo!");
-    return 0;
-}
-```
-
-Compile and run:
-```bash
-tempo hello.tempo hello.s
-as hello.s -o hello.o
-ld hello.o -o hello
-./hello
-```
-
----
-
-## 💪 Advanced Features
-
-### WCET Annotations
-```tempo
-@wcet(1000)  // Guaranteed to complete in 1000 cycles
-fn process_data(data: *u8, size: u32) -> void {
-    // Deterministic processing
-}
-```
-
-### Security Levels
-```tempo
-@security_level(3)  // Kernel level
-fn critical_operation() -> void {
-    // Privileged code
-}
-```
-
-### Global Variables
-```tempo
-let global_counter: u32;
-let buffer: [1024]u8;
-```
-
-### Inline Assembly
-```tempo
-fn get_cpu_cycles() -> u64 {
-    let cycles: u64;
-    __asm__(
-        "rdtsc\n"
-        "shl $32, %%rdx\n"
-        "or %%rdx, %%rax\n"
-        : "=a" (cycles)
-        :
-        : "rdx"
-    );
-    return cycles;
-}
-```
-
----
-
-## 📚 Language Reference
-
-### Data Types
-- **Integers**: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`
-- **Boolean**: `bool` (true/false)
-- **Characters**: `char`
-- **Pointers**: `*T`, `*mut T`
-- **Arrays**: `[N]T` where N can be a const
-- **Void**: `void`
-
-### Control Flow
-- `if` / `else`
-- `while` loops
-- `for` loops
-- `match` expressions (pattern matching)
-- `break` / `continue`
-- `return`
-
-### Memory Management
-- Static allocation by default
-- No garbage collector
-- Deterministic memory usage
-- Bounds checking on arrays
-
----
-
-## 🛠️ Compiler Features
-
-The Tempo v5.0.0 compiler includes:
-
-- ✅ Complete self-hosting (written in Tempo!)
-- ✅ Const expressions in array sizes
-- ✅ Global variable support
-- ✅ Inline assembly with AT&T syntax
-- ✅ Module system with import/export
-- ✅ Comprehensive type checking
-- ✅ WCET analysis and verification
-- ✅ Security level enforcement
-
----
-
-## 📊 Real-World Examples
-
-### Web Server Handler
-```tempo
-@wcet(50000)
-fn handle_request(req: *Request) -> Response {
-    let start = get_cycles();
-    
-    // Process request
-    let response = route_request(req);
-    
-    // Ensure deterministic timing
-    wait_until(start + 50000);
-    
-    return response;
-}
-```
-
-### Crypto Operation
-```tempo
-@wcet(10000)
-@constant_time  // No timing side channels
-fn compare_hash(a: *[32]u8, b: *[32]u8) -> bool {
-    let diff: u32 = 0;
-    let i: u32 = 0;
-    
-    while (i < 32) {
-        diff = diff | (a[i] ^ b[i]);
-        i = i + 1;
-    }
-    
-    return diff == 0;
-}
-```
-
----
-
-## 🏗️ Building from Source
+## Quick Start
 
 ```bash
 # Clone the repository
 git clone https://github.com/ipenas-cl/AtomicOS.git
 cd AtomicOS
 
-# Build Tempo compiler
-make tempo
+# Build the OS
+make all
 
-# Install
-sudo make install-tempo
+# Run in QEMU
+make run
 
-# Run tests
-make test-tempo
+# Debug with GDB
+make debug
 ```
 
----
+## System Requirements
 
-## 🧪 Testing
+- x86 processor (i386 or higher)
+- 4MB RAM minimum
+- QEMU for testing
+- GNU toolchain (as, ld, make)
+- Tempo compiler (for building kernel modules)
 
-Tempo includes a comprehensive test suite:
+## Architecture
+
+### Core Components
+
+```
+AtomicOS/
+├── src/
+│   ├── bootloader/     # First-stage boot (512 bytes)
+│   └── kernel/         # Kernel core
+│       ├── kernel.asm  # Main kernel entry
+│       ├── interrupts.asm  # IDT and handlers
+│       ├── *.tempo     # Security modules (compiled with Tempo)
+│       └── *.inc       # Generated from Tempo modules
+├── examples/           # Tempo modules for kernel
+│   └── atomicos/       # Core OS modules written in Tempo
+├── include/            # System headers
+├── build/             # Build output
+└── scripts/           # Build and utility scripts
+```
+
+### Security Architecture
+
+1. **Hardware Isolation**: Separate memory domains
+2. **W^X Protection**: No page is both writable and executable
+3. **Stack Protection**: Hardware-enforced guard pages
+4. **KASLR**: Kernel randomization at boot
+5. **Secure Boot**: Cryptographic verification
+
+### Real-Time Features
+
+- **Schedulers**: EDF (dynamic) and RMS (static)
+- **WCET Analysis**: Every function has proven bounds
+- **Priority Inheritance**: Prevents priority inversion
+- **Deadline Monitoring**: Automatic deadline violation handling
+
+## Building
+
+### Prerequisites
 
 ```bash
-# Run all tests
-make test
+# Install Tempo compiler first
+wget https://github.com/ipenas-cl/tempo-lang/releases/download/v5.0.0/tempo
+chmod +x tempo
+sudo mv tempo /usr/local/bin/
 
-# Run specific test category
-make test-wcet      # WCET verification
-make test-security  # Security features
-make test-codegen   # Code generation
+# Ubuntu/Debian
+sudo apt-get install build-essential nasm qemu-system-x86
+
+# macOS
+brew install nasm qemu
+
+# Arch Linux
+sudo pacman -S base-devel nasm qemu
 ```
 
----
+### Build Commands
 
-## 📖 Documentation
+```bash
+make all        # Build complete OS
+make kernel     # Build kernel only
+make clean      # Clean build files
+make test       # Run test suite
+```
 
-- [Language Tutorial](docs/tempo/LEARN_TEMPO.md)
-- [Language Reference](docs/tempo/TEMPO_REFERENCE.md)
-- [WCET Analysis](docs/tempo/WCET_GUIDE.md)
-- [Security Levels](docs/tempo/SECURITY_LEVELS.md)
-- [Module System](docs/tempo/MODULES.md)
+## Testing
 
----
+```bash
+# Run automated tests
+make test
 
-## 🤝 Contributing
+# Run specific test
+make test-scheduler
+make test-memory
+make test-security
+```
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+## Documentation
 
-### Development Setup
+- [Architecture Guide](docs/architecture/KERNEL_DESIGN.md)
+- [Security Model](docs/SECURITY.md)
+- [Real-Time Scheduling](docs/SCHEDULING.md)
+- [API Reference](docs/api/)
+
+## Use Cases
+
+- **Aerospace**: Flight control systems
+- **Medical**: Life-critical devices
+- **Industrial**: Safety-critical controllers
+- **Defense**: Secure communication systems
+- **Automotive**: Engine control units
+
+## Contributing
+
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create your feature branch (`git checkout -b feature/amazing`)
+3. Run tests (`make test`)
+4. Commit changes (`git commit -m 'Add feature'`)
+5. Push to branch (`git push origin feature/amazing`)
+6. Open a Pull Request
 
----
+## Performance
 
-## 🚗 Roadmap
+- Boot time: < 100ms
+- Context switch: < 1000 cycles
+- Interrupt latency: < 500 cycles
+- Memory allocation: O(1) deterministic
 
-### v5.1.0 (Next)
-- [ ] Pattern matching improvements
-- [ ] Async/await with deterministic scheduling
-- [ ] Package manager (tpm - Tempo Package Manager)
-- [ ] LSP support for IDEs
+## License
 
-### Future
-- [ ] LLVM backend option
-- [ ] Formal verification tools
-- [ ] Hardware synthesis support
-- [ ] RISC-V target
+MIT License - see [LICENSE](LICENSE) file
 
----
-
-## 📜 License
-
-Tempo is licensed under the MIT License - see [LICENSE](LICENSE) for details.
-
-**Tempo™** is a trademark of Ignacio Peña Sepúlveda.
-
----
-
-## 🌟 Why Tempo?
-
-In a world where software timing is unpredictable and security vulnerabilities abound, Tempo offers a different path:
-
-- **Predictable**: Same code, same timing, always
-- **Secure**: Security levels built into the language
-- **Fast**: No runtime overhead, no garbage collector
-- **Simple**: Easy to learn, hard to misuse
-
----
-
-## 👨‍💻 Author
+## Author
 
 **Ignacio Peña Sepúlveda**  
-Email: ignacio@tempo-lang.org  
-GitHub: [@ipenas-cl](https://github.com/ipenas-cl)
+Email: ignacio@atomicos.io
 
 ---
 
-## ⭐ Star History
-
-If you find Tempo useful, please star it on GitHub!
-
-[![Star History Chart](https://api.star-history.com/svg?repos=ipenas-cl/AtomicOS&type=Date)](https://github.com/ipenas-cl/AtomicOS)
-
----
-
-*"Deterministic by design, secure by default."* - Tempo Philosophy
+*"Security First, Stability Second, Performance Third"* - AtomicOS Philosophy
