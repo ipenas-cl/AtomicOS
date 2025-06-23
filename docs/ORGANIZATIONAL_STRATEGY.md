@@ -72,7 +72,7 @@ Atomic Systems SpA (Chile)
 - Protección: 10 años renovables
 
 ### 2. Copyright
-- Mantener copyright personal: "© 2024 Ignacio Peña Sepúlveda"
+- Mantener copyright personal: "© 2025 Ignacio Peña Sepúlveda"
 - Licencia MIT para código abierto
 - Contributor License Agreement (CLA) opcional
 

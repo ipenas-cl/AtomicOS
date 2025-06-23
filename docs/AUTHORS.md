@@ -25,4 +25,4 @@ Special thanks to the open source community and all future contributors who will
 
 ---
 
-© 2024 Ignacio Peña Sepúlveda. All rights reserved.
+© 2025 Ignacio Peña Sepúlveda. All rights reserved.
