@@ -4,7 +4,7 @@
 # Configuration
 PROJECT_NAME = AtomicOS
 VERSION = 5.2.1
-ARCH = i386
+ARCH = x86_64
 
 # Directories
 SRC_DIR = src
@@ -85,9 +85,9 @@ $(BUILD_DIR)/%.inc: $(EXAMPLES_DIR)/%.tempo $(TEMPO_BIN) | $(BUILD_DIR)
 	$(TEMPO_BIN) $< $(BUILD_DIR)/$*.s
 	@cp $(KERNEL_SRC)/$*.inc $@ 2>/dev/null || echo "; Generated from $<" > $@
 
-# Build bootloader
-$(BOOTLOADER): $(BOOT_SRC)/boot.asm | $(BUILD_DIR)
-	@echo "Assembling bootloader..."
+# Build 64-bit bootloader
+$(BOOTLOADER): $(BOOT_SRC)/boot64.asm | $(BUILD_DIR)
+	@echo "Assembling 64-bit bootloader..."
 	$(AS) $(ASFLAGS) $< -o $@
 
 # Build kernel C files
@@ -104,16 +104,11 @@ $(BOOTLOADER): $(BOOT_SRC)/boot.asm | $(BUILD_DIR)
 # 	@echo "Compiling fs.c..."
 # 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Build kernel with all modules
-$(KERNEL): $(KERNEL_SRC)/kernel.asm \
-          $(KERNEL_SRC)/keyboard_driver.asm \
-          $(KERNEL_SRC)/timer.asm \
-          $(KERNEL_SRC)/atomic_shell.asm | $(BUILD_DIR)
-	@echo "Assembling kernel with all modules..."
+# Build 64-bit kernel (simplified for testing)
+$(KERNEL): $(KERNEL_SRC)/kernel_simple64.asm | $(BUILD_DIR)
+	@echo "Assembling 64-bit kernel (test version)..."
 	@mkdir -p $(BUILD_DIR)/kernel
-	@cp $(KERNEL_SRC)/*.inc $(BUILD_DIR)/kernel/ 2>/dev/null || true
-	@cp $(KERNEL_SRC)/*.asm $(BUILD_DIR)/kernel/ 2>/dev/null || true
-	cd $(BUILD_DIR) && $(AS) $(ASFLAGS) ../$(KERNEL_SRC)/kernel.asm -o ../$(KERNEL)
+	cd $(BUILD_DIR) && $(AS) $(ASFLAGS) ../$(KERNEL_SRC)/kernel_simple64.asm -o ../$(KERNEL)
 
 # Create OS image
 $(OS_IMAGE): $(BOOTLOADER) $(KERNEL) | $(BUILD_DIR)
@@ -138,7 +133,7 @@ release-major:
 .PHONY: version
 version:
 	@echo "AtomicOS $(VERSION)"
-	@echo "Architecture: $(ARCH)"
+	@echo "Architecture: 64-bit (x86_64)"
 	@echo "Tempo Compiler: v1.2.2"
 
 # Run in QEMU
@@ -259,7 +254,7 @@ info:
 	@echo "==============================================="
 	@echo "AtomicOS v$(VERSION) - Deterministic Real-Time Security OS"
 	@echo "==============================================="
-	@echo "Architecture: $(ARCH)"
+	@echo "Architecture: 64-bit (x86_64)"
 	@echo "Build directory: $(BUILD_DIR)"
 	@echo "Security features:"
 	@echo "  - W^X Protection"
