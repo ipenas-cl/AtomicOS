@@ -1,0 +1,165 @@
+// EXAMPLE 6: Arrays y Memoria
+// Demuestra: arrays de tamaño fijo, iteración, bounds checking
+
+fn main() -> i32 {
+    // === ARRAYS BÁSICOS ===
+    
+    // Array de enteros con tamaño fijo
+    let numbers: [5]i32;
+    numbers[0] = 10;
+    numbers[1] = 20;
+    numbers[2] = 30;
+    numbers[3] = 40;
+    numbers[4] = 50;
+    
+    // Array de caracteres
+    let grades: [3]char;
+    grades[0] = 'A';
+    grades[1] = 'B';
+    grades[2] = 'C';
+    
+    // Array de booleanos
+    let flags: [4]bool;
+    flags[0] = true;
+    flags[1] = false;
+    flags[2] = true;
+    flags[3] = false;
+    
+    // === OPERACIONES CON ARRAYS ===
+    
+    // Suma de elementos
+    let sum: i32 = 0;
+    let i: i32 = 0;
+    while (i < 5) {
+        sum = sum + numbers[i];
+        i = i + 1;
+    }
+    // sum = 10+20+30+40+50 = 150
+    
+    // Encontrar máximo
+    let max: i32 = numbers[0];
+    i = 1;
+    while (i < 5) {
+        if (numbers[i] > max) {
+            max = numbers[i];
+        }
+        i = i + 1;
+    }
+    // max = 50
+    
+    // Contar elementos true
+    let true_count: i32 = 0;
+    i = 0;
+    while (i < 4) {
+        if (flags[i]) {
+            true_count = true_count + 1;
+        }
+        i = i + 1;
+    }
+    // true_count = 2
+    
+    // === BÚSQUEDA EN ARRAY ===
+    
+    let target: i32 = 30;
+    let found_index: i32 = -1;
+    
+    i = 0;
+    while (i < 5) {
+        if (numbers[i] == target) {
+            found_index = i;
+            break;  // Encontrado, salir del loop
+        }
+        i = i + 1;
+    }
+    // found_index = 2
+    
+    // === COPIA DE ARRAYS ===
+    
+    let backup: [5]i32;
+    i = 0;
+    while (i < 5) {
+        backup[i] = numbers[i];
+        i = i + 1;
+    }
+    
+    // === ARRAY BIDIMENSIONAL (simulado) ===
+    
+    // Matriz 2x3 representada como array 1D
+    let matrix: [6]i32;  // 2 filas * 3 columnas
+    
+    // Llenar matriz (row-major order)
+    let row: i32 = 0;
+    while (row < 2) {
+        let col: i32 = 0;
+        while (col < 3) {
+            let index: i32 = row * 3 + col;
+            matrix[index] = (row + 1) * 10 + col;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    // matriz: [10, 11, 12, 20, 21, 22]
+    
+    // Suma de matriz
+    let matrix_sum: i32 = 0;
+    i = 0;
+    while (i < 6) {
+        matrix_sum = matrix_sum + matrix[i];
+        i = i + 1;
+    }
+    // matrix_sum = 10+11+12+20+21+22 = 96
+    
+    // === RESULTADO FINAL ===
+    
+    let result: i32 = sum + max + true_count + matrix_sum;
+    
+    if (found_index == 2) {
+        result = result + 100;  // Bonus por encontrar el elemento
+    }
+    
+    return result;  // 150 + 50 + 2 + 96 + 100 = 398
+}
+
+/*
+ARRAYS EN TEMPO:
+
+1. DECLARACIÓN:
+   - let array: [SIZE]TYPE;
+   - Tamaño debe ser constante conocida en compile-time
+   - No hay arrays dinámicos (por determinismo)
+
+2. ACCESO:
+   - array[index] para leer/escribir
+   - Bounds checking automático en runtime
+   - Index out of bounds = panic determinístico
+
+3. ITERACIÓN:
+   - Usar while con contador manual
+   - No hay for-each (aún)
+   - Importante: verificar límites manualmente
+
+4. MEMORIA:
+   - Arrays son siempre stack-allocated
+   - Layout continuo en memoria
+   - Tamaño conocido en compile-time
+
+5. MULTIDIMENSIONALES:
+   - No hay soporte nativo
+   - Simular con cálculo de índices
+   - row_major_index = row * num_cols + col
+
+SEGURIDAD:
+- Impossibles buffer overflows
+- Bounds checking automático
+- No hay pointer arithmetic peligroso
+- Memory layout predecible
+
+LIMITACIONES ACTUALES:
+- Solo tamaños fijos
+- No hay inicialización con valores
+- No hay array slicing
+
+PRUEBA:
+tempo run 06_arrays.tempo
+echo $?  # Debe mostrar 398
+*/

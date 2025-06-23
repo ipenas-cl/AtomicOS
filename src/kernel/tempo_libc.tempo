@@ -1,0 +1,528 @@
+// AtomicOS Tempo Standard Library
+// Pure Tempo implementation replacing all C dependencies
+
+// ============================================================================
+// MEMORY MANAGEMENT
+// ============================================================================
+
+// Memory allocation with deterministic behavior
+@wcet(200)
+function tempo_malloc(size: int32) -> ptr<void> {
+    if size <= 0 {
+        return null;
+    }
+    
+    // Align size to word boundary
+    let aligned_size = (size + 3) & 0xFFFFFFFC;
+    
+    // Use simple bump allocator for deterministic behavior
+    let heap_ptr = get_heap_pointer();
+    let new_ptr = heap_ptr + aligned_size;
+    
+    if new_ptr > get_heap_limit() {
+        return null; // Out of memory
+    }
+    
+    set_heap_pointer(new_ptr);
+    
+    // Clear allocated memory
+    tempo_memset(cast<ptr<int8>>(heap_ptr), 0, aligned_size);
+    
+    return cast<ptr<void>>(heap_ptr);
+}
+
+// Free memory (simplified for deterministic systems)
+@wcet(50)
+function tempo_free(ptr: ptr<void>) -> void {
+    // In a deterministic system, we don't actually free
+    // individual allocations to avoid fragmentation
+    // Memory is reclaimed when the entire heap is reset
+}
+
+// Memory copy with bounds checking
+@wcet(1000)
+@constant_time
+function tempo_memcpy(dest: ptr<void>, src: ptr<void>, n: int32) -> ptr<void> {
+    if dest == null || src == null || n <= 0 {
+        return dest;
+    }
+    
+    let d = cast<ptr<int8>>(dest);
+    let s = cast<ptr<int8>>(src);
+    
+    let i = 0;
+    while i < n {
+        d[i] = s[i];
+        i = i + 1;
+    }
+    
+    return dest;
+}
+
+// Memory set with constant time execution
+@wcet(500)
+@constant_time
+function tempo_memset(ptr: ptr<void>, value: int32, n: int32) -> ptr<void> {
+    if ptr == null || n <= 0 {
+        return ptr;
+    }
+    
+    let p = cast<ptr<int8>>(ptr);
+    let val = cast<int8>(value & 0xFF);
+    
+    let i = 0;
+    while i < n {
+        p[i] = val;
+        i = i + 1;
+    }
+    
+    return ptr;
+}
+
+// Memory comparison with constant time
+@wcet(1000)
+@constant_time
+function tempo_memcmp(ptr1: ptr<void>, ptr2: ptr<void>, n: int32) -> int32 {
+    if ptr1 == null || ptr2 == null {
+        return -1;
+    }
+    
+    let p1 = cast<ptr<int8>>(ptr1);
+    let p2 = cast<ptr<int8>>(ptr2);
+    let result = 0;
+    
+    let i = 0;
+    while i < n {
+        let diff = cast<int32>(p1[i]) - cast<int32>(p2[i]);
+        // Constant time: always update result but preserve first difference
+        if result == 0 {
+            result = diff;
+        }
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// ============================================================================
+// STRING OPERATIONS
+// ============================================================================
+
+// String length calculation
+@wcet(1000)
+function tempo_strlen(str: ptr<int8>) -> int32 {
+    if str == null {
+        return 0;
+    }
+    
+    let len = 0;
+    while str[len] != 0 && len < 65536 { // Bounded for determinism
+        len = len + 1;
+    }
+    
+    return len;
+}
+
+// String copy with bounds checking
+@wcet(1000)
+function tempo_strcpy(dest: ptr<int8>, src: ptr<int8>) -> ptr<int8> {
+    if dest == null || src == null {
+        return dest;
+    }
+    
+    let i = 0;
+    while src[i] != 0 && i < 65535 { // Bounded copy
+        dest[i] = src[i];
+        i = i + 1;
+    }
+    dest[i] = 0; // Null terminate
+    
+    return dest;
+}
+
+// String concatenation with bounds
+@wcet(1500)
+function tempo_strcat(dest: ptr<int8>, src: ptr<int8>) -> ptr<int8> {
+    if dest == null || src == null {
+        return dest;
+    }
+    
+    let dest_len = tempo_strlen(dest);
+    let i = 0;
+    
+    while src[i] != 0 && (dest_len + i) < 65535 {
+        dest[dest_len + i] = src[i];
+        i = i + 1;
+    }
+    dest[dest_len + i] = 0;
+    
+    return dest;
+}
+
+// String comparison
+@wcet(1000)
+function tempo_strcmp(str1: ptr<int8>, str2: ptr<int8>) -> int32 {
+    if str1 == null || str2 == null {
+        return -1;
+    }
+    
+    let i = 0;
+    while str1[i] != 0 && str2[i] != 0 && i < 65536 {
+        if str1[i] != str2[i] {
+            return cast<int32>(str1[i]) - cast<int32>(str2[i]);
+        }
+        i = i + 1;
+    }
+    
+    return cast<int32>(str1[i]) - cast<int32>(str2[i]);
+}
+
+// ============================================================================
+// MATHEMATICAL FUNCTIONS
+// ============================================================================
+
+// Integer absolute value
+@wcet(10)
+@constant_time
+function tempo_abs(x: int32) -> int32 {
+    let mask = x >> 31;  // Sign bit mask
+    return (x + mask) ^ mask;
+}
+
+// Integer minimum
+@wcet(10)
+@constant_time
+function tempo_min(a: int32, b: int32) -> int32 {
+    return (a < b) ? a : b;
+}
+
+// Integer maximum
+@wcet(10)
+@constant_time
+function tempo_max(a: int32, b: int32) -> int32 {
+    return (a > b) ? a : b;
+}
+
+// Integer division with remainder
+@wcet(100)
+function tempo_divmod(dividend: int32, divisor: int32, quotient: ptr<int32>, remainder: ptr<int32>) -> bool {
+    if divisor == 0 {
+        return false;
+    }
+    
+    let q = 0;
+    let r = tempo_abs(dividend);
+    let d = tempo_abs(divisor);
+    
+    // Binary long division
+    let i = 31;
+    while i >= 0 {
+        q = q << 1;
+        if r >= d {
+            r = r - d;
+            q = q | 1;
+        }
+        i = i - 1;
+    }
+    
+    // Handle signs
+    if (dividend < 0) != (divisor < 0) {
+        q = -q;
+    }
+    if dividend < 0 {
+        r = -r;
+    }
+    
+    if quotient != null {
+        *quotient = q;
+    }
+    if remainder != null {
+        *remainder = r;
+    }
+    
+    return true;
+}
+
+// Power function (integer)
+@wcet(500)
+function tempo_pow(base: int32, exponent: int32) -> int32 {
+    if exponent < 0 {
+        return 0; // Integer power doesn't handle negative exponents
+    }
+    if exponent == 0 {
+        return 1;
+    }
+    
+    let result = 1;
+    let b = base;
+    let e = exponent;
+    
+    while e > 0 {
+        if (e & 1) != 0 {
+            result = result * b;
+        }
+        b = b * b;
+        e = e >> 1;
+    }
+    
+    return result;
+}
+
+// ============================================================================
+// I/O OPERATIONS
+// ============================================================================
+
+// Print character to console
+@wcet(100)
+function tempo_putchar(c: int8) -> void {
+    // Use VGA text mode for output
+    let vga_buffer = cast<ptr<int16>>(0xB8000);
+    let cursor_pos = get_cursor_position();
+    
+    if c == cast<int8>(10) { // Newline
+        set_cursor_position((cursor_pos / 80 + 1) * 80);
+    } else {
+        let char_attr = cast<int16>(c) | (cast<int16>(7) << 8); // White on black
+        vga_buffer[cursor_pos] = char_attr;
+        set_cursor_position(cursor_pos + 1);
+    }
+}
+
+// Print string to console
+@wcet(2000)
+function tempo_puts(str: ptr<int8>) -> void {
+    if str == null {
+        return;
+    }
+    
+    let i = 0;
+    while str[i] != 0 && i < 65536 {
+        tempo_putchar(str[i]);
+        i = i + 1;
+    }
+    tempo_putchar(cast<int8>(10)); // Newline
+}
+
+// Print integer as decimal
+@wcet(300)
+function tempo_print_int(value: int32) -> void {
+    if value == 0 {
+        tempo_putchar(cast<int8>(48)); // '0'
+        return;
+    }
+    
+    let buffer: [int8; 12]; // Enough for 32-bit int
+    let pos = 11;
+    let val = tempo_abs(value);
+    
+    buffer[pos] = 0; // Null terminate
+    pos = pos - 1;
+    
+    while val > 0 {
+        buffer[pos] = cast<int8>(48 + (val % 10)); // '0' + digit
+        val = val / 10;
+        pos = pos - 1;
+    }
+    
+    if value < 0 {
+        buffer[pos] = cast<int8>(45); // '-'
+        pos = pos - 1;
+    }
+    
+    tempo_puts(buffer + (pos + 1));
+}
+
+// Print integer as hexadecimal
+@wcet(200)
+function tempo_print_hex(value: int32) -> void {
+    let hex_chars = "0123456789ABCDEF";
+    let buffer: [int8; 9]; // "0x" + 8 hex digits
+    
+    buffer[0] = cast<int8>(48); // '0'
+    buffer[1] = cast<int8>(120); // 'x'
+    buffer[8] = 0; // Null terminate
+    
+    let i = 7;
+    while i >= 2 {
+        let digit = value & 0xF;
+        buffer[i] = hex_chars[digit];
+        value = value >> 4;
+        i = i - 1;
+    }
+    
+    tempo_puts(buffer);
+}
+
+// ============================================================================
+// SYSTEM UTILITIES
+// ============================================================================
+
+// Get current heap pointer
+function get_heap_pointer() -> int32 {
+    return 0x800000; // 8MB heap start
+}
+
+// Set heap pointer
+function set_heap_pointer(ptr: int32) -> void {
+    // Implementation would update heap state
+}
+
+// Get heap limit
+function get_heap_limit() -> int32 {
+    return 0x1000000; // 16MB heap limit
+}
+
+// Get VGA cursor position
+function get_cursor_position() -> int32 {
+    return 0; // Simplified - would read from VGA registers
+}
+
+// Set VGA cursor position
+function set_cursor_position(pos: int32) -> void {
+    // Implementation would update VGA cursor registers
+}
+
+// ============================================================================
+// ADVANCED MEMORY OPERATIONS
+// ============================================================================
+
+// Zero memory with CPU optimization
+@wcet(200)
+@constant_time
+function tempo_bzero(ptr: ptr<void>, size: int32) -> void {
+    tempo_memset(ptr, 0, size);
+}
+
+// Copy memory with overlap handling
+@wcet(1200)
+function tempo_memmove(dest: ptr<void>, src: ptr<void>, n: int32) -> ptr<void> {
+    if dest == null || src == null || n <= 0 {
+        return dest;
+    }
+    
+    let d = cast<ptr<int8>>(dest);
+    let s = cast<ptr<int8>>(src);
+    
+    // Check for overlap
+    if d < s {
+        // Copy forward
+        let i = 0;
+        while i < n {
+            d[i] = s[i];
+            i = i + 1;
+        }
+    } else {
+        // Copy backward
+        let i = n - 1;
+        while i >= 0 {
+            d[i] = s[i];
+            i = i - 1;
+        }
+    }
+    
+    return dest;
+}
+
+// Secure memory clear (prevents optimization)
+@wcet(500)
+@constant_time
+function tempo_secure_zero(ptr: ptr<void>, size: int32) -> void {
+    if ptr == null || size <= 0 {
+        return;
+    }
+    
+    let p = cast<ptr<volatile int8>>(ptr);
+    let i = 0;
+    while i < size {
+        p[i] = 0;
+        i = i + 1;
+    }
+    
+    // Memory barrier to prevent optimization
+    asm {
+        "mfence"
+        ::: "memory"
+    };
+}
+
+// ============================================================================
+// TYPE CONVERSION UTILITIES
+// ============================================================================
+
+// Convert string to integer
+@wcet(500)
+function tempo_atoi(str: ptr<int8>) -> int32 {
+    if str == null {
+        return 0;
+    }
+    
+    let result = 0;
+    let sign = 1;
+    let i = 0;
+    
+    // Skip whitespace
+    while str[i] == cast<int8>(32) { // Space
+        i = i + 1;
+    }
+    
+    // Handle sign
+    if str[i] == cast<int8>(45) { // '-'
+        sign = -1;
+        i = i + 1;
+    } else if str[i] == cast<int8>(43) { // '+'
+        i = i + 1;
+    }
+    
+    // Convert digits
+    while str[i] >= cast<int8>(48) && str[i] <= cast<int8>(57) && i < 100 {
+        result = result * 10 + (cast<int32>(str[i]) - 48);
+        i = i + 1;
+    }
+    
+    return result * sign;
+}
+
+// Convert integer to string
+@wcet(300)
+function tempo_itoa(value: int32, buffer: ptr<int8>, base: int32) -> ptr<int8> {
+    if buffer == null || base < 2 || base > 36 {
+        return null;
+    }
+    
+    let digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let pos = 0;
+    let val = tempo_abs(value);
+    
+    if val == 0 {
+        buffer[0] = cast<int8>(48); // '0'
+        buffer[1] = 0;
+        return buffer;
+    }
+    
+    // Convert digits in reverse
+    while val > 0 {
+        buffer[pos] = digits[val % base];
+        val = val / base;
+        pos = pos + 1;
+    }
+    
+    if value < 0 {
+        buffer[pos] = cast<int8>(45); // '-'
+        pos = pos + 1;
+    }
+    
+    buffer[pos] = 0; // Null terminate
+    
+    // Reverse string
+    let start = 0;
+    let end = pos - 1;
+    while start < end {
+        let temp = buffer[start];
+        buffer[start] = buffer[end];
+        buffer[end] = temp;
+        start = start + 1;
+        end = end - 1;
+    }
+    
+    return buffer;
+}

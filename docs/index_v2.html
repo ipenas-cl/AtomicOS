@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AtomicOS & Tempo - The Future of Systems Programming</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #2c3e50;
+            background: #ffffff;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        header {
+            background: #ffffff;
+            border-bottom: 1px solid #e1e8ed;
+            padding: 2rem 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+            background: rgba(255,255,255,0.95);
+        }
+        
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .logo {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+        
+        .version {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0.3rem 0.8rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+        
+        .nav-links a {
+            color: #7f8c8d;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        
+        .nav-links a:hover {
+            color: #667eea;
+        }
+        
+        .hero {
+            padding: 5rem 0;
+            text-align: center;
+            background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
+        }
+        
+        .announcement-banner {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+        
+        .announcement-banner a {
+            color: white;
+            text-decoration: underline;
+        }
+        
+        .hero h1 {
+            font-size: 4rem;
+            font-weight: 300;
+            margin-bottom: 1.5rem;
+            color: #2c3e50;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .hero-subtitle {
+            font-size: 1.5rem;
+            color: #7f8c8d;
+            margin-bottom: 3rem;
+            font-weight: 300;
+        }
+        
+        .killer-feature {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 3rem;
+            margin: 3rem 0;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+        }
+        
+        .killer-feature h2 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+        
+        .killer-feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .killer-item {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .cta-section {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 1rem 2rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: #667eea;
+            border: 2px solid #667eea;
+        }
+        
+        .btn-secondary:hover {
+            background: #667eea;
+            color: white;
+        }
+        
+        .comparison-section {
+            padding: 6rem 0;
+            background: #2c3e50;
+            color: white;
+        }
+        
+        .comparison-table {
+            overflow-x: auto;
+            margin-top: 3rem;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        th {
+            font-weight: 600;
+            color: #f39c12;
+        }
+        
+        .check {
+            color: #2ecc71;
+            font-weight: bold;
+        }
+        
+        .cross {
+            color: #e74c3c;
+        }
+        
+        .code-example {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 2rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 2rem 0;
+        }
+        
+        .code-example pre {
+            margin: 0;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        }
+        
+        .features-section {
+            padding: 6rem 0;
+        }
+        
+        .section-title {
+            text-align: center;
+            font-size: 2.5rem;
+            font-weight: 300;
+            margin-bottom: 4rem;
+            color: #2c3e50;
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 4rem;
+        }
+        
+        .feature {
+            text-align: center;
+        }
+        
+        .feature-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 2rem;
+            font-size: 2rem;
+            color: white;
+        }
+        
+        .feature h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        
+        .stats-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 5rem 0;
+            text-align: center;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 3rem;
+            margin-top: 3rem;
+        }
+        
+        .stat {
+            padding: 2rem;
+        }
+        
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 700;
+            display: block;
+        }
+        
+        .books-section {
+            padding: 6rem 0;
+            background: #f8f9fa;
+        }
+        
+        .book-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 3rem;
+            margin-top: 3rem;
+        }
+        
+        .book-card {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        
+        .book-card:hover {
+            transform: translateY(-4px);
+        }
+        
+        .book-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+        }
+        
+        .book-content {
+            padding: 2rem;
+        }
+        
+        footer {
+            background: #34495e;
+            color: white;
+            padding: 4rem 0 2rem;
+            text-align: center;
+        }
+        
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            
+            .nav-links {
+                gap: 1rem;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="announcement-banner">
+        🎉 Major Milestone: Tempo is now self-hosted! The compiler is written 100% in Tempo. <a href="#self-hosted">Learn more →</a>
+    </div>
+
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo-section">
+                    <div class="logo">AtomicOS</div>
+                    <div class="version">v2.0.0</div>
+                </div>
+                <nav class="nav-links">
+                    <a href="#features">Features</a>
+                    <a href="#tempo">Tempo Language</a>
+                    <a href="#comparison">Comparison</a>
+                    <a href="docs/tempo/LEARN_TEMPO.html">Learn</a>
+                    <a href="#books">Books</a>
+                    <a href="https://github.com/ipenas-cl/AtomicOS">GitHub</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <section class="hero">
+        <div class="container">
+            <h1>The Future of Systems Programming</h1>
+            <p class="hero-subtitle">Deterministic. Secure. Real-Time. Self-Hosted.</p>
+            
+            <div class="killer-feature" id="self-hosted">
+                <h2>🚀 Tempo: The First Self-Hosted Deterministic Language</h2>
+                <p style="font-size: 1.2rem; margin-bottom: 2rem;">Write native macOS, Linux, and Windows applications with guaranteed performance</p>
+                
+                <div class="killer-feature-grid">
+                    <div class="killer-item">
+                        <h3>WCET Guaranteed</h3>
+                        <p>Every function has provable worst-case execution time. No surprises, ever.</p>
+                    </div>
+                    <div class="killer-item">
+                        <h3>No Garbage Collection</h3>
+                        <p>Predictable memory management. Zero pauses. Perfect for real-time systems.</p>
+                    </div>
+                    <div class="killer-item">
+                        <h3>Native Performance</h3>
+                        <p>Compiles to native x86_64 and ARM64. As fast as C, safer than Rust.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="cta-section">
+                <a href="https://github.com/ipenas-cl/AtomicOS/releases" class="btn btn-primary">Download Tempo Compiler</a>
+                <a href="docs/tempo/LEARN_TEMPO.html" class="btn btn-secondary">Learn Tempo in 10 Minutes</a>
+            </div>
+        </div>
+    </section>
+
+    <section class="features-section" id="tempo">
+        <div class="container">
+            <h2 class="section-title">Write Better Systems Code</h2>
+            
+            <div class="code-example">
+                <pre><code>// Guaranteed to complete in 100 cycles
+@wcet(100)
+function process_packet(data: ptr&lt;u8&gt;, len: u32) -> bool {
+    // Compiler ensures this meets timing constraint
+    for let i = 0; i &lt; len && i &lt; 64; i++ {
+        if !validate_byte(data[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Prevent timing attacks automatically
+@constant_time
+function secure_compare(a: ptr&lt;u8&gt;, b: ptr&lt;u8&gt;, len: u32) -> bool {
+    let diff = 0;
+    for let i = 0; i &lt; len; i++ {
+        diff |= a[i] ^ b[i];
+    }
+    return diff == 0;
+}</code></pre>
+            </div>
+            
+            <div class="features-grid">
+                <div class="feature">
+                    <div class="feature-icon">⏱️</div>
+                    <h3>Real-Time by Design</h3>
+                    <p>WCET analysis built into the language. Perfect for embedded systems, robotics, and control systems.</p>
+                </div>
+                
+                <div class="feature">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Security First</h3>
+                    <p>Constant-time operations, security levels, and memory safety prevent entire classes of vulnerabilities.</p>
+                </div>
+                
+                <div class="feature">
+                    <div class="feature-icon">🚀</div>
+                    <h3>Zero-Cost Abstractions</h3>
+                    <p>High-level features compile to optimal machine code. No runtime overhead.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="comparison-section" id="comparison">
+        <div class="container">
+            <h2 class="section-title" style="color: white;">Tempo vs The World</h2>
+            
+            <div class="comparison-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Feature</th>
+                            <th>Tempo</th>
+                            <th>C</th>
+                            <th>Rust</th>
+                            <th>Go</th>
+                            <th>C++</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>WCET Guarantees</td>
+                            <td class="check">✓ Built-in</td>
+                            <td class="cross">✗</td>
+                            <td class="cross">✗</td>
+                            <td class="cross">✗</td>
+                            <td class="cross">✗</td>
+                        </tr>
+                        <tr>
+                            <td>Memory Safety</td>
+                            <td class="check">✓ Default</td>
+                            <td class="cross">✗</td>
+                            <td class="check">✓ Complex</td>
+                            <td class="check">✓ GC</td>
+                            <td class="cross">✗</td>
+                        </tr>
+                        <tr>
+                            <td>No GC Pauses</td>
+                            <td class="check">✓</td>
+                            <td class="check">✓</td>
+                            <td class="check">✓</td>
+                            <td class="cross">✗</td>
+                            <td class="check">✓</td>
+                        </tr>
+                        <tr>
+                            <td>Constant-Time Ops</td>
+                            <td class="check">✓ Verified</td>
+                            <td class="cross">✗</td>
+                            <td class="cross">✗</td>
+                            <td class="cross">✗</td>
+                            <td class="cross">✗</td>
+                        </tr>
+                        <tr>
+                            <td>Compile Speed</td>
+                            <td class="check">✓ Fast</td>
+                            <td class="check">✓</td>
+                            <td class="cross">✗ Slow</td>
+                            <td class="check">✓</td>
+                            <td class="cross">✗ Very Slow</td>
+                        </tr>
+                        <tr>
+                            <td>Learning Curve</td>
+                            <td class="check">✓ Simple</td>
+                            <td class="check">✓</td>
+                            <td class="cross">✗ Steep</td>
+                            <td class="check">✓</td>
+                            <td class="cross">✗ Complex</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <section class="stats-section">
+        <div class="container">
+            <h2 class="section-title">By The Numbers</h2>
+            <div class="stats-grid">
+                <div class="stat">
+                    <span class="stat-number">0</span>
+                    <div class="stat-label">GC Pauses</div>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">100%</span>
+                    <div class="stat-label">Predictable</div>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">&lt;50μs</span>
+                    <div class="stat-label">Interrupt Latency</div>
+                </div>
+                <div class="stat">
+                    <span class="stat-number">10x</span>
+                    <div class="stat-label">Faster Compilation than C++</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="features-section" id="features">
+        <div class="container">
+            <h2 class="section-title">AtomicOS: A New Kind of Operating System</h2>
+            
+            <div class="features-grid">
+                <div class="feature">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>Security Architecture</h3>
+                    <p>Multi-level security with Bell-LaPadula model, W^X protection, and hardware-enforced boundaries.</p>
+                </div>
+                
+                <div class="feature">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Real-Time Kernel</h3>
+                    <p>EDF and RMS scheduling with guaranteed deadlines. Perfect for aerospace and medical systems.</p>
+                </div>
+                
+                <div class="feature">
+                    <div class="feature-icon">🔧</div>
+                    <h3>100% Tempo</h3>
+                    <p>Entire kernel written in Tempo. No C code. Proof that systems programming can be safe.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="books-section" id="books">
+        <div class="container">
+            <h2 class="section-title">Learn From The Books</h2>
+            
+            <div class="book-grid">
+                <div class="book-card">
+                    <div class="book-header">
+                        <h3>The Tempo Programming Language</h3>
+                        <p>Master deterministic systems programming</p>
+                    </div>
+                    <div class="book-content">
+                        <p>Comprehensive guide covering:</p>
+                        <ul style="list-style: none; padding: 0;">
+                            <li>✓ Language fundamentals</li>
+                            <li>✓ Real-time programming</li>
+                            <li>✓ Security patterns</li>
+                            <li>✓ Advanced techniques</li>
+                        </ul>
+                        <a href="books/tempo-programming/" class="btn btn-secondary" style="margin-top: 1rem;">Read Online</a>
+                    </div>
+                </div>
+                
+                <div class="book-card">
+                    <div class="book-header">
+                        <h3>Building Deterministic Operating Systems</h3>
+                        <p>Create predictable, secure OS with AtomicOS</p>
+                    </div>
+                    <div class="book-content">
+                        <p>In-depth coverage of:</p>
+                        <ul style="list-style: none; padding: 0;">
+                            <li>✓ OS design principles</li>
+                            <li>✓ Real-time scheduling</li>
+                            <li>✓ Security architecture</li>
+                            <li>✓ Practical implementation</li>
+                        </ul>
+                        <a href="books/deterministic-os/" class="btn btn-secondary" style="margin-top: 1rem;">Read Online</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="cta-section" style="padding: 6rem 0; background: #f8f9fa;">
+        <div class="container" style="text-align: center;">
+            <h2 style="font-size: 2.5rem; margin-bottom: 2rem;">Ready to Build Better Systems?</h2>
+            <div class="cta-section">
+                <a href="https://github.com/ipenas-cl/AtomicOS" class="btn btn-primary">Get Started with Tempo</a>
+                <a href="docs/tempo/LEARN_TEMPO.html" class="btn btn-secondary">Read Documentation</a>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 AtomicOS Project | MIT License</p>
+            <p style="margin-top: 1rem; font-size: 1.2rem;"><strong>Security First, Stability Second, Performance Third</strong></p>
+            <p style="margin-top: 2rem;">Join us in building the future of deterministic computing</p>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,498 @@
+// TEMPO INIT - Deterministic Service Manager for AtomicOS
+// Better than systemd - 100% predictable, no surprises
+
+module tempo_init;
+
+// Service states
+const SERVICE_STOPPED: u32 = 0;
+const SERVICE_STARTING: u32 = 1;
+const SERVICE_RUNNING: u32 = 2;
+const SERVICE_STOPPING: u32 = 3;
+const SERVICE_FAILED: u32 = 4;
+const SERVICE_MAINTENANCE: u32 = 5;
+
+// Service types
+const TYPE_ONESHOT: u32 = 0;
+const TYPE_SIMPLE: u32 = 1;
+const TYPE_FORKING: u32 = 2;
+const TYPE_NOTIFY: u32 = 3;
+const TYPE_DETERMINISTIC: u32 = 4;  // New! Perfect timing
+
+// Restart policies
+const RESTART_NEVER: u32 = 0;
+const RESTART_ALWAYS: u32 = 1;
+const RESTART_ON_FAILURE: u32 = 2;
+const RESTART_DETERMINISTIC: u32 = 3;  // Restart at exact intervals
+
+// Service definition
+struct Service {
+    name: [64]char,
+    description: [256]char,
+    exec_path: [256]char,
+    type: u32,
+    state: u32,
+    restart_policy: u32,
+    
+    // Dependencies
+    depends_on: [16]u32,  // Service IDs
+    depend_count: u32,
+    
+    // Resource limits (deterministic)
+    max_memory: u64,      // Bytes
+    max_cpu_cycles: u64,  // Per second
+    max_file_handles: u32,
+    
+    // Timing constraints
+    start_deadline: u64,  // Cycles to start
+    stop_deadline: u64,   // Cycles to stop
+    wcet_per_tick: u64,   // Worst-case execution per tick
+    
+    // Health checks
+    health_check_interval: u64,  // Cycles
+    last_health_check: u64,
+    health_status: u32,
+    consecutive_failures: u32,
+    
+    // Statistics
+    start_time: u64,
+    total_cpu_cycles: u64,
+    restart_count: u32,
+    
+    // Security
+    security_level: u32,
+    capabilities: u64,  // Bit flags
+    uid: u32,
+    gid: u32
+}
+
+// Global service registry
+let services: [256]Service;
+let service_count: u32;
+let boot_cycle: u64;
+
+// Boot stages (deterministic order)
+const STAGE_KERNEL: u32 = 0;
+const STAGE_DRIVERS: u32 = 1;
+const STAGE_NETWORK: u32 = 2;
+const STAGE_STORAGE: u32 = 3;
+const STAGE_SYSTEM: u32 = 4;
+const STAGE_USER: u32 = 5;
+
+// Initialize tempo_init
+@wcet(1000)
+@security_level(3)
+fn init_tempo() -> void {
+    boot_cycle = get_cycle_count();
+    service_count = 0;
+    
+    // Clear service table
+    let i: u32 = 0;
+    while (i < 256) {
+        services[i].state = SERVICE_STOPPED;
+        services[i].restart_count = 0;
+        i = i + 1;
+    }
+    
+    // Register core services
+    register_core_services();
+}
+
+// Register built-in services
+@wcet(5000)
+fn register_core_services() -> void {
+    // Deterministic Web Server (better than nginx)
+    register_service(
+        "tempo-web",
+        "Deterministic Web Server with guaranteed response times",
+        "/usr/bin/tempo-web",
+        TYPE_DETERMINISTIC,
+        RESTART_DETERMINISTIC,
+        1073741824,  // 1GB memory
+        1000000000   // 1B cycles/sec
+    );
+    
+    // Deterministic Mail Server (better than postfix)
+    register_service(
+        "tempo-mail",
+        "Zero-latency deterministic mail server",
+        "/usr/bin/tempo-mail",
+        TYPE_DETERMINISTIC,
+        RESTART_ALWAYS,
+        536870912,   // 512MB
+        500000000    // 500M cycles/sec
+    );
+    
+    // Deterministic Database (SQLite compatible)
+    register_service(
+        "tempo-db",
+        "ACID-compliant deterministic database",
+        "/usr/bin/tempo-db",
+        TYPE_DETERMINISTIC,
+        RESTART_ALWAYS,
+        2147483648,  // 2GB
+        2000000000   // 2B cycles/sec
+    );
+    
+    // Deterministic NoSQL (DynamoDB compatible)
+    register_service(
+        "tempo-nosql",
+        "Distributed deterministic key-value store",
+        "/usr/bin/tempo-nosql",
+        TYPE_DETERMINISTIC,
+        RESTART_ALWAYS,
+        4294967296,  // 4GB
+        3000000000   // 3B cycles/sec
+    );
+    
+    // Deterministic SSH Server
+    register_service(
+        "tempo-ssh",
+        "Quantum-resistant deterministic SSH",
+        "/usr/bin/tempo-ssh",
+        TYPE_DETERMINISTIC,
+        RESTART_ALWAYS,
+        268435456,   // 256MB
+        100000000    // 100M cycles/sec
+    );
+    
+    // Deterministic FTP Server
+    register_service(
+        "tempo-ftp",
+        "High-performance deterministic FTP",
+        "/usr/bin/tempo-ftp",
+        TYPE_SIMPLE,
+        RESTART_ON_FAILURE,
+        134217728,   // 128MB
+        50000000     // 50M cycles/sec
+    );
+}
+
+// Register a service
+@wcet(500)
+fn register_service(
+    name: *char,
+    desc: *char,
+    exec: *char,
+    type: u32,
+    restart: u32,
+    max_mem: u64,
+    max_cpu: u64
+) -> u32 {
+    if (service_count >= 256) {
+        return 0xFFFFFFFF;
+    }
+    
+    let id: u32 = service_count;
+    let svc: *Service = &services[id];
+    
+    // Copy strings safely
+    safe_strcpy(&svc->name[0], name, 64);
+    safe_strcpy(&svc->description[0], desc, 256);
+    safe_strcpy(&svc->exec_path[0], exec, 256);
+    
+    svc->type = type;
+    svc->state = SERVICE_STOPPED;
+    svc->restart_policy = restart;
+    svc->max_memory = max_mem;
+    svc->max_cpu_cycles = max_cpu;
+    svc->max_file_handles = 1024;  // Default
+    
+    // Set deterministic deadlines
+    svc->start_deadline = 10000000;   // 10M cycles
+    svc->stop_deadline = 5000000;     // 5M cycles
+    svc->wcet_per_tick = 1000000;     // 1M cycles
+    
+    // Health check every 10 seconds (10B cycles)
+    svc->health_check_interval = 10000000000;
+    
+    service_count = service_count + 1;
+    return id;
+}
+
+// Start a service (deterministic)
+@wcet(10000)
+@security_level(2)
+fn start_service(id: u32) -> u32 {
+    if (id >= service_count) {
+        return 1;  // EINVAL
+    }
+    
+    let svc: *Service = &services[id];
+    
+    if (svc->state != SERVICE_STOPPED) {
+        return 2;  // EALREADY
+    }
+    
+    svc->state = SERVICE_STARTING;
+    let start_cycle: u64 = get_cycle_count();
+    
+    // Check dependencies first
+    let i: u32 = 0;
+    while (i < svc->depend_count) {
+        let dep_id: u32 = svc->depends_on[i];
+        if (services[dep_id].state != SERVICE_RUNNING) {
+            // Start dependency
+            let ret: u32 = start_service(dep_id);
+            if (ret != 0) {
+                svc->state = SERVICE_FAILED;
+                return 3;  // EDEP
+            }
+        }
+        i = i + 1;
+    }
+    
+    // Allocate resources deterministically
+    if (!allocate_service_resources(svc)) {
+        svc->state = SERVICE_FAILED;
+        return 4;  // ENOMEM
+    }
+    
+    // Launch service process
+    let pid: u32 = launch_service_process(svc);
+    if (pid == 0) {
+        svc->state = SERVICE_FAILED;
+        return 5;  // EEXEC
+    }
+    
+    // Wait for service to be ready (with deadline)
+    while (get_cycle_count() - start_cycle < svc->start_deadline) {
+        if (check_service_ready(svc)) {
+            svc->state = SERVICE_RUNNING;
+            svc->start_time = get_cycle_count();
+            return 0;  // Success
+        }
+        yield_cpu();
+    }
+    
+    // Deadline exceeded
+    svc->state = SERVICE_FAILED;
+    return 6;  // ETIMEDOUT
+}
+
+// Stop a service (deterministic)
+@wcet(5000)
+@security_level(2)
+fn stop_service(id: u32) -> u32 {
+    if (id >= service_count) {
+        return 1;  // EINVAL
+    }
+    
+    let svc: *Service = &services[id];
+    
+    if (svc->state != SERVICE_RUNNING) {
+        return 2;  // EALREADY
+    }
+    
+    svc->state = SERVICE_STOPPING;
+    let stop_cycle: u64 = get_cycle_count();
+    
+    // Send termination signal
+    send_service_signal(svc, SIGTERM);
+    
+    // Wait for graceful shutdown (with deadline)
+    while (get_cycle_count() - stop_cycle < svc->stop_deadline) {
+        if (check_service_stopped(svc)) {
+            svc->state = SERVICE_STOPPED;
+            free_service_resources(svc);
+            return 0;  // Success
+        }
+        yield_cpu();
+    }
+    
+    // Force kill if deadline exceeded
+    send_service_signal(svc, SIGKILL);
+    svc->state = SERVICE_STOPPED;
+    free_service_resources(svc);
+    return 0;
+}
+
+// Main service monitoring loop
+@wcet(50000)
+@security_level(3)
+fn service_monitor_tick() -> void {
+    let current_cycle: u64 = get_cycle_count();
+    
+    let i: u32 = 0;
+    while (i < service_count) {
+        let svc: *Service = &services[i];
+        
+        if (svc->state == SERVICE_RUNNING) {
+            // Check health
+            if (current_cycle - svc->last_health_check > svc->health_check_interval) {
+                perform_health_check(svc);
+                svc->last_health_check = current_cycle;
+            }
+            
+            // Check resource limits
+            check_resource_limits(svc);
+            
+            // Handle failures with restart policy
+            if (svc->health_status != HEALTH_OK) {
+                handle_service_failure(svc);
+            }
+        }
+        
+        i = i + 1;
+    }
+}
+
+// Perform deterministic health check
+@wcet(2000)
+fn perform_health_check(svc: *Service) -> void {
+    // Send health probe
+    let response: u32 = send_health_probe(svc);
+    
+    if (response == HEALTH_OK) {
+        svc->health_status = HEALTH_OK;
+        svc->consecutive_failures = 0;
+    } else {
+        svc->health_status = response;
+        svc->consecutive_failures = svc->consecutive_failures + 1;
+    }
+}
+
+// Handle service failure deterministically
+@wcet(3000)
+fn handle_service_failure(svc: *Service) -> void {
+    if (svc->consecutive_failures > 3) {
+        // Service is failing repeatedly
+        svc->state = SERVICE_FAILED;
+        
+        // Apply restart policy
+        if (svc->restart_policy == RESTART_ALWAYS ||
+            svc->restart_policy == RESTART_ON_FAILURE ||
+            svc->restart_policy == RESTART_DETERMINISTIC) {
+            
+            // Deterministic backoff
+            let backoff: u64 = calculate_backoff(svc->restart_count);
+            schedule_restart(svc, backoff);
+            svc->restart_count = svc->restart_count + 1;
+        }
+    }
+}
+
+// Calculate deterministic backoff
+@wcet(100)
+fn calculate_backoff(restart_count: u32) -> u64 {
+    // Exponential backoff with cap
+    let backoff: u64 = 1000000000;  // 1 second base
+    let multiplier: u32 = 1 << restart_count;  // 2^n
+    
+    if (multiplier > 64) {
+        return backoff * 64;  // Cap at 64 seconds
+    }
+    
+    return backoff * multiplier;
+}
+
+// Query service status
+@wcet(50)
+fn get_service_status(id: u32) -> u32 {
+    if (id >= service_count) {
+        return SERVICE_STOPPED;
+    }
+    return services[id].state;
+}
+
+// List all services
+@wcet(1000)
+fn list_services(buffer: *ServiceInfo, max_count: u32) -> u32 {
+    let count: u32 = 0;
+    let i: u32 = 0;
+    
+    while (i < service_count && count < max_count) {
+        buffer[count].id = i;
+        buffer[count].state = services[i].state;
+        safe_strcpy(&buffer[count].name[0], &services[i].name[0], 64);
+        count = count + 1;
+        i = i + 1;
+    }
+    
+    return count;
+}
+
+// Service dependency management
+@wcet(500)
+fn add_dependency(service_id: u32, depends_on_id: u32) -> u32 {
+    if (service_id >= service_count || depends_on_id >= service_count) {
+        return 1;  // EINVAL
+    }
+    
+    let svc: *Service = &services[service_id];
+    
+    if (svc->depend_count >= 16) {
+        return 2;  // ENOSPC
+    }
+    
+    // Check for circular dependencies
+    if (has_circular_dependency(service_id, depends_on_id)) {
+        return 3;  // ELOOP
+    }
+    
+    svc->depends_on[svc->depend_count] = depends_on_id;
+    svc->depend_count = svc->depend_count + 1;
+    
+    return 0;
+}
+
+// Boot sequence orchestration
+@wcet(100000)
+@security_level(3)
+fn boot_system() -> void {
+    // Stage 0: Kernel services
+    start_services_by_stage(STAGE_KERNEL);
+    wait_stage_complete(STAGE_KERNEL);
+    
+    // Stage 1: Device drivers
+    start_services_by_stage(STAGE_DRIVERS);
+    wait_stage_complete(STAGE_DRIVERS);
+    
+    // Stage 2: Network
+    start_services_by_stage(STAGE_NETWORK);
+    wait_stage_complete(STAGE_NETWORK);
+    
+    // Stage 3: Storage
+    start_services_by_stage(STAGE_STORAGE);
+    wait_stage_complete(STAGE_STORAGE);
+    
+    // Stage 4: System services
+    start_services_by_stage(STAGE_SYSTEM);
+    wait_stage_complete(STAGE_SYSTEM);
+    
+    // Stage 5: User services
+    start_services_by_stage(STAGE_USER);
+    
+    // System is ready!
+    let boot_time: u64 = get_cycle_count() - boot_cycle;
+    log_info("System booted in %llu cycles", boot_time);
+}
+
+// Helper functions
+fn safe_strcpy(dst: *char, src: *char, max_len: u32) -> void {
+    let i: u32 = 0;
+    while (i < max_len - 1 && src[i] != 0) {
+        dst[i] = src[i];
+        i = i + 1;
+    }
+    dst[i] = 0;
+}
+
+fn get_cycle_count() -> u64 {
+    let cycles: u64;
+    __asm__(
+        "rdtsc\n"
+        "shl $32, %%rdx\n"
+        "or %%rdx, %%rax\n"
+        : "=a" (cycles)
+        :
+        : "rdx"
+    );
+    return cycles;
+}
+
+// Service information structure
+struct ServiceInfo {
+    id: u32,
+    state: u32,
+    name: [64]char
+}

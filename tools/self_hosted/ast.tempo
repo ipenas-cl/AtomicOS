@@ -1,0 +1,564 @@
+// AST (Abstract Syntax Tree) module - Self-hosted Tempo compiler
+module tempo::ast;
+
+import core;
+use core::{malloc, free};
+
+// AST Node types
+export enum ASTNodeType {
+    // Program structure
+    AST_PROGRAM,
+    AST_MODULE,
+    AST_IMPORT,
+    AST_EXPORT,
+    
+    // Declarations
+    AST_FUNCTION,
+    AST_STRUCT,
+    AST_ENUM,
+    AST_TYPE_ALIAS,
+    AST_VARIABLE,
+    AST_CONSTANT,
+    
+    // Statements
+    AST_BLOCK,
+    AST_EXPRESSION_STMT,
+    AST_RETURN,
+    AST_IF,
+    AST_WHILE,
+    AST_FOR,
+    AST_BREAK,
+    AST_CONTINUE,
+    AST_MATCH,
+    AST_MATCH_ARM,
+    
+    // Expressions
+    AST_BINARY_OP,
+    AST_UNARY_OP,
+    AST_ASSIGNMENT,
+    AST_CALL,
+    AST_FIELD_ACCESS,
+    AST_INDEX,
+    AST_CAST,
+    AST_IDENTIFIER,
+    AST_INTEGER_LITERAL,
+    AST_FLOAT_LITERAL,
+    AST_STRING_LITERAL,
+    AST_CHAR_LITERAL,
+    AST_BOOL_LITERAL,
+    AST_NULL_LITERAL,
+    AST_ARRAY_LITERAL,
+    AST_STRUCT_LITERAL,
+    
+    // Types
+    AST_TYPE,
+    AST_POINTER_TYPE,
+    AST_ARRAY_TYPE,
+    AST_FUNCTION_TYPE,
+    AST_GENERIC_TYPE,
+    
+    // Annotations
+    AST_ANNOTATION
+}
+
+// Binary operators
+export enum BinaryOp {
+    OP_ADD,
+    OP_SUB,
+    OP_MUL,
+    OP_DIV,
+    OP_MOD,
+    OP_EQ,
+    OP_NE,
+    OP_LT,
+    OP_GT,
+    OP_LE,
+    OP_GE,
+    OP_AND,
+    OP_OR,
+    OP_BITAND,
+    OP_BITOR,
+    OP_BITXOR,
+    OP_SHL,
+    OP_SHR
+}
+
+// Unary operators
+export enum UnaryOp {
+    OP_NEG,
+    OP_NOT,
+    OP_BITNOT,
+    OP_DEREF,
+    OP_ADDR
+}
+
+// Base AST node
+export struct ASTNode {
+    type: ASTNodeType,
+    line: int32,
+    column: int32,
+    next: ptr<ASTNode>,  // For lists
+    
+    // Type information (filled during semantic analysis)
+    data_type: ptr<Type>,
+    is_lvalue: bool,
+    is_constant: bool,
+    
+    // WCET information
+    wcet: int32,
+    
+    // Node-specific data
+    data: ASTNodeData
+}
+
+// Union for node-specific data
+export enum ASTNodeData {
+    Program { 
+        modules: ptr<ASTNode>,
+        imports: ptr<ASTNode>,
+        declarations: ptr<ASTNode> 
+    },
+    Module { 
+        name: array<char, 256> 
+    },
+    Import { 
+        module_name: array<char, 256>,
+        alias: array<char, 256>,
+        symbols: ptr<ASTNode>  // List of imported symbols
+    },
+    Export { 
+        node: ptr<ASTNode>,
+        visibility: int32  // 0=public, 1=protected
+    },
+    Function {
+        name: array<char, 256>,
+        params: ptr<ASTNode>,
+        return_type: ptr<ASTNode>,
+        body: ptr<ASTNode>,
+        annotations: ptr<ASTNode>,
+        is_export: bool,
+        is_extern: bool
+    },
+    Struct {
+        name: array<char, 256>,
+        fields: ptr<ASTNode>,
+        generics: ptr<ASTNode>,
+        is_export: bool
+    },
+    Enum {
+        name: array<char, 256>,
+        variants: ptr<ASTNode>,
+        generics: ptr<ASTNode>,
+        is_export: bool
+    },
+    Variable {
+        name: array<char, 256>,
+        var_type: ptr<ASTNode>,
+        init_expr: ptr<ASTNode>,
+        is_const: bool,
+        is_static: bool
+    },
+    Block {
+        statements: ptr<ASTNode>
+    },
+    Return {
+        expr: ptr<ASTNode>
+    },
+    If {
+        condition: ptr<ASTNode>,
+        then_stmt: ptr<ASTNode>,
+        else_stmt: ptr<ASTNode>
+    },
+    While {
+        condition: ptr<ASTNode>,
+        body: ptr<ASTNode>
+    },
+    For {
+        init: ptr<ASTNode>,
+        condition: ptr<ASTNode>,
+        update: ptr<ASTNode>,
+        body: ptr<ASTNode>
+    },
+    Match {
+        expr: ptr<ASTNode>,
+        arms: ptr<ASTNode>
+    },
+    MatchArm {
+        pattern: ptr<ASTNode>,
+        guard: ptr<ASTNode>,
+        body: ptr<ASTNode>
+    },
+    BinaryOp {
+        op: BinaryOp,
+        left: ptr<ASTNode>,
+        right: ptr<ASTNode>
+    },
+    UnaryOp {
+        op: UnaryOp,
+        operand: ptr<ASTNode>
+    },
+    Assignment {
+        target: ptr<ASTNode>,
+        value: ptr<ASTNode>
+    },
+    Call {
+        func: ptr<ASTNode>,
+        args: ptr<ASTNode>
+    },
+    FieldAccess {
+        object: ptr<ASTNode>,
+        field: array<char, 256>
+    },
+    Index {
+        array: ptr<ASTNode>,
+        index: ptr<ASTNode>
+    },
+    Cast {
+        expr: ptr<ASTNode>,
+        target_type: ptr<ASTNode>
+    },
+    Identifier {
+        name: array<char, 256>
+    },
+    IntegerLiteral {
+        value: int64
+    },
+    FloatLiteral {
+        value: float64
+    },
+    StringLiteral {
+        value: array<char, 256>
+    },
+    CharLiteral {
+        value: char
+    },
+    BoolLiteral {
+        value: bool
+    },
+    ArrayLiteral {
+        elements: ptr<ASTNode>
+    },
+    StructLiteral {
+        struct_name: array<char, 256>,
+        fields: ptr<ASTNode>
+    },
+    Type {
+        type_kind: ptr<Type>
+    },
+    Annotation {
+        name: array<char, 256>,
+        args: ptr<ASTNode>
+    }
+}
+
+// Type representation
+export enum TypeKind {
+    TYPE_VOID,
+    TYPE_BOOL,
+    TYPE_INT8,
+    TYPE_INT16,
+    TYPE_INT32,
+    TYPE_INT64,
+    TYPE_UINT8,
+    TYPE_UINT16,
+    TYPE_UINT32,
+    TYPE_UINT64,
+    TYPE_FLOAT32,
+    TYPE_FLOAT64,
+    TYPE_CHAR,
+    TYPE_POINTER,
+    TYPE_ARRAY,
+    TYPE_STRUCT,
+    TYPE_ENUM,
+    TYPE_FUNCTION,
+    TYPE_GENERIC,
+    TYPE_ALIAS
+}
+
+export struct Type {
+    kind: TypeKind,
+    size: int32,
+    align: int32,
+    is_const: bool,
+    data: TypeData
+}
+
+export enum TypeData {
+    Basic {},
+    Pointer { 
+        pointee: ptr<Type> 
+    },
+    Array { 
+        element: ptr<Type>, 
+        size: int32 
+    },
+    Struct { 
+        name: array<char, 256>,
+        fields: ptr<StructField> 
+    },
+    Enum { 
+        name: array<char, 256>,
+        variants: ptr<EnumVariant> 
+    },
+    Function { 
+        params: ptr<Type>,
+        return_type: ptr<Type> 
+    },
+    Generic { 
+        name: array<char, 256>,
+        constraints: ptr<Type> 
+    },
+    Alias { 
+        name: array<char, 256>,
+        actual_type: ptr<Type> 
+    }
+}
+
+export struct StructField {
+    name: array<char, 256>,
+    field_type: ptr<Type>,
+    offset: int32,
+    next: ptr<StructField>
+}
+
+export struct EnumVariant {
+    name: array<char, 256>,
+    fields: ptr<StructField>,
+    tag: int32,
+    next: ptr<EnumVariant>
+}
+
+// AST node creation functions
+@wcet(100)
+export function create_node(type: ASTNodeType) -> ptr<ASTNode> {
+    let node = malloc(sizeof(ASTNode)) as ptr<ASTNode>;
+    node->type = type;
+    node->line = 0;
+    node->column = 0;
+    node->next = null;
+    node->data_type = null;
+    node->is_lvalue = false;
+    node->is_constant = false;
+    node->wcet = 0;
+    return node;
+}
+
+@wcet(150)
+export function create_program_node() -> ptr<ASTNode> {
+    let node = create_node(ASTNodeType::AST_PROGRAM);
+    node->data = ASTNodeData::Program {
+        modules: null,
+        imports: null,
+        declarations: null
+    };
+    return node;
+}
+
+@wcet(150)
+export function create_function_node(
+    name: ptr<char>,
+    params: ptr<ASTNode>,
+    return_type: ptr<ASTNode>,
+    body: ptr<ASTNode>
+) -> ptr<ASTNode> {
+    let node = create_node(ASTNodeType::AST_FUNCTION);
+    let data = ASTNodeData::Function {
+        name: [0; 256],
+        params: params,
+        return_type: return_type,
+        body: body,
+        annotations: null,
+        is_export: false,
+        is_extern: false
+    };
+    
+    // Copy name
+    let i = 0;
+    while name[i] != 0 && i < 255 {
+        match data {
+            ASTNodeData::Function { name: fname, ... } => {
+                fname[i] = name[i];
+            },
+            _ => {}
+        }
+        i = i + 1;
+    }
+    
+    node->data = data;
+    return node;
+}
+
+@wcet(150)
+export function create_binary_op_node(
+    op: BinaryOp,
+    left: ptr<ASTNode>,
+    right: ptr<ASTNode>
+) -> ptr<ASTNode> {
+    let node = create_node(ASTNodeType::AST_BINARY_OP);
+    node->data = ASTNodeData::BinaryOp {
+        op: op,
+        left: left,
+        right: right
+    };
+    return node;
+}
+
+@wcet(150)
+export function create_identifier_node(name: ptr<char>) -> ptr<ASTNode> {
+    let node = create_node(ASTNodeType::AST_IDENTIFIER);
+    let data = ASTNodeData::Identifier {
+        name: [0; 256]
+    };
+    
+    // Copy name
+    let i = 0;
+    while name[i] != 0 && i < 255 {
+        match data {
+            ASTNodeData::Identifier { name: id_name } => {
+                id_name[i] = name[i];
+            },
+            _ => {}
+        }
+        i = i + 1;
+    }
+    
+    node->data = data;
+    return node;
+}
+
+@wcet(100)
+export function create_integer_literal_node(value: int64) -> ptr<ASTNode> {
+    let node = create_node(ASTNodeType::AST_INTEGER_LITERAL);
+    node->data = ASTNodeData::IntegerLiteral {
+        value: value
+    };
+    node->is_constant = true;
+    return node;
+}
+
+// AST traversal
+@wcet(50)
+export function add_to_list(list: ptr<ptr<ASTNode>>, node: ptr<ASTNode>) -> void {
+    if *list == null {
+        *list = node;
+    } else {
+        let current = *list;
+        while current->next != null {
+            current = current->next;
+        }
+        current->next = node;
+    }
+}
+
+// Pretty printing
+@wcet(5000)
+export function print_ast(node: ptr<ASTNode>, indent: int32) -> void {
+    if node == null {
+        return;
+    }
+    
+    // Print indentation
+    for let i = 0; i < indent; i = i + 1 {
+        io::print("  ");
+    }
+    
+    // Print node type
+    print_node_type(node->type);
+    
+    // Print node-specific info
+    match node->data {
+        ASTNodeData::Function { name, ... } => {
+            io::print(" ");
+            io::print(name as ptr<char>);
+        },
+        ASTNodeData::Identifier { name } => {
+            io::print(" ");
+            io::print(name as ptr<char>);
+        },
+        ASTNodeData::IntegerLiteral { value } => {
+            io::print(" ");
+            io::print_int(value as int32);
+        },
+        _ => {}
+    }
+    
+    io::println("");
+    
+    // Print children
+    match node->data {
+        ASTNodeData::Program { modules, imports, declarations } => {
+            print_ast(imports, indent + 1);
+            print_ast(declarations, indent + 1);
+        },
+        ASTNodeData::Function { params, return_type, body, ... } => {
+            print_ast(params, indent + 1);
+            print_ast(return_type, indent + 1);
+            print_ast(body, indent + 1);
+        },
+        ASTNodeData::Block { statements } => {
+            print_ast(statements, indent + 1);
+        },
+        ASTNodeData::BinaryOp { left, right, ... } => {
+            print_ast(left, indent + 1);
+            print_ast(right, indent + 1);
+        },
+        _ => {}
+    }
+    
+    // Print siblings
+    if node->next != null {
+        print_ast(node->next, indent);
+    }
+}
+
+@wcet(100)
+function print_node_type(type: ASTNodeType) -> void {
+    match type {
+        ASTNodeType::AST_PROGRAM => io::print("Program"),
+        ASTNodeType::AST_FUNCTION => io::print("Function"),
+        ASTNodeType::AST_BLOCK => io::print("Block"),
+        ASTNodeType::AST_RETURN => io::print("Return"),
+        ASTNodeType::AST_BINARY_OP => io::print("BinaryOp"),
+        ASTNodeType::AST_IDENTIFIER => io::print("Identifier"),
+        ASTNodeType::AST_INTEGER_LITERAL => io::print("Integer"),
+        _ => io::print("Unknown")
+    }
+}
+
+// Memory cleanup
+@wcet(1000)
+export function free_ast(node: ptr<ASTNode>) -> void {
+    if node == null {
+        return;
+    }
+    
+    // Free children first
+    match node->data {
+        ASTNodeData::Program { modules, imports, declarations } => {
+            free_ast(imports);
+            free_ast(declarations);
+        },
+        ASTNodeData::Function { params, return_type, body, annotations, ... } => {
+            free_ast(params);
+            free_ast(return_type);
+            free_ast(body);
+            free_ast(annotations);
+        },
+        ASTNodeData::Block { statements } => {
+            free_ast(statements);
+        },
+        ASTNodeData::BinaryOp { left, right, ... } => {
+            free_ast(left);
+            free_ast(right);
+        },
+        _ => {}
+    }
+    
+    // Free siblings
+    if node->next != null {
+        free_ast(node->next);
+    }
+    
+    // Free node itself
+    free(node as ptr<void>);
+}

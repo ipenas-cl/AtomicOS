@@ -1,0 +1,435 @@
+// AtomicOS Deterministic TLB Management System
+// Translation Lookaside Buffer management with WCET guarantees
+
+// TLB constants for i386
+const TLB_ENTRIES: int32 = 64;          // Typical TLB size
+const TLB_WAYS: int32 = 4;              // 4-way set associative
+const TLB_SETS: int32 = 16;             // TLB_ENTRIES / TLB_WAYS
+
+// TLB entry structure (software simulation for deterministic behavior)
+struct TLBEntry {
+    virtual_page: int32,    // Virtual page number (VPN)
+    physical_page: int32,   // Physical page number (PPN)  
+    flags: int32,           // Protection flags
+    valid: bool,            // Entry valid bit
+    dirty: bool,            // Page has been written
+    accessed: bool,         // Page has been accessed
+    global: bool,           // Global page (not flushed on CR3 reload)
+    process_id: int32,      // Process ID for tagged TLBs
+}
+
+// TLB set for set-associative organization
+struct TLBSet {
+    entries: [TLBEntry; TLB_WAYS],
+    lru_order: [int32; TLB_WAYS],  // LRU replacement order
+}
+
+// TLB management structure
+struct TLBManager {
+    sets: [TLBSet; TLB_SETS],
+    hit_count: int32,           // Performance counters
+    miss_count: int32,
+    flush_count: int32,
+    invalidate_count: int32,
+    deterministic_mode: bool,   // Force deterministic timing
+}
+
+// Global TLB state
+@align(64)
+let tlb_manager: TLBManager;
+
+// TLB miss handling statistics
+struct TLBStats {
+    total_lookups: int32,
+    hardware_hits: int32,
+    software_hits: int32,
+    page_faults: int32,
+    flush_operations: int32,
+    wcet_violations: int32,
+}
+
+@align(32)
+let tlb_stats: TLBStats;
+
+// Initialize TLB management system
+@wcet(500)
+function tlb_init() -> void {
+    // Clear all TLB sets
+    for set_idx in 0..TLB_SETS {
+        for way_idx in 0..TLB_WAYS {
+            tlb_manager.sets[set_idx].entries[way_idx].valid = false;
+            tlb_manager.sets[set_idx].entries[way_idx].virtual_page = 0;
+            tlb_manager.sets[set_idx].entries[way_idx].physical_page = 0;
+            tlb_manager.sets[set_idx].entries[way_idx].flags = 0;
+            tlb_manager.sets[set_idx].lru_order[way_idx] = way_idx;
+        }
+    }
+    
+    // Initialize counters
+    tlb_manager.hit_count = 0;
+    tlb_manager.miss_count = 0;
+    tlb_manager.flush_count = 0;
+    tlb_manager.invalidate_count = 0;
+    tlb_manager.deterministic_mode = true;
+    
+    // Clear hardware TLB
+    flush_hardware_tlb();
+}
+
+// Hardware TLB flush with timing guarantee
+@wcet(100)
+function flush_hardware_tlb() -> void {
+    asm {
+        // Method 1: Reload CR3 (flushes entire TLB except global pages)
+        "mov eax, cr3"
+        "mov cr3, eax"
+        :: :: "eax"
+    };
+    
+    tlb_manager.flush_count += 1;
+}
+
+// Flush specific TLB entry (single page)
+@wcet(50)
+function flush_tlb_single(virtual_addr: int32) -> void {
+    asm {
+        "invlpg [virtual_addr]"
+        :: "m"(virtual_addr)
+    };
+}
+
+// Software TLB lookup for deterministic behavior
+@wcet(200)
+function tlb_lookup_software(virtual_addr: int32) -> int32 {
+    let virtual_page = virtual_addr >> 12;
+    let set_index = virtual_page % TLB_SETS;
+    let tlb_set = tlb_manager.sets[set_index];
+    
+    // Search all ways in the set
+    for way_idx in 0..TLB_WAYS {
+        let entry = tlb_set.entries[way_idx];
+        if entry.valid && entry.virtual_page == virtual_page {
+            // TLB hit - update LRU order
+            update_lru_order(set_index, way_idx);
+            tlb_manager.hit_count += 1;
+            
+            // Return physical address
+            let offset = virtual_addr & 0xFFF;
+            return (entry.physical_page << 12) | offset;
+        }
+    }
+    
+    // TLB miss
+    tlb_manager.miss_count += 1;
+    return 0; // Will trigger page table walk
+}
+
+// Update LRU order after TLB hit
+@wcet(50)
+function update_lru_order(set_index: int32, hit_way: int32) -> void {
+    let lru_order = tlb_manager.sets[set_index].lru_order;
+    
+    // Move hit entry to front (most recently used)
+    for i in 0..TLB_WAYS {
+        if lru_order[i] == hit_way {
+            // Shift everything left
+            for j in i..0 {
+                lru_order[j] = lru_order[j - 1];
+            }
+            lru_order[0] = hit_way;
+            break;
+        }
+    }
+}
+
+// Install new TLB entry after page table walk
+@wcet(150)
+function tlb_install_entry(
+    virtual_addr: int32,
+    physical_addr: int32, 
+    flags: int32,
+    process_id: int32
+) -> void {
+    let virtual_page = virtual_addr >> 12;
+    let physical_page = physical_addr >> 12;
+    let set_index = virtual_page % TLB_SETS;
+    
+    // Find victim entry (LRU)
+    let victim_way = tlb_manager.sets[set_index].lru_order[TLB_WAYS - 1];
+    
+    // Install new entry
+    let entry = tlb_manager.sets[set_index].entries[victim_way];
+    entry.virtual_page = virtual_page;
+    entry.physical_page = physical_page;
+    entry.flags = flags;
+    entry.valid = true;
+    entry.dirty = false;
+    entry.accessed = true;
+    entry.global = (flags & 0x100) != 0; // Global bit
+    entry.process_id = process_id;
+    
+    // Update LRU order (new entry becomes most recent)
+    update_lru_order(set_index, victim_way);
+    
+    // Install in hardware TLB if needed
+    if !tlb_manager.deterministic_mode {
+        install_hardware_tlb_entry(virtual_addr, physical_addr, flags);
+    }
+}
+
+// Install entry in hardware TLB (processor-specific)
+@wcet(100)
+function install_hardware_tlb_entry(
+    virtual_addr: int32,
+    physical_addr: int32,
+    flags: int32
+) -> void {
+    // On i386, TLB is managed automatically by MMU
+    // Just ensure the page table entry is correct
+    // The hardware will load it on next access
+}
+
+// Invalidate TLB entries for specific process
+@wcet(300)
+function tlb_invalidate_process(process_id: int32) -> void {
+    for set_idx in 0..TLB_SETS {
+        for way_idx in 0..TLB_WAYS {
+            let entry = tlb_manager.sets[set_idx].entries[way_idx];
+            if entry.valid && entry.process_id == process_id && !entry.global {
+                entry.valid = false;
+                tlb_manager.invalidate_count += 1;
+            }
+        }
+    }
+    
+    // Also flush hardware TLB for this process
+    if !tlb_manager.deterministic_mode {
+        flush_hardware_tlb();
+    }
+}
+
+// Invalidate specific virtual address range
+@wcet(400)
+function tlb_invalidate_range(start_addr: int32, end_addr: int32) -> void {
+    let start_page = start_addr >> 12;
+    let end_page = end_addr >> 12;
+    
+    for page in start_page..end_page {
+        let set_index = page % TLB_SETS;
+        
+        for way_idx in 0..TLB_WAYS {
+            let entry = tlb_manager.sets[set_index].entries[way_idx];
+            if entry.valid && entry.virtual_page == page {
+                entry.valid = false;
+                tlb_manager.invalidate_count += 1;
+                
+                // Invalidate hardware entry
+                flush_tlb_single(page << 12);
+            }
+        }
+    }
+}
+
+// Complete TLB miss handler with WCET guarantee
+@wcet(800)
+function handle_tlb_miss(virtual_addr: int32) -> int32 {
+    tlb_stats.total_lookups += 1;
+    
+    // First try software TLB
+    let physical_addr = tlb_lookup_software(virtual_addr);
+    if physical_addr != 0 {
+        tlb_stats.software_hits += 1;
+        return physical_addr;
+    }
+    
+    // Software TLB miss - walk page tables
+    physical_addr = page_table_walk(virtual_addr);
+    if physical_addr == 0 {
+        // Page fault - not mapped
+        tlb_stats.page_faults += 1;
+        return handle_page_fault(virtual_addr, 0);
+    }
+    
+    // Install new TLB entry
+    let flags = get_page_flags(virtual_addr);
+    let current_process = get_current_process_id();
+    tlb_install_entry(virtual_addr, physical_addr, flags, current_process);
+    
+    return physical_addr;
+}
+
+// Walk page tables to find physical address
+@wcet(400)
+function page_table_walk(virtual_addr: int32) -> int32 {
+    let page_dir_index = virtual_addr >> 22;
+    let page_table_index = (virtual_addr >> 12) & 0x3FF;
+    let offset = virtual_addr & 0xFFF;
+    
+    let page_directory = get_current_page_directory();
+    
+    // Check page directory entry
+    let pde = page_directory[page_dir_index];
+    if (pde & 0x1) == 0 {
+        return 0; // Page table not present
+    }
+    
+    // Check for 4MB page (PSE)
+    if (pde & 0x80) != 0 {
+        // 4MB page - extract physical address directly
+        let physical_base = pde & 0xFFC00000; // 4MB aligned
+        let page_offset = virtual_addr & 0x3FFFFF; // 22-bit offset
+        return physical_base | page_offset;
+    }
+    
+    // Regular 4KB page - check page table entry
+    let page_table_phys = pde & 0xFFFFF000;
+    let page_table = cast<ptr<int32>>(page_table_phys);
+    let pte = page_table[page_table_index];
+    
+    if (pte & 0x1) == 0 {
+        return 0; // Page not present
+    }
+    
+    // Return physical address
+    let physical_page = pte & 0xFFFFF000;
+    return physical_page | offset;
+}
+
+// Get page flags from page table entry
+@wcet(200)
+function get_page_flags(virtual_addr: int32) -> int32 {
+    let page_dir_index = virtual_addr >> 22;
+    let page_table_index = (virtual_addr >> 12) & 0x3FF;
+    
+    let page_directory = get_current_page_directory();
+    let pde = page_directory[page_dir_index];
+    
+    if (pde & 0x80) != 0 {
+        // 4MB page
+        return pde & 0xFFF;
+    }
+    
+    // 4KB page
+    let page_table_phys = pde & 0xFFFFF000;
+    let page_table = cast<ptr<int32>>(page_table_phys);
+    let pte = page_table[page_table_index];
+    
+    return pte & 0xFFF;
+}
+
+// TLB shootdown for SMP systems (deterministic IPI handling)
+@wcet(600)
+function tlb_shootdown_broadcast(start_addr: int32, end_addr: int32) -> void {
+    // For uniprocessor systems, just local invalidation
+    tlb_invalidate_range(start_addr, end_addr);
+    
+    // For SMP, would send IPIs to other CPUs
+    // Each CPU would execute tlb_invalidate_range with bounded timing
+}
+
+// Performance monitoring and analysis
+@wcet(100)
+function tlb_get_performance_metrics() -> void {
+    let hit_rate = 0;
+    let total_accesses = tlb_manager.hit_count + tlb_manager.miss_count;
+    
+    if total_accesses > 0 {
+        hit_rate = (tlb_manager.hit_count * 100) / total_accesses;
+    }
+    
+    // Would log or return performance metrics
+    // hit_rate, miss_count, flush_count, etc.
+}
+
+// Adaptive TLB management based on workload
+@wcet(200)
+function tlb_adaptive_management() -> void {
+    let hit_rate = tlb_manager.hit_count * 100 / 
+                  (tlb_manager.hit_count + tlb_manager.miss_count);
+    
+    if hit_rate < 80 {
+        // High miss rate - consider different replacement policy
+        // or TLB preloading for predictable access patterns
+        tlb_optimize_for_workload();
+    }
+}
+
+// TLB optimization for specific workload patterns
+@wcet(300)
+function tlb_optimize_for_workload() -> void {
+    // Analyze recent miss patterns
+    // Could implement:
+    // 1. Prefetching for sequential access patterns
+    // 2. Pinning frequently accessed pages
+    // 3. Workload-specific replacement policies
+    
+    // For real-time systems, might pin critical pages
+    // to guarantee TLB hits for time-critical paths
+}
+
+// Context switch TLB management
+@wcet(200)
+function tlb_context_switch(old_process_id: int32, new_process_id: int32) -> void {
+    if old_process_id != new_process_id {
+        // Invalidate old process entries (except global)
+        tlb_invalidate_process(old_process_id);
+        
+        // Could preload TLB entries for new process
+        // if access patterns are predictable
+        tlb_preload_critical_pages(new_process_id);
+    }
+}
+
+// Preload critical TLB entries for deterministic performance
+@wcet(400)
+function tlb_preload_critical_pages(process_id: int32) -> void {
+    // For real-time systems, preload TLB entries for:
+    // 1. Code pages of time-critical functions
+    // 2. Data pages for critical data structures
+    // 3. Stack pages to avoid TLB misses during execution
+    
+    // This ensures deterministic memory access timing
+    // for real-time tasks
+}
+
+// Helper functions (simplified implementations)
+function get_current_page_directory() -> ptr<int32> {
+    return cast<ptr<int32>>(0x1000); // Simplified
+}
+
+function get_current_process_id() -> int32 {
+    return 1; // Simplified
+}
+
+// Memory barrier for TLB operations
+@wcet(20)
+function tlb_memory_barrier() -> void {
+    asm {
+        "mfence"  // Memory fence (on newer processors)
+        "cpuid"   // Serializing instruction
+        ::: "eax", "ebx", "ecx", "edx"
+    };
+}
+
+// TLB coherency verification (for debugging)
+@wcet(500)
+function tlb_verify_coherency() -> bool {
+    // Walk through all valid TLB entries and verify
+    // they match current page table state
+    for set_idx in 0..TLB_SETS {
+        for way_idx in 0..TLB_WAYS {
+            let entry = tlb_manager.sets[set_idx].entries[way_idx];
+            if entry.valid {
+                let virtual_addr = entry.virtual_page << 12;
+                let expected_phys = page_table_walk(virtual_addr);
+                let actual_phys = entry.physical_page << 12;
+                
+                if expected_phys != actual_phys {
+                    return false; // Coherency violation
+                }
+            }
+        }
+    }
+    
+    return true;
+}

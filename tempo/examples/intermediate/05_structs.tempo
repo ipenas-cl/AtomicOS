@@ -1,0 +1,145 @@
+// EXAMPLE 5: Estructuras de Datos
+// Demuestra: struct, campos, inicialización, acceso
+
+// Estructura simple
+struct Point {
+    x: i32,
+    y: i32
+}
+
+// Estructura más compleja
+struct Rectangle {
+    top_left: Point,
+    width: i32,
+    height: i32
+}
+
+// Estructura con diferentes tipos
+struct Student {
+    id: u32,
+    age: i32,
+    grade: char,
+    is_active: bool
+}
+
+// Función que trabaja con struct por valor
+fn calculate_area(rect: Rectangle) -> i32 {
+    return rect.width * rect.height;
+}
+
+// Función que calcula distancia entre puntos
+fn distance_manhattan(p1: Point, p2: Point) -> i32 {
+    let dx: i32 = p1.x - p2.x;
+    let dy: i32 = p1.y - p2.y;
+    
+    // Valor absoluto manual (no hay función abs aún)
+    if (dx < 0) {
+        dx = -dx;
+    }
+    if (dy < 0) {
+        dy = -dy;
+    }
+    
+    return dx + dy;
+}
+
+// Función que verifica si un punto está dentro de un rectángulo
+fn point_in_rectangle(p: Point, rect: Rectangle) -> bool {
+    let right: i32 = rect.top_left.x + rect.width;
+    let bottom: i32 = rect.top_left.y + rect.height;
+    
+    if (p.x >= rect.top_left.x && p.x <= right) {
+        if (p.y >= rect.top_left.y && p.y <= bottom) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+fn main() -> i32 {
+    // === CREACIÓN DE STRUCTS ===
+    
+    // Crear Point
+    let origin: Point;
+    origin.x = 0;
+    origin.y = 0;
+    
+    let target: Point;
+    target.x = 10;
+    target.y = 5;
+    
+    // Crear Rectangle
+    let room: Rectangle;
+    room.top_left = origin;
+    room.width = 20;
+    room.height = 15;
+    
+    // Crear Student
+    let alice: Student;
+    alice.id = 12345;
+    alice.age = 20;
+    alice.grade = 'A';
+    alice.is_active = true;
+    
+    // === USAR STRUCTS ===
+    
+    let area: i32 = calculate_area(room);
+    let dist: i32 = distance_manhattan(origin, target);
+    let inside: bool = point_in_rectangle(target, room);
+    
+    // === CALCULAR RESULTADO ===
+    let result: i32 = 0;
+    
+    result = result + area;     // +300 (20*15)
+    result = result + dist;     // +15 (10+5)
+    
+    if (inside) {
+        result = result + 100;  // +100 porque target está dentro
+    }
+    
+    if (alice.is_active && alice.grade == 'A') {
+        result = result + alice.age;  // +20
+    }
+    
+    // Bonus por ID específico
+    if (alice.id == 12345) {
+        result = result + 5;    // +5
+    }
+    
+    return result;  // 300 + 15 + 100 + 20 + 5 = 440
+}
+
+/*
+CONCEPTOS DE STRUCTS EN TEMPO:
+
+1. DEFINICIÓN:
+   - struct NombreStruct { campo: tipo, ... }
+   - Todos los campos deben tener tipo explícito
+   - No hay herencia (aún)
+
+2. INICIALIZACIÓN:
+   - Campo por campo: obj.campo = valor
+   - No hay constructores automáticos
+   - Todos los campos deben inicializarse
+
+3. ACCESO:
+   - obj.campo para acceso directo
+   - obj.substruct.campo para estructuras anidadas
+   - Sin null pointer dereference
+
+4. PASO DE PARÁMETROS:
+   - Por valor: la estructura se copia
+   - Eficiente para structs pequeños
+   - Para structs grandes, usar punteros (ejemplo avanzado)
+
+VENTAJAS:
+- Memory layout predecible
+- No hay padding inesperado
+- Access patterns determinísticos
+- Type safety completo
+
+PRUEBA:
+tempo run 05_structs.tempo
+echo $?  # Debe mostrar 440
+*/

@@ -1,0 +1,47 @@
+// Build script for Tempo compiler
+// Copyright (c) 2025 Ignacio Peña Sepúlveda
+
+fn main() -> i32 {
+    print("Building Tempo compiler from Tempo source...\n");
+    
+    // Compile each component
+    if (system("tempo src/lexer.tempo build/lexer.s") != 0) {
+        print("Failed to compile lexer\n");
+        return 1;
+    }
+    
+    if (system("tempo src/parser.tempo build/parser.s") != 0) {
+        print("Failed to compile parser\n");
+        return 1;
+    }
+    
+    if (system("tempo src/ast.tempo build/ast.s") != 0) {
+        print("Failed to compile AST\n");
+        return 1;
+    }
+    
+    if (system("tempo src/codegen_macos.tempo build/codegen.s") != 0) {
+        print("Failed to compile codegen\n");
+        return 1;
+    }
+    
+    if (system("tempo src/compiler.tempo build/compiler.s") != 0) {
+        print("Failed to compile compiler\n");
+        return 1;
+    }
+    
+    // Link everything
+    print("Linking Tempo compiler...\n");
+    if (system("as build/*.s -o build/tempo.o") != 0) {
+        print("Failed to assemble\n");
+        return 1;
+    }
+    
+    if (system("ld build/tempo.o -o tempo") != 0) {
+        print("Failed to link\n");
+        return 1;
+    }
+    
+    print("✅ Tempo compiler built successfully!\n");
+    return 0;
+}

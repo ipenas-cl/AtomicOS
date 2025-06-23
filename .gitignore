@@ -1,48 +1,74 @@
-# IDE and development environment settings
-.vscode/
-.idea/
-.claude/
-
-# Development documentation
-CLAUDE.md
-
 # Build artifacts
 build/
-*.bin
-*.img
 *.o
+*.img
+*.bin
 *.elf
 
 # Temporary files
-*~
 *.tmp
-*.bak
+*.temp
 *.swp
 *.swo
-
-# OS generated files
+*~
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+
+# Generated assembly files
+*.s
+!examples/**/*.s
+!tools/**/*.s
+
+# Generated include files
+*.inc
+!src/kernel/*.inc
+
+# Test outputs
+test_*.s
+test_out.*
+debug_*.s
+
+# Compiler outputs
+tempo_pure
+tempo_compiler
+*.out
 
 # IDE files
 .vscode/
 .idea/
 *.sublime-*
 
+# Backup files
+*.bak
+*.backup
+*.old
+
 # Log files
 *.log
 
-# Cache directories
-.cache/
-cache/
+# Core dumps
+core
+core.*
 
-# Compiled tempo files
-*.s
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
 
-# Debug files
-*.debug
+# Temporary build files
+COMMIT_MESSAGE.txt
+VERSION.tmp
+# Keep root directory clean
+/*.tempo
+/*.sh
+/*.md
+\!README.md
+\!CHANGELOG.md
+\!LICENSE
+\!VERSION
+\!Makefile
+
+# Temporary files
+*.tmp
+*.log
+*.out
+EOF < /dev/null

@@ -1,0 +1,273 @@
+// AtomicOS Hardware Transactional Memory Support
+// Intel TSX (RTM) and fallback software implementation
+
+// Transaction status codes
+const TX_SUCCESS: int32 = 0;
+const TX_ABORT_CONFLICT: int32 = 1;
+const TX_ABORT_CAPACITY: int32 = 2;
+const TX_ABORT_EXPLICIT: int32 = 3;
+const TX_ABORT_NESTED: int32 = 4;
+const TX_ABORT_RETRY: int32 = 5;
+
+// Maximum transaction retries
+const TX_MAX_RETRIES: int32 = 3;
+
+// RTM (Restricted Transactional Memory) support check
+@inline
+function cpu_has_rtm() -> bool {
+    let ebx: int32;
+    let ecx: int32;
+    let edx: int32;
+    
+    // CPUID with EAX=7, ECX=0
+    asm {
+        "mov eax, 7"
+        "xor ecx, ecx"
+        "cpuid"
+        : "=b"(ebx), "=c"(ecx), "=d"(edx)
+        :: "eax"
+    };
+    
+    // Check RTM bit (bit 11 of EBX)
+    return (ebx & (1 << 11)) != 0;
+}
+
+// Begin hardware transaction
+@inline @wcet(20)
+function tx_begin() -> int32 {
+    let status: int32;
+    
+    asm {
+        "xbegin 1f"        // Start transaction
+        "xor eax, eax"     // Success path - return 0
+        "jmp 2f"
+        "1:"               // Abort path
+        "mov eax, eax"     // Status in EAX
+        "2:"
+        : "=a"(status)
+    };
+    
+    return status;
+}
+
+// End hardware transaction
+@inline @wcet(10)
+function tx_end() -> void {
+    asm {
+        "xend"
+    };
+}
+
+// Abort hardware transaction
+@inline @wcet(10)
+function tx_abort(code: int32) -> void {
+    asm {
+        "xabort %0"
+        :: "i"(code)
+    };
+}
+
+// Test if inside transaction
+@inline @wcet(5)
+function tx_test() -> bool {
+    let in_tx: int32;
+    
+    asm {
+        "xtest"
+        "setz al"
+        "movzx eax, al"
+        : "=a"(in_tx)
+    };
+    
+    return in_tx == 0;  // ZF is clear if in transaction
+}
+
+// Transaction retry logic with exponential backoff
+@wcet(1000)
+function tx_execute(work: ptr<int32>) -> int32 {
+    let retries = 0;
+    let backoff = 1;
+    
+    while retries < TX_MAX_RETRIES {
+        let status = tx_begin();
+        
+        if status == TX_SUCCESS {
+            // Inside transaction - execute work
+            let result = execute_work(work);
+            
+            // Commit transaction
+            tx_end();
+            
+            return result;
+        }
+        
+        // Transaction aborted - check reason
+        let abort_code = status & 0xFF;
+        
+        if abort_code == TX_ABORT_CONFLICT {
+            // Conflict - retry with backoff
+            pause_cycles(backoff);
+            backoff = backoff * 2;
+            retries = retries + 1;
+        } else if abort_code == TX_ABORT_CAPACITY {
+            // Capacity exceeded - fall back to locks
+            return execute_with_lock(work);
+        } else {
+            // Other abort - retry immediately
+            retries = retries + 1;
+        }
+    }
+    
+    // Max retries exceeded - use fallback
+    return execute_with_lock(work);
+}
+
+// Software transactional memory fallback
+struct STMTransaction {
+    read_set: [ptr<int32>; 64],
+    read_values: [int32; 64],
+    read_count: int32,
+    
+    write_set: [ptr<int32>; 64],
+    write_values: [int32; 64],
+    write_count: int32,
+    
+    version: int32
+}
+
+// Global version clock for STM
+@align(64)
+let global_version: atomic<int32> = 0;
+
+// Begin software transaction
+@wcet(100)
+function stm_begin(tx: ptr<STMTransaction>) -> void {
+    tx->read_count = 0;
+    tx->write_count = 0;
+    tx->version = global_version.load(ACQUIRE);
+}
+
+// Read in software transaction
+@wcet(50)
+function stm_read(tx: ptr<STMTransaction>, addr: ptr<int32>) -> int32 {
+    // Check write set first
+    for i in 0..tx->write_count {
+        if tx->write_set[i] == addr {
+            return tx->write_values[i];
+        }
+    }
+    
+    // Add to read set
+    let idx = tx->read_count;
+    tx->read_set[idx] = addr;
+    tx->read_values[idx] = *addr;
+    tx->read_count = idx + 1;
+    
+    return tx->read_values[idx];
+}
+
+// Write in software transaction
+@wcet(50)
+function stm_write(tx: ptr<STMTransaction>, addr: ptr<int32>, value: int32) -> void {
+    // Check if already in write set
+    for i in 0..tx->write_count {
+        if tx->write_set[i] == addr {
+            tx->write_values[i] = value;
+            return;
+        }
+    }
+    
+    // Add to write set
+    let idx = tx->write_count;
+    tx->write_set[idx] = addr;
+    tx->write_values[idx] = value;
+    tx->write_count = idx + 1;
+}
+
+// Commit software transaction
+@wcet(200)
+function stm_commit(tx: ptr<STMTransaction>) -> bool {
+    // Acquire global lock by incrementing version
+    let new_version = global_version.fetch_add(1, ACQUIRE) + 1;
+    
+    // Validate read set
+    for i in 0..tx->read_count {
+        if *tx->read_set[i] != tx->read_values[i] {
+            // Conflict detected - abort
+            return false;
+        }
+    }
+    
+    // Apply write set
+    for i in 0..tx->write_count {
+        *tx->write_set[i] = tx->write_values[i];
+    }
+    
+    // Memory barrier
+    asm { "mfence" };
+    
+    return true;
+}
+
+// Example: Concurrent data structure update
+@transaction(wcet=500)
+function concurrent_insert(list: ptr<List>, value: int32) -> bool {
+    // Find insertion point
+    let prev = list->head;
+    let curr = prev->next;
+    
+    while curr != null && curr->value < value {
+        prev = curr;
+        curr = curr->next;
+    }
+    
+    // Check if already exists
+    if curr != null && curr->value == value {
+        return false;  // Duplicate
+    }
+    
+    // Insert new node
+    let node = allocate_node();
+    node->value = value;
+    node->next = curr;
+    prev->next = node;
+    
+    // Update size
+    list->size = list->size + 1;
+    
+    return true;
+}
+
+// Utility functions
+function pause_cycles(cycles: int32) -> void {
+    for i in 0..cycles {
+        asm { "pause" };
+    }
+}
+
+function execute_work(work: ptr<int32>) -> int32 {
+    // Dummy work execution
+    return *work;
+}
+
+function execute_with_lock(work: ptr<int32>) -> int32 {
+    // Fallback to lock-based execution
+    acquire_lock(&global_lock);
+    let result = *work;
+    release_lock(&global_lock);
+    return result;
+}
+
+// Lock implementation for fallback
+@align(64)
+let global_lock: atomic<int32> = 0;
+
+function acquire_lock(lock: ptr<atomic<int32>>) -> void {
+    while lock->exchange(1, ACQUIRE) == 1 {
+        asm { "pause" };
+    }
+}
+
+function release_lock(lock: ptr<atomic<int32>>) -> void {
+    lock->store(0, RELEASE);
+}

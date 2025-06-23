@@ -1,0 +1,185 @@
+// Tempo Deterministic Concurrency Example
+// Shows zero-copy channels, parallel tasks, and transactions
+
+// Define a channel for sensor data
+channel SensorChannel {
+    type: SensorData,
+    size: 1024,
+    mode: SPSC,      // Single producer, single consumer
+    wcet: 50         // 50 cycles max latency
+}
+
+// Sensor data structure
+struct SensorData {
+    timestamp: int64,
+    temperature: int32,
+    pressure: int32,
+    humidity: int32
+}
+
+// Producer task - reads sensors at 1000 Hz
+@task(cpu=0, wcet=100us, period=1ms, priority=HIGH)
+function sensor_producer() {
+    let sensor_id = 0x40000000 as ptr<int32>;  // Memory-mapped sensor
+    
+    loop {
+        // Read sensor with guaranteed timing
+        let data = SensorData {
+            timestamp: read_tsc(),
+            temperature: sensor_id[0],
+            pressure: sensor_id[1],
+            humidity: sensor_id[2]
+        };
+        
+        // Send via zero-copy channel
+        if SensorChannel.send(data) < 0 {
+            // Channel full - log overrun
+            increment_overrun_counter();
+        }
+        
+        // Wait for next period
+        wait_next_period();
+    }
+}
+
+// Consumer task - processes sensor data
+@task(cpu=1, wcet=500us, priority=NORMAL)
+function sensor_consumer() {
+    let filter_state = KalmanFilter::new();
+    
+    loop {
+        // Receive from channel (non-blocking)
+        match SensorChannel.recv() {
+            Some(data) => {
+                // Process with Kalman filter
+                let filtered = filter_state.update(data);
+                
+                // Check thresholds
+                if filtered.temperature > TEMP_CRITICAL {
+                    trigger_alarm(TEMP_ALARM);
+                }
+                
+                // Store in circular buffer
+                DataBuffer.store(filtered);
+            },
+            None => {
+                // No data available - yield CPU
+                yield_cpu();
+            }
+        }
+    }
+}
+
+// Parallel data processing
+@parallel(workers=4, wcet=10ms)
+function process_data_batch(batch: [SensorData; 1000]) -> Statistics {
+    // Automatically splits batch across 4 workers
+    return parallel_for data in batch {
+        // Each worker processes subset
+        let stats = calculate_stats(data);
+        yield stats;
+    }.reduce(combine_stats);
+}
+
+// Transaction example - guaranteed atomicity
+@transaction(max_retries=3, wcet=100)
+function update_calibration(sensor: ptr<Sensor>, cal: Calibration) -> bool {
+    // All updates atomic - succeed or rollback
+    sensor->offset = cal.offset;
+    sensor->scale = cal.scale;
+    sensor->last_calibration = read_tsc();
+    
+    // Validate new calibration
+    if !validate_calibration(sensor) {
+        // Automatic rollback
+        return false;
+    }
+    
+    return true;
+}
+
+// Lock-free shared state
+@shared(readers=UNLIMITED, writers=1)
+struct GlobalState {
+    sensor_count: atomic<int32>,
+    total_samples: atomic<int64>,
+    error_count: atomic<int32>,
+    
+    @atomic
+    function increment_samples(count: int32) {
+        // Atomic add with memory ordering
+        self.total_samples.fetch_add(count, RELEASE);
+    }
+}
+
+// Cache-partitioned data structure
+@cache_aligned(colors=[0,1,2,3])
+struct PerCPUData {
+    // Each CPU gets dedicated cache colors
+    local_counter: int64,
+    scratch_buffer: [int32; 1024],
+    statistics: Statistics
+}
+
+// Main real-time loop
+function main() {
+    // Initialize deterministic memory pools
+    memory_pools_init();
+    
+    // Set up cache partitioning
+    setup_cache_partitioning();
+    
+    // Create channels
+    SensorChannel.init();
+    
+    // Spawn tasks with guaranteed resources
+    spawn sensor_producer();
+    spawn sensor_consumer();
+    
+    // Create parallel workers
+    for i in 0..4 {
+        spawn_worker(i, process_data_batch);
+    }
+    
+    // Monitor system health
+    loop {
+        // Check all tasks meet deadlines
+        let stats = collect_runtime_stats();
+        
+        if stats.deadline_misses > 0 {
+            log_error("Deadline miss detected!");
+        }
+        
+        if stats.wcet_violations > 0 {
+            log_error("WCET violation!");
+        }
+        
+        // Display real-time metrics
+        display_dashboard(stats);
+        
+        sleep_ms(100);
+    }
+}
+
+// Helper functions
+function read_tsc() -> int64 {
+    let low: int32;
+    let high: int32;
+    asm {
+        "rdtsc"
+        : "=a"(low), "=d"(high)
+    };
+    return (high as int64) << 32 | (low as int64);
+}
+
+function wait_next_period() {
+    asm {
+        "hlt"  // CPU sleeps until next interrupt
+    };
+}
+
+function yield_cpu() {
+    asm {
+        "pause"  // Yield to sibling hyperthread
+    };
+}

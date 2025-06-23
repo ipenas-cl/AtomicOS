@@ -1,0 +1,783 @@
+// ATOMICOS KERNEL v2.0 - PURE TEMPO IMPLEMENTATION
+// Kernel completo escrito en Tempo usando el compilador self-hosted
+// Esta es la primera vez en la historia que un kernel está escrito en Tempo
+// Por Ignacio Peña Sepúlveda
+
+@wcet(10000)
+@security_level(3)
+
+// ============ TIPOS BASE DEL KERNEL ============
+
+struct MemoryRegion {
+    start: u64,
+    size: u64,
+    flags: u32,
+    used: bool
+}
+
+struct Process {
+    pid: u32,
+    state: u32,
+    priority: u32,
+    wcet: u32,
+    deadline: u64,
+    stack_base: u64,
+    stack_size: u32,
+    memory_regions: [16]MemoryRegion,
+    region_count: u32
+}
+
+struct InterruptHandler {
+    vector: u32,
+    handler_addr: u64,
+    wcet: u32,
+    enabled: bool
+}
+
+struct SchedulerState {
+    current_process: u32,
+    process_count: u32,
+    quantum_remaining: u32,
+    total_time: u64
+}
+
+struct SecurityContext {
+    level: u32,
+    capabilities: u64,
+    audit_enabled: bool
+}
+
+struct KernelState {
+    scheduler: SchedulerState,
+    security: SecurityContext,
+    memory_used: u64,
+    memory_total: u64,
+    interrupt_count: u64,
+    uptime: u64
+}
+
+// ============ CONSTANTES DEL KERNEL ============
+
+const MAX_PROCESSES: u32 = 256;
+const PAGE_SIZE: u64 = 4096;
+const KERNEL_STACK_SIZE: u32 = 16384;
+
+// Estados de proceso
+const PROC_FREE: u32 = 0;
+const PROC_READY: u32 = 1;
+const PROC_RUNNING: u32 = 2;
+const PROC_BLOCKED: u32 = 3;
+const PROC_ZOMBIE: u32 = 4;
+
+// Niveles de seguridad
+const SEC_GUEST: u32 = 0;
+const SEC_USER: u32 = 1;
+const SEC_SYSTEM: u32 = 2;
+const SEC_KERNEL: u32 = 3;
+
+// Vectores de interrupción
+const INT_TIMER: u32 = 32;
+const INT_KEYBOARD: u32 = 33;
+const INT_SYSCALL: u32 = 0x80;
+
+// ============ VARIABLES GLOBALES DEL KERNEL ============
+
+let kernel_state: KernelState;
+let process_table: [MAX_PROCESSES]Process;
+let interrupt_handlers: [256]InterruptHandler;
+let memory_bitmap: [8192]u8; // 32MB memory bitmap
+let current_pid: u32 = 0;
+
+// ============ FUNCIONES DE UTILIDAD ============
+
+fn mem_set(dest: *u8, value: u8, count: u64) -> void {
+    let i: u64 = 0;
+    while (i < count) {
+        dest[i] = value;
+        i = i + 1;
+    }
+}
+
+fn mem_copy(dest: *u8, src: *u8, count: u64) -> void {
+    let i: u64 = 0;
+    while (i < count) {
+        dest[i] = src[i];
+        i = i + 1;
+    }
+}
+
+@wcet(100)
+fn get_timestamp() -> u64 {
+    // En una implementación real, esto leería el TSC o timer del hardware
+    kernel_state.uptime = kernel_state.uptime + 1;
+    return kernel_state.uptime;
+}
+
+// ============ MANEJO DE MEMORIA ============
+
+@wcet(500)
+@security_level(3)
+fn memory_allocate_page() -> u64 {
+    let page: u32 = 0;
+    
+    // Buscar página libre en el bitmap
+    while (page < 8192) {
+        if (memory_bitmap[page] == 0) {
+            memory_bitmap[page] = 1;
+            kernel_state.memory_used = kernel_state.memory_used + PAGE_SIZE;
+            return (page as u64) * PAGE_SIZE;
+        }
+        page = page + 1;
+    }
+    
+    return 0; // No memory available
+}
+
+@wcet(200)
+@security_level(3)
+fn memory_free_page(page_addr: u64) -> bool {
+    let page_num: u32 = (page_addr / PAGE_SIZE) as u32;
+    
+    if (page_num >= 8192) {
+        return false;
+    }
+    
+    if (memory_bitmap[page_num] == 0) {
+        return false; // Already free
+    }
+    
+    memory_bitmap[page_num] = 0;
+    kernel_state.memory_used = kernel_state.memory_used - PAGE_SIZE;
+    return true;
+}
+
+@wcet(300)
+@security_level(2)
+fn memory_get_stats() -> u64 {
+    return kernel_state.memory_used;
+}
+
+// ============ MANEJO DE PROCESOS ============
+
+@wcet(1000)
+@security_level(3)
+fn process_create(priority: u32, wcet: u32, deadline: u64) -> u32 {
+    let pid: u32 = 0;
+    
+    // Buscar slot libre en la tabla de procesos
+    while (pid < MAX_PROCESSES) {
+        if (process_table[pid].state == PROC_FREE) {
+            // Inicializar proceso
+            process_table[pid].pid = pid;
+            process_table[pid].state = PROC_READY;
+            process_table[pid].priority = priority;
+            process_table[pid].wcet = wcet;
+            process_table[pid].deadline = deadline;
+            process_table[pid].stack_size = KERNEL_STACK_SIZE;
+            process_table[pid].region_count = 0;
+            
+            // Asignar stack
+            let stack_addr: u64 = memory_allocate_page();
+            if (stack_addr == 0) {
+                return 0; // No memory for stack
+            }
+            
+            process_table[pid].stack_base = stack_addr;
+            kernel_state.scheduler.process_count = kernel_state.scheduler.process_count + 1;
+            
+            return pid;
+        }
+        pid = pid + 1;
+    }
+    
+    return 0; // No free slots
+}
+
+@wcet(500)
+@security_level(3)
+fn process_destroy(pid: u32) -> bool {
+    if (pid >= MAX_PROCESSES) {
+        return false;
+    }
+    
+    if (process_table[pid].state == PROC_FREE) {
+        return false;
+    }
+    
+    // Liberar memoria del proceso
+    memory_free_page(process_table[pid].stack_base);
+    
+    let i: u32 = 0;
+    while (i < process_table[pid].region_count) {
+        memory_free_page(process_table[pid].memory_regions[i].start);
+        i = i + 1;
+    }
+    
+    // Marcar como libre
+    process_table[pid].state = PROC_FREE;
+    kernel_state.scheduler.process_count = kernel_state.scheduler.process_count - 1;
+    
+    return true;
+}
+
+@wcet(200)
+@security_level(1)
+fn process_get_current_pid() -> u32 {
+    return kernel_state.scheduler.current_process;
+}
+
+// ============ SCHEDULER DETERMINISTA ============
+
+@wcet(800)
+@security_level(3)
+fn scheduler_edf_select_next() -> u32 {
+    let earliest_deadline: u64 = 0xFFFFFFFFFFFFFFFF;
+    let selected_pid: u32 = 0;
+    let current_time: u64 = get_timestamp();
+    let found: bool = false;
+    
+    let pid: u32 = 0;
+    while (pid < MAX_PROCESSES) {
+        if (process_table[pid].state == PROC_READY) {
+            if (process_table[pid].deadline < earliest_deadline) {
+                // Verificar que no haya perdido su deadline
+                if (process_table[pid].deadline > current_time) {
+                    earliest_deadline = process_table[pid].deadline;
+                    selected_pid = pid;
+                    found = true;
+                }
+            }
+        }
+        pid = pid + 1;
+    }
+    
+    if (found) {
+        return selected_pid;
+    }
+    
+    return 0; // No schedulable process
+}
+
+@wcet(600)
+@security_level(3)
+fn scheduler_rms_select_next() -> u32 {
+    let highest_priority: u32 = 0;
+    let selected_pid: u32 = 0;
+    let found: bool = false;
+    
+    let pid: u32 = 0;
+    while (pid < MAX_PROCESSES) {
+        if (process_table[pid].state == PROC_READY) {
+            if (process_table[pid].priority > highest_priority) {
+                highest_priority = process_table[pid].priority;
+                selected_pid = pid;
+                found = true;
+            }
+        }
+        pid = pid + 1;
+    }
+    
+    if (found) {
+        return selected_pid;
+    }
+    
+    return 0;
+}
+
+@wcet(1000)
+@security_level(3)
+fn scheduler_schedule() -> void {
+    let next_pid: u32;
+    
+    // Seleccionar algoritmo de scheduling basado en configuración
+    if (kernel_state.security.level >= SEC_SYSTEM) {
+        // Usar EDF para sistemas críticos
+        next_pid = scheduler_edf_select_next();
+    } else {
+        // Usar RMS para sistemas normales
+        next_pid = scheduler_rms_select_next();
+    }
+    
+    if (next_pid != 0 && next_pid != kernel_state.scheduler.current_process) {
+        // Context switch necesario
+        let old_pid: u32 = kernel_state.scheduler.current_process;
+        
+        // Marcar proceso actual como ready (si no está blocked)
+        if (old_pid != 0 && process_table[old_pid].state == PROC_RUNNING) {
+            process_table[old_pid].state = PROC_READY;
+        }
+        
+        // Marcar nuevo proceso como running
+        process_table[next_pid].state = PROC_RUNNING;
+        kernel_state.scheduler.current_process = next_pid;
+        
+        // Resetear quantum
+        kernel_state.scheduler.quantum_remaining = process_table[next_pid].wcet;
+        
+        // Aquí iría el context switch real en assembly
+        context_switch(old_pid, next_pid);
+    }
+}
+
+// ============ MANEJO DE INTERRUPCIONES ============
+
+@wcet(200)
+@security_level(3)
+fn interrupt_register_handler(vector: u32, handler_addr: u64, wcet: u32) -> bool {
+    if (vector >= 256) {
+        return false;
+    }
+    
+    interrupt_handlers[vector].vector = vector;
+    interrupt_handlers[vector].handler_addr = handler_addr;
+    interrupt_handlers[vector].wcet = wcet;
+    interrupt_handlers[vector].enabled = true;
+    
+    return true;
+}
+
+@wcet(500)
+@security_level(3)
+fn interrupt_handle(vector: u32) -> void {
+    if (vector >= 256) {
+        return;
+    }
+    
+    if (!interrupt_handlers[vector].enabled) {
+        return;
+    }
+    
+    kernel_state.interrupt_count = kernel_state.interrupt_count + 1;
+    
+    if (vector == INT_TIMER) {
+        // Timer interrupt - scheduling
+        kernel_state.scheduler.quantum_remaining = kernel_state.scheduler.quantum_remaining - 1;
+        
+        if (kernel_state.scheduler.quantum_remaining == 0) {
+            scheduler_schedule();
+        }
+    } else if (vector == INT_KEYBOARD) {
+        // Keyboard interrupt
+        keyboard_handle_interrupt();
+    } else if (vector == INT_SYSCALL) {
+        // System call
+        syscall_handle();
+    }
+}
+
+// ============ SYSCALLS ============
+
+@wcet(1500)
+@security_level(2)
+fn syscall_handle() -> void {
+    // En x86_64, los parámetros están en registros: RDI, RSI, RDX, RCX, R8, R9
+    // El número de syscall está en RAX
+    
+    let syscall_num: u32;
+    let arg1: u64;
+    let arg2: u64;
+    let arg3: u64;
+    
+    // Estos valores vendrían de los registros en la implementación real
+    __asm__("movq %rax, %0" : "=r"(syscall_num));
+    __asm__("movq %rdi, %0" : "=r"(arg1));
+    __asm__("movq %rsi, %0" : "=r"(arg2));
+    __asm__("movq %rdx, %0" : "=r"(arg3));
+    
+    let result: u64 = 0;
+    
+    if (syscall_num == 1) {
+        // exit
+        result = syscall_exit(arg1 as u32);
+    } else if (syscall_num == 2) {
+        // fork
+        result = syscall_fork() as u64;
+    } else if (syscall_num == 3) {
+        // read
+        result = syscall_read(arg1 as u32, arg2 as *u8, arg3);
+    } else if (syscall_num == 4) {
+        // write
+        result = syscall_write(arg1 as u32, arg2 as *u8, arg3);
+    } else if (syscall_num == 5) {
+        // open
+        result = syscall_open(arg1 as *char, arg2 as u32) as u64;
+    } else if (syscall_num == 6) {
+        // close
+        result = syscall_close(arg1 as u32) as u64;
+    } else {
+        result = 0xFFFFFFFFFFFFFFFF; // EINVAL
+    }
+    
+    // Retornar resultado en RAX
+    __asm__("movq %0, %rax" :: "r"(result));
+}
+
+@wcet(300)
+@security_level(2)
+fn syscall_exit(exit_code: u32) -> u64 {
+    let current_pid: u32 = kernel_state.scheduler.current_process;
+    
+    if (current_pid != 0) {
+        process_destroy(current_pid);
+        kernel_state.scheduler.current_process = 0;
+        scheduler_schedule();
+    }
+    
+    return exit_code as u64;
+}
+
+@wcet(800)
+@security_level(2)
+fn syscall_fork() -> u32 {
+    let parent_pid: u32 = kernel_state.scheduler.current_process;
+    
+    if (parent_pid == 0) {
+        return 0; // Can't fork kernel
+    }
+    
+    // Crear nuevo proceso con misma prioridad y WCET
+    let child_pid: u32 = process_create(
+        process_table[parent_pid].priority,
+        process_table[parent_pid].wcet,
+        process_table[parent_pid].deadline + 1000 // Nueva deadline
+    );
+    
+    if (child_pid == 0) {
+        return 0; // Fork failed
+    }
+    
+    // Copiar memoria del padre al hijo (simplificado)
+    mem_copy(
+        process_table[child_pid].stack_base as *u8,
+        process_table[parent_pid].stack_base as *u8,
+        KERNEL_STACK_SIZE as u64
+    );
+    
+    return child_pid;
+}
+
+@wcet(400)
+@security_level(1)
+fn syscall_read(fd: u32, buffer: *u8, count: u64) -> u64 {
+    // Implementación simplificada - en un sistema real manejaría VFS
+    if (fd == 0) {
+        // stdin - leer del teclado
+        return keyboard_read(buffer, count);
+    }
+    
+    return 0; // File not found or not implemented
+}
+
+@wcet(400)
+@security_level(1)
+fn syscall_write(fd: u32, buffer: *u8, count: u64) -> u64 {
+    if (fd == 1 || fd == 2) {
+        // stdout/stderr - escribir a VGA
+        return vga_write(buffer, count);
+    }
+    
+    return 0;
+}
+
+@wcet(600)
+@security_level(1)
+fn syscall_open(path: *char, flags: u32) -> i32 {
+    // Implementación simplificada del filesystem
+    return filesystem_open(path, flags);
+}
+
+@wcet(200)
+@security_level(1)
+fn syscall_close(fd: u32) -> i32 {
+    return filesystem_close(fd);
+}
+
+// ============ DRIVERS BÁSICOS ============
+
+@wcet(200)
+@security_level(1)
+fn vga_write(buffer: *u8, count: u64) -> u64 {
+    // Dirección de video VGA en modo texto
+    let vga_buffer: *u16 = 0xB8000 as *u16;
+    static vga_position: u32 = 0;
+    
+    let i: u64 = 0;
+    while (i < count) {
+        let char: u8 = buffer[i];
+        
+        if (char == '\n') {
+            vga_position = (vga_position / 80 + 1) * 80;
+        } else {
+            vga_buffer[vga_position] = (char as u16) | 0x0700; // Blanco sobre negro
+            vga_position = vga_position + 1;
+        }
+        
+        if (vga_position >= 80 * 25) {
+            vga_position = 0; // Wrap around
+        }
+        
+        i = i + 1;
+    }
+    
+    return count;
+}
+
+@wcet(300)
+@security_level(1)
+fn keyboard_read(buffer: *u8, count: u64) -> u64 {
+    // Leer del puerto del teclado (simplificado)
+    static keyboard_buffer: [256]u8;
+    static keyboard_pos: u32 = 0;
+    
+    let bytes_read: u64 = 0;
+    while (bytes_read < count && keyboard_pos > 0) {
+        buffer[bytes_read] = keyboard_buffer[bytes_read];
+        bytes_read = bytes_read + 1;
+        keyboard_pos = keyboard_pos - 1;
+    }
+    
+    return bytes_read;
+}
+
+@wcet(100)
+@security_level(3)
+fn keyboard_handle_interrupt() -> void {
+    // Leer scancode del puerto 0x60
+    let scancode: u8;
+    __asm__("inb $0x60, %al; movb %al, %0" : "=m"(scancode));
+    
+    // Procesar scancode (simplificado)
+    if (scancode < 128) {
+        // Key press - agregar a buffer
+        static keyboard_buffer: [256]u8;
+        static keyboard_pos: u32 = 0;
+        
+        if (keyboard_pos < 256) {
+            keyboard_buffer[keyboard_pos] = scancode;
+            keyboard_pos = keyboard_pos + 1;
+        }
+    }
+}
+
+// ============ FILESYSTEM BÁSICO ============
+
+struct FileDescriptor {
+    inode: u32,
+    offset: u64,
+    flags: u32,
+    used: bool
+}
+
+let fd_table: [64]FileDescriptor;
+
+@wcet(500)
+@security_level(1)
+fn filesystem_open(path: *char, flags: u32) -> i32 {
+    let fd: u32 = 0;
+    
+    // Buscar descriptor libre
+    while (fd < 64) {
+        if (!fd_table[fd].used) {
+            fd_table[fd].inode = 1; // Dummy inode
+            fd_table[fd].offset = 0;
+            fd_table[fd].flags = flags;
+            fd_table[fd].used = true;
+            return fd as i32;
+        }
+        fd = fd + 1;
+    }
+    
+    return -1; // No free descriptors
+}
+
+@wcet(200)
+@security_level(1)
+fn filesystem_close(fd: u32) -> i32 {
+    if (fd >= 64) {
+        return -1;
+    }
+    
+    if (!fd_table[fd].used) {
+        return -1;
+    }
+    
+    fd_table[fd].used = false;
+    return 0;
+}
+
+// ============ CONTEXT SWITCHING ============
+
+@wcet(800)
+@security_level(3)
+fn context_switch(old_pid: u32, new_pid: u32) -> void {
+    // Context switch real sería implementado en assembly
+    // Aquí solo documentamos la interfaz
+    
+    if (old_pid != 0) {
+        // Guardar contexto del proceso anterior
+        save_process_context(old_pid);
+    }
+    
+    if (new_pid != 0) {
+        // Restaurar contexto del nuevo proceso
+        restore_process_context(new_pid);
+    }
+}
+
+@wcet(400)
+@security_level(3)
+fn save_process_context(pid: u32) -> void {
+    // Guardar registros en el stack del proceso
+    // En la implementación real esto sería assembly inline
+    __asm__("pushq %rax; pushq %rbx; pushq %rcx; pushq %rdx");
+    __asm__("pushq %rsi; pushq %rdi; pushq %rbp; pushq %r8");
+    __asm__("pushq %r9; pushq %r10; pushq %r11; pushq %r12");
+    __asm__("pushq %r13; pushq %r14; pushq %r15");
+}
+
+@wcet(400)
+@security_level(3)  
+fn restore_process_context(pid: u32) -> void {
+    // Restaurar registros del stack del proceso
+    __asm__("popq %r15; popq %r14; popq %r13; popq %r12");
+    __asm__("popq %r11; popq %r10; popq %r9; popq %r8");
+    __asm__("popq %rbp; popq %rdi; popq %rsi; popq %rdx");
+    __asm__("popq %rcx; popq %rbx; popq %rax");
+}
+
+// ============ INICIALIZACIÓN DEL KERNEL ============
+
+@wcet(2000)
+@security_level(3)
+fn kernel_init() -> void {
+    // Inicializar estado del kernel
+    kernel_state.scheduler.current_process = 0;
+    kernel_state.scheduler.process_count = 0;
+    kernel_state.scheduler.quantum_remaining = 0;
+    kernel_state.scheduler.total_time = 0;
+    
+    kernel_state.security.level = SEC_KERNEL;
+    kernel_state.security.capabilities = 0xFFFFFFFFFFFFFFFF;
+    kernel_state.security.audit_enabled = true;
+    
+    kernel_state.memory_used = 0;
+    kernel_state.memory_total = 32 * 1024 * 1024; // 32MB
+    kernel_state.interrupt_count = 0;
+    kernel_state.uptime = 0;
+    
+    // Limpiar tabla de procesos
+    let i: u32 = 0;
+    while (i < MAX_PROCESSES) {
+        process_table[i].state = PROC_FREE;
+        i = i + 1;
+    }
+    
+    // Limpiar handlers de interrupción
+    i = 0;
+    while (i < 256) {
+        interrupt_handlers[i].enabled = false;
+        i = i + 1;
+    }
+    
+    // Limpiar bitmap de memoria
+    mem_set(&memory_bitmap[0], 0, 8192);
+    
+    // Limpiar tabla de descriptores
+    i = 0;
+    while (i < 64) {
+        fd_table[i].used = false;
+        i = i + 1;
+    }
+    
+    // Registrar handlers básicos
+    interrupt_register_handler(INT_TIMER, timer_interrupt_handler as u64, 200);
+    interrupt_register_handler(INT_KEYBOARD, keyboard_interrupt_handler as u64, 100);
+    interrupt_register_handler(INT_SYSCALL, syscall_interrupt_handler as u64, 1500);
+}
+
+// ============ PUNTO DE ENTRADA DEL KERNEL ============
+
+@wcet(3000)
+@security_level(3)
+fn kernel_main() -> void {
+    // Inicializar kernel
+    kernel_init();
+    
+    // Crear proceso init
+    let init_pid: u32 = process_create(100, 1000, get_timestamp() + 10000);
+    
+    if (init_pid == 0) {
+        // Error crítico - no se puede crear init
+        kernel_panic("Failed to create init process");
+        return;
+    }
+    
+    // Mensaje de bienvenida
+    let welcome_msg: [64]char = "AtomicOS v2.0 - Pure Tempo Kernel\nDeterministic Real-Time Security OS\n";
+    vga_write(&welcome_msg[0], 62);
+    
+    // Iniciar scheduler
+    kernel_state.scheduler.current_process = init_pid;
+    process_table[init_pid].state = PROC_RUNNING;
+    
+    // Loop principal del kernel - maneja interrupciones
+    while (true) {
+        // En un kernel real, esto sería HLT hasta la próxima interrupción
+        __asm__("hlt");
+        
+        // Verificar si hay trabajo de scheduling
+        if (kernel_state.scheduler.quantum_remaining == 0) {
+            scheduler_schedule();
+        }
+    }
+}
+
+// ============ FUNCIONES DE ERROR ============
+
+@wcet(500)
+@security_level(3)
+fn kernel_panic(message: *char) -> void {
+    // Panic del kernel - mostrar mensaje y detener
+    let panic_prefix: [16]char = "KERNEL PANIC: ";
+    vga_write(&panic_prefix[0], 14);
+    
+    let len: u64 = 0;
+    while (message[len] != 0) {
+        len = len + 1;
+    }
+    vga_write(message, len);
+    
+    let newline: char = '\n';
+    vga_write(&newline, 1);
+    
+    // Deshabilitar interrupciones y detenerse
+    __asm__("cli; hlt");
+    
+    // Loop infinito por si acaso
+    while (true) {
+        __asm__("hlt");
+    }
+}
+
+// ============ INTERRUPT HANDLERS (Assembly stubs) ============
+
+fn timer_interrupt_handler() -> void {
+    interrupt_handle(INT_TIMER);
+}
+
+fn keyboard_interrupt_handler() -> void {
+    interrupt_handle(INT_KEYBOARD);
+}
+
+fn syscall_interrupt_handler() -> void {
+    interrupt_handle(INT_SYSCALL);
+}
+
+// ============ PUNTO DE ENTRADA DESDE BOOTLOADER ============
+
+// Esta función sería llamada desde el bootloader en assembly
+@wcet(100)
+@security_level(3)
+fn _start() -> void {
+    kernel_main();
+}

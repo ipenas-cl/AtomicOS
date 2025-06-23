@@ -1,4 +1,4 @@
-; Copyright (c) 2024 Ignacio Peña
+; Copyright (c) 2025 Ignacio Peña
 ; AtomicOS - Deterministic Real-Time Security Operating System
 ; https://github.com/ipenas-cl/AtomicOS
 ; Licensed under MIT License - see LICENSE file for details

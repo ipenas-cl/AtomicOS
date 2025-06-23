@@ -1,0 +1,45 @@
+// EXAMPLE 2: Variables y Tipos
+// Demuestra: declaración de variables, tipos básicos, operaciones
+
+fn main() -> i32 {
+    // Enteros con tamaño explícito
+    let age: i32 = 25;
+    let year: u32 = 2025;
+    
+    // Booleanos
+    let is_student: bool = true;
+    let has_license: bool = false;
+    
+    // Caracteres
+    let grade: char = 'A';
+    let symbol: char = '@';
+    
+    // Operaciones aritméticas
+    let sum: i32 = age + 5;
+    let product: i32 = age * 2;
+    
+    // Operaciones lógicas
+    let can_vote: bool = age >= 18;
+    let result: bool = is_student && can_vote;
+    
+    // Retornar el resultado de un cálculo
+    return sum + product;  // 25+5 + 25*2 = 80
+}
+
+/*
+TIPOS BÁSICOS EN TEMPO:
+- i32, i64: enteros con signo
+- u32, u64: enteros sin signo  
+- bool: true o false
+- char: carácter individual
+
+CARACTERÍSTICAS:
+- Todas las variables deben declararse con 'let'
+- El tipo siempre es explícito (:i32, :bool, etc)
+- No hay conversiones implícitas
+- No hay undefined behavior
+
+PRUEBA:
+tempo run 02_variables.tempo
+echo $?  # Debe mostrar 80
+*/

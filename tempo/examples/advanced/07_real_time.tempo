@@ -1,0 +1,186 @@
+// EXAMPLE 7: Programación de Tiempo Real
+// Demuestra: @wcet, deadlines, scheduling determinístico
+
+// Función crítica con WCET garantizado
+@wcet(100)  // Máximo 100 microsegundos
+fn critical_control_loop(sensor_value: i32) -> i32 {
+    let processed: i32 = sensor_value;
+    
+    // Algoritmo de control simple con timing garantizado
+    if (processed > 1000) {
+        processed = 1000;  // Clamp máximo
+    } else if (processed < 0) {
+        processed = 0;     // Clamp mínimo
+    }
+    
+    // Procesamiento que sabemos que toma tiempo determinístico
+    let filtered: i32 = processed * 95 / 100;  // 95% del valor
+    
+    return filtered;
+}
+
+// Función de comunicación con deadline
+@wcet(500)  // Máximo 500 microsegundos  
+fn send_heartbeat(device_id: u32, status: i32) -> bool {
+    // Simular envío de heartbeat
+    let checksum: u32 = device_id + status as u32;
+    
+    // Verificaciones de protocolo
+    if (device_id == 0) {
+        return false;  // Device ID inválido
+    }
+    
+    if (status < 0 || status > 255) {
+        return false;  // Status fuera de rango
+    }
+    
+    // Simular envío exitoso (en sistema real sería hardware)
+    return true;
+}
+
+// Función de scheduling con prioridad
+@wcet(50)
+fn update_system_state(new_value: i32) -> void {
+    static system_counter: i32 = 0;
+    system_counter = system_counter + 1;
+    
+    // Actualización determinística del estado
+    if (system_counter > 1000000) {
+        system_counter = 0;  // Reset para evitar overflow
+    }
+}
+
+// Función de diagnóstico rápido
+@wcet(200)
+fn run_diagnostics() -> i32 {
+    let health_score: i32 = 100;
+    
+    // Verificaciones rápidas del sistema
+    
+    // Check 1: Memoria
+    static memory_usage: i32 = 45;  // Simulado
+    if (memory_usage > 90) {
+        health_score = health_score - 30;
+    }
+    
+    // Check 2: CPU
+    static cpu_usage: i32 = 60;  // Simulado
+    if (cpu_usage > 80) {
+        health_score = health_score - 20;
+    }
+    
+    // Check 3: I/O
+    static io_errors: i32 = 0;  // Simulado
+    if (io_errors > 5) {
+        health_score = health_score - 40;
+    }
+    
+    return health_score;
+}
+
+// Simulador de sistema de tiempo real
+fn real_time_system_simulation() -> i32 {
+    let total_score: i32 = 0;
+    let cycle: i32 = 0;
+    
+    // Simular 10 ciclos de tiempo real
+    while (cycle < 10) {
+        // === FASE 1: CONTROL CRÍTICO ===
+        // Debe ejecutarse cada ciclo sin falta
+        let sensor_reading: i32 = 500 + cycle * 50;  // Sensor simulado
+        let control_output: i32 = critical_control_loop(sensor_reading);
+        total_score = total_score + control_output;
+        
+        // === FASE 2: COMUNICACIÓN ===
+        // Heartbeat cada 3 ciclos
+        if (cycle % 3 == 0) {
+            let device_id: u32 = 42;
+            let success: bool = send_heartbeat(device_id, control_output);
+            if (success) {
+                total_score = total_score + 10;
+            }
+        }
+        
+        // === FASE 3: MANTENIMIENTO ===
+        // Actualizar estado del sistema
+        update_system_state(control_output);
+        
+        // === FASE 4: DIAGNÓSTICOS ===
+        // Diagnósticos cada 5 ciclos
+        if (cycle % 5 == 0) {
+            let health: i32 = run_diagnostics();
+            total_score = total_score + health / 10;  // Bonus por salud
+        }
+        
+        cycle = cycle + 1;
+    }
+    
+    return total_score;
+}
+
+fn main() -> i32 {
+    // Ejecutar simulación de sistema de tiempo real
+    let final_score: i32 = real_time_system_simulation();
+    
+    // Verificar que el sistema funcionó correctamente
+    if (final_score > 5000) {
+        return 0;  // Sistema funcionó bien
+    } else {
+        return 1;  // Sistema tuvo problemas
+    }
+}
+
+/*
+CONCEPTOS DE TIEMPO REAL EN TEMPO:
+
+1. @wcet(microseconds):
+   - Peor Caso de Tiempo de Ejecución
+   - Garantía matemática del compilador
+   - Usado por el scheduler para deadlines
+   - Critical para sistemas safety-critical
+
+2. DETERMINISMO:
+   - Todas las operaciones tienen timing predecible
+   - No hay garbage collection
+   - No hay memory allocation dinámica
+   - Loops deben ser bounded
+
+3. SCHEDULING:
+   - EDF (Earliest Deadline First)
+   - RMS (Rate Monotonic Scheduling)
+   - Priority ceiling protocol
+   - Deadlock prevention automático
+
+4. APLICACIONES:
+   - Control de motores
+   - Sistemas de frenado
+   - Equipos médicos
+   - Sistemas aeroespaciales
+   - Instrumentación industrial
+
+VENTAJAS DE TEMPO RT:
+- Deadlines verificables en compile-time
+- No priority inversion
+- No timing jitter
+- Predictable memory access patterns
+- Formal verification possible
+
+LIMITACIONES:
+- No dynamic memory allocation
+- Loops deben ser bounded
+- Function calls deben tener WCET
+- Real-time performance vs. expressiveness
+
+COMPARACIÓN:
+- C/C++: No RT guarantees, manual WCET analysis
+- Rust: Memory safe pero no RT guarantees
+- Ada: RT support pero complex
+- Tempo: RT guarantees built-in + memory safe
+
+PRUEBA:
+tempo run 07_real_time.tempo
+echo $?  # Debe mostrar 0 (éxito)
+
+NOTA: En un sistema real, las anotaciones @wcet serían
+verificadas por hardware timers y el OS scheduler.
+*/

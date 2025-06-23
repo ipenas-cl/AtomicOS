@@ -3,7 +3,7 @@
 
 # Configuration
 PROJECT_NAME = AtomicOS
-VERSION = 1.3.0
+VERSION = 2.0.0
 ARCH = i386
 
 # Directories
@@ -56,6 +56,18 @@ $(TEMPO_BIN): $(TOOLS_DIR)/tempo_compiler.c | $(BUILD_DIR)
 tempo-enhanced: $(TOOLS_DIR)/tempo_compiler_enhanced.c $(TOOLS_DIR)/tempo_optimizer.c $(TOOLS_DIR)/tempo_debug.c $(SRC_DIR)/kernel/wcet_model.c | $(BUILD_DIR)
 	@echo "Building Tempo Enhanced compiler..."
 	$(CC) -std=c99 -Wall -Wextra -O2 -I$(SRC_DIR) -I$(TOOLS_DIR) -o $(BUILD_DIR)/tempo_enhanced $^
+
+# Build industrial-grade Tempo compiler with LLVM backend
+tempo-v2: $(TOOLS_DIR)/tempo_compiler_v2.c $(TOOLS_DIR)/tempo_llvm_backend.c $(TOOLS_DIR)/tempo_semantic_analyzer.c $(TOOLS_DIR)/tempo_ast_to_llvm.c | $(BUILD_DIR)
+	@echo "Building Tempo v2.0 compiler with LLVM backend..."
+	$(CC) -std=c99 -Wall -Wextra -O2 -I$(TOOLS_DIR) `llvm-config --cflags --ldflags --libs core analysis executionengine target` -o $(BUILD_DIR)/tempo_v2 $^
+	@echo "Industrial-grade Tempo compiler ready!"
+
+# Build demo version (no LLVM dependencies)
+tempo-v2-demo: $(TOOLS_DIR)/tempo_compiler_v2_demo.c | $(BUILD_DIR)
+	@echo "Building Tempo v2.0 Demo compiler..."
+	$(CC) -std=c99 -Wall -Wextra -O2 -o $(BUILD_DIR)/tempo_v2_demo $^
+	@echo "Demo compiler ready! (showcases v2.0 architecture)"
 
 # Compile Tempo source files to assembly
 %.s: %.tempo $(TEMPO_BIN)
@@ -164,6 +176,43 @@ test-verbose: $(TEMPO_BIN) $(BUILD_DIR)/tempo_test_runner
 	@echo "Running verbose Tempo test suite..."
 	$(BUILD_DIR)/tempo_test_runner --verbose
 
+# Test LLVM backend integration
+.PHONY: test-llvm
+test-llvm: tempo-v2
+	@echo "Testing Tempo v2.0 with LLVM backend..."
+	@echo "Testing arithmetic operations..."
+	$(BUILD_DIR)/tempo_v2 --verbose --emit-llvm -o $(BUILD_DIR)/test_arithmetic.ll $(EXAMPLES_DIR)/test_llvm_integration.tempo
+	@echo "Testing WCET analysis..."
+	$(BUILD_DIR)/tempo_v2 --wcet-analysis $(EXAMPLES_DIR)/test_llvm_integration.tempo
+	@echo "Testing security analysis..."
+	$(BUILD_DIR)/tempo_v2 --security-analysis $(EXAMPLES_DIR)/test_llvm_integration.tempo
+	@echo "LLVM backend integration test complete!"
+
+# Test demo compiler
+.PHONY: test-demo
+test-demo: tempo-v2-demo
+	@echo "Testing Tempo v2.0 Demo compiler..."
+	@echo "Testing basic compilation..."
+	$(BUILD_DIR)/tempo_v2_demo --verbose $(EXAMPLES_DIR)/test_llvm_integration.tempo
+	@echo "Testing LLVM IR generation..."
+	$(BUILD_DIR)/tempo_v2_demo --emit-llvm -o $(BUILD_DIR)/demo_test.ll $(EXAMPLES_DIR)/test_llvm_integration.tempo
+	@echo "Testing WCET analysis..."
+	$(BUILD_DIR)/tempo_v2_demo --wcet-analysis $(EXAMPLES_DIR)/test_llvm_integration.tempo
+	@echo "Testing security analysis..."
+	$(BUILD_DIR)/tempo_v2_demo --security-analysis $(EXAMPLES_DIR)/test_llvm_integration.tempo
+	@echo "Demo compiler test complete!"
+
+# Build and test type checker
+$(BUILD_DIR)/test_type_checker: $(TOOLS_DIR)/test_type_checker.c $(TOOLS_DIR)/tempo_type_checker.c | $(BUILD_DIR)
+	@echo "Building type checker test suite..."
+	$(CC) -std=c99 -Wall -Wextra -O2 -I$(TOOLS_DIR) -o $@ $^
+
+.PHONY: test-types
+test-types: $(BUILD_DIR)/test_type_checker
+	@echo "Running comprehensive type checker tests..."
+	$(BUILD_DIR)/test_type_checker
+	@echo "Type checker validation complete!"
+
 # Security analysis
 .PHONY: security-check
 security-check: $(TEMPO_BIN)
@@ -231,6 +280,11 @@ help:
 	@echo "  run           - Run OS in QEMU"
 	@echo "  debug         - Run OS with debugging enabled"
 	@echo "  test          - Run test suite"
+	@echo "  test-llvm     - Test LLVM backend integration"
+	@echo "  test-demo     - Test demo compiler"
+	@echo "  test-types    - Test advanced type checker"
+	@echo "  tempo-v2      - Build industrial Tempo compiler"
+	@echo "  tempo-v2-demo - Build demo Tempo compiler"
 	@echo "  security-check- Run security analysis"
 	@echo "  clean         - Clean build artifacts"
 	@echo "  distclean     - Clean everything"

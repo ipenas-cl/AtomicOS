@@ -1,0 +1,560 @@
+// AtomicOS Security Primitives - First-Class Language Features
+// Built-in security operations with formal verification support
+
+// Security levels (Bell-LaPadula model)
+const SECURITY_UNCLASSIFIED: int32 = 0;
+const SECURITY_CONFIDENTIAL: int32 = 1;
+const SECURITY_SECRET: int32 = 2;
+const SECURITY_TOP_SECRET: int32 = 3;
+
+// Capability types
+const CAP_READ: int64 = 0x0001;
+const CAP_WRITE: int64 = 0x0002;
+const CAP_EXECUTE: int64 = 0x0004;
+const CAP_CREATE: int64 = 0x0008;
+const CAP_DELETE: int64 = 0x0010;
+const CAP_ADMIN: int64 = 0x8000000000000000;
+
+// Cryptographic constants
+const AES_BLOCK_SIZE: int32 = 16;
+const SHA256_HASH_SIZE: int32 = 32;
+const RSA_KEY_SIZE: int32 = 256; // 2048 bits
+
+// Secure types with automatic encryption
+struct SecureString {
+    @encrypted
+    data: [int8; 256],
+    length: int32,
+    classification: int32,
+    @integrity_protected
+    checksum: int32,
+}
+
+struct SecureBuffer {
+    @encrypted
+    @constant_time_access
+    buffer: ptr<int8>,
+    size: int32,
+    classification: int32,
+    access_count: int32,
+}
+
+struct Capability {
+    subject_id: int32,      // Who has the capability
+    object_id: int32,       // What object it applies to
+    permissions: int64,     // What operations are allowed
+    expiry_time: int64,     // When capability expires
+    @integrity_protected
+    signature: [int8; 64],  // Digital signature
+}
+
+struct SecurityContext {
+    current_level: int32,       // Current security level
+    clearance_level: int32,     // Maximum clearance
+    capabilities: [Capability; 32],
+    cap_count: int32,
+    
+    // Audit trail
+    @tamper_evident
+    access_log: [int64; 100],
+    log_count: int32,
+    
+    // Cryptographic state
+    @secure_storage
+    session_key: [int8; 32],
+    key_schedule: [int32; 60], // AES key schedule
+}
+
+// Global security state
+const security_context: SecurityContext = SecurityContext{
+    current_level: SECURITY_UNCLASSIFIED,
+    clearance_level: SECURITY_UNCLASSIFIED,
+    cap_count: 0,
+    log_count: 0,
+};
+
+// ============================================================================
+// CAPABILITY-BASED SECURITY
+// ============================================================================
+
+// Check if subject has capability for operation
+@wcet(100)
+@security_critical
+function check_capability(subject_id: int32, object_id: int32, operation: int64) -> bool {
+    let ctx = security_context;
+    
+    let i = 0;
+    while i < ctx.cap_count {
+        let cap = ctx.capabilities[i];
+        
+        if cap.subject_id == subject_id && 
+           cap.object_id == object_id &&
+           (cap.permissions & operation) != 0 {
+            
+            // Check expiry
+            let current_time = get_secure_time();
+            if cap.expiry_time > current_time {
+                // Verify capability signature
+                if verify_capability_signature(cap) {
+                    audit_capability_use(subject_id, object_id, operation);
+                    return true;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    audit_access_denied(subject_id, object_id, operation);
+    return false;
+}
+
+// Grant capability with time limit
+@wcet(200)
+@security_critical
+function grant_capability(
+    subject_id: int32,
+    object_id: int32,
+    permissions: int64,
+    duration_ms: int32
+) -> bool {
+    let ctx = security_context;
+    
+    // Check if we have admin capability
+    if !check_capability(get_current_subject(), 0, CAP_ADMIN) {
+        return false;
+    }
+    
+    // Find free capability slot
+    if ctx.cap_count >= 32 {
+        return false; // No free slots
+    }
+    
+    let cap = ctx.capabilities[ctx.cap_count];
+    cap.subject_id = subject_id;
+    cap.object_id = object_id;
+    cap.permissions = permissions;
+    cap.expiry_time = get_secure_time() + cast<int64>(duration_ms) * 1000;
+    
+    // Sign the capability
+    sign_capability(cap);
+    
+    ctx.cap_count = ctx.cap_count + 1;
+    audit_capability_grant(subject_id, object_id, permissions);
+    
+    return true;
+}
+
+// Revoke capability
+@wcet(150)
+@security_critical
+function revoke_capability(subject_id: int32, object_id: int32) -> bool {
+    let ctx = security_context;
+    
+    let i = 0;
+    while i < ctx.cap_count {
+        let cap = ctx.capabilities[i];
+        
+        if cap.subject_id == subject_id && cap.object_id == object_id {
+            // Move last capability to this slot
+            ctx.capabilities[i] = ctx.capabilities[ctx.cap_count - 1];
+            ctx.cap_count = ctx.cap_count - 1;
+            
+            audit_capability_revoke(subject_id, object_id);
+            return true;
+        }
+        i = i + 1;
+    }
+    
+    return false;
+}
+
+// ============================================================================
+// INFORMATION FLOW CONTROL (Bell-LaPadula)
+// ============================================================================
+
+// Check if information flow is allowed
+@wcet(50)
+@security_critical
+function check_information_flow(from_level: int32, to_level: int32) -> bool {
+    let ctx = security_context;
+    
+    // No read up: can only read same or lower classification
+    if from_level > ctx.current_level {
+        return false;
+    }
+    
+    // No write down: can only write same or higher classification
+    if to_level < ctx.current_level {
+        return false;
+    }
+    
+    return true;
+}
+
+// Declassify information (requires special privilege)
+@wcet(100)
+@security_critical
+function declassify_information(data: ptr<SecureBuffer>, new_level: int32) -> bool {
+    if !check_capability(get_current_subject(), 0, CAP_ADMIN) {
+        return false;
+    }
+    
+    if new_level >= data.classification {
+        return false; // Can only declassify to lower level
+    }
+    
+    // Re-encrypt with new classification key
+    if !reencrypt_buffer(data, new_level) {
+        return false;
+    }
+    
+    data.classification = new_level;
+    audit_declassification(data, new_level);
+    
+    return true;
+}
+
+// ============================================================================
+// CRYPTOGRAPHIC OPERATIONS
+// ============================================================================
+
+// Constant-time AES encryption
+@wcet(2000)
+@constant_time
+@security_critical
+function aes_encrypt_block(plaintext: ptr<int8>, key: ptr<int8>, ciphertext: ptr<int8>) -> void {
+    // AES encryption with constant-time implementation
+    // This ensures no timing side-channels
+    
+    let state: [int8; 16];
+    let round_keys: [int32; 60];
+    
+    // Copy plaintext to state
+    let i = 0;
+    while i < 16 {
+        state[i] = plaintext[i];
+        i = i + 1;
+    }
+    
+    // Key expansion (constant-time)
+    aes_key_expansion(key, round_keys);
+    
+    // Initial round
+    add_round_key(state, round_keys, 0);
+    
+    // Main rounds (9 rounds for AES-128)
+    let round = 1;
+    while round < 10 {
+        sub_bytes_ct(state);     // Constant-time S-box
+        shift_rows_ct(state);    // Constant-time shift
+        mix_columns_ct(state);   // Constant-time mix
+        add_round_key(state, round_keys, round);
+        round = round + 1;
+    }
+    
+    // Final round
+    sub_bytes_ct(state);
+    shift_rows_ct(state);
+    add_round_key(state, round_keys, 10);
+    
+    // Copy result to output
+    i = 0;
+    while i < 16 {
+        ciphertext[i] = state[i];
+        i = i + 1;
+    }
+}
+
+// Constant-time AES key expansion
+@wcet(1000)
+@constant_time
+function aes_key_expansion(key: ptr<int8>, round_keys: ptr<int32>) -> void {
+    // Constant-time key expansion to prevent key schedule attacks
+    let key_words: [int32; 4];
+    
+    // Copy initial key
+    let i = 0;
+    while i < 4 {
+        key_words[i] = bytes_to_word(key + (i * 4));
+        round_keys[i] = key_words[i];
+        i = i + 1;
+    }
+    
+    // Generate round keys
+    i = 4;
+    while i < 44 { // 44 words for AES-128
+        let temp = key_words[3];
+        
+        if (i % 4) == 0 {
+            temp = sub_word_ct(rot_word(temp)) ^ rcon(i / 4);
+        }
+        
+        key_words[0] = key_words[0] ^ temp;
+        key_words[1] = key_words[1] ^ key_words[0];
+        key_words[2] = key_words[2] ^ key_words[1];
+        key_words[3] = key_words[3] ^ key_words[2];
+        
+        // Copy to round key array
+        let j = 0;
+        while j < 4 {
+            round_keys[i + j] = key_words[j];
+            j = j + 1;
+        }
+        
+        i = i + 4;
+    }
+}
+
+// Secure hash function (SHA-256)
+@wcet(5000)
+@constant_time
+function sha256_hash(data: ptr<int8>, length: int32, hash: ptr<int8>) -> void {
+    let h: [int32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+        0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+    ];
+    
+    let k: [int32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        // ... (all 64 constants for brevity)
+    ];
+    
+    // Process message in 512-bit chunks
+    let chunks = (length + 9 + 63) / 64; // Including padding
+    
+    let chunk = 0;
+    while chunk < chunks {
+        let w: [int32; 64];
+        
+        // Prepare message schedule
+        prepare_message_schedule_ct(data, chunk, length, w);
+        
+        // Initialize working variables
+        let a = h[0]; let b = h[1]; let c = h[2]; let d = h[3];
+        let e = h[4]; let f = h[5]; let g = h[6]; let h_var = h[7];
+        
+        // Main hash computation
+        let t = 0;
+        while t < 64 {
+            let s1 = rotr32(e, 6) ^ rotr32(e, 11) ^ rotr32(e, 25);
+            let ch = (e & f) ^ ((~e) & g);
+            let temp1 = h_var + s1 + ch + k[t] + w[t];
+            let s0 = rotr32(a, 2) ^ rotr32(a, 13) ^ rotr32(a, 22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0 + maj;
+            
+            h_var = g; g = f; f = e; e = d + temp1;
+            d = c; c = b; b = a; a = temp1 + temp2;
+            
+            t = t + 1;
+        }
+        
+        // Add to hash values
+        h[0] = h[0] + a; h[1] = h[1] + b; h[2] = h[2] + c; h[3] = h[3] + d;
+        h[4] = h[4] + e; h[5] = h[5] + f; h[6] = h[6] + g; h[7] = h[7] + h_var;
+        
+        chunk = chunk + 1;
+    }
+    
+    // Convert to byte array
+    let i = 0;
+    while i < 8 {
+        word_to_bytes(h[i], hash + (i * 4));
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// SECURE MEMORY OPERATIONS
+// ============================================================================
+
+// Secure memory allocation with guard pages
+@wcet(500)
+@security_critical
+function secure_malloc(size: int32, classification: int32) -> ptr<SecureBuffer> {
+    // Allocate with guard pages before and after
+    let total_size = size + (2 * PAGE_SIZE);
+    let raw_ptr = vm_allocate(total_size, PDE_WRITABLE | PDE_USER);
+    
+    if raw_ptr == 0 {
+        return null;
+    }
+    
+    // Set up guard pages
+    unmap_page(raw_ptr); // Before guard
+    unmap_page(raw_ptr + PAGE_SIZE + size); // After guard
+    
+    let buffer = allocate_secure_buffer();
+    if buffer == null {
+        vm_free(raw_ptr, total_size);
+        return null;
+    }
+    
+    buffer.buffer = cast<ptr<int8>>(raw_ptr + PAGE_SIZE);
+    buffer.size = size;
+    buffer.classification = classification;
+    buffer.access_count = 0;
+    
+    // Clear memory securely
+    secure_memset(buffer.buffer, 0, size);
+    
+    return buffer;
+}
+
+// Secure memory deallocation with overwriting
+@wcet(300)
+@security_critical
+function secure_free(buffer: ptr<SecureBuffer>) -> void {
+    if buffer == null || buffer.buffer == null {
+        return;
+    }
+    
+    // Overwrite memory multiple times to prevent recovery
+    secure_memset(buffer.buffer, 0x00, buffer.size);
+    secure_memset(buffer.buffer, 0xFF, buffer.size);
+    secure_memset(buffer.buffer, 0xAA, buffer.size);
+    secure_memset(buffer.buffer, 0x55, buffer.size);
+    secure_memset(buffer.buffer, 0x00, buffer.size);
+    
+    // Free the actual memory
+    let total_size = buffer.size + (2 * PAGE_SIZE);
+    let raw_ptr = cast<int32>(buffer.buffer) - PAGE_SIZE;
+    vm_free(raw_ptr, total_size);
+    
+    // Clear buffer structure
+    secure_memset(cast<ptr<int8>>(buffer), 0, sizeof<SecureBuffer>());
+}
+
+// Constant-time memory comparison
+@wcet(1000)
+@constant_time
+function secure_memcmp(a: ptr<int8>, b: ptr<int8>, size: int32) -> bool {
+    let result = 0;
+    let i = 0;
+    
+    while i < size {
+        result = result | (a[i] ^ b[i]);
+        i = i + 1;
+    }
+    
+    return result == 0;
+}
+
+// Constant-time memory copy
+@wcet(1000)
+@constant_time
+function secure_memcpy(dest: ptr<int8>, src: ptr<int8>, size: int32) -> void {
+    let i = 0;
+    while i < size {
+        dest[i] = src[i];
+        i = i + 1;
+    }
+}
+
+// Constant-time memory set
+@wcet(500)
+@constant_time
+function secure_memset(ptr: ptr<int8>, value: int8, size: int32) -> void {
+    let i = 0;
+    while i < size {
+        ptr[i] = value;
+        i = i + 1;
+    }
+}
+
+// ============================================================================
+// AUDIT AND MONITORING
+// ============================================================================
+
+// Log security event
+@wcet(200)
+function audit_log(event_type: int32, subject_id: int32, object_id: int32, data: int64) -> void {
+    let ctx = security_context;
+    
+    if ctx.log_count >= 100 {
+        // Rotate log (in real system would write to persistent storage)
+        ctx.log_count = 0;
+    }
+    
+    let timestamp = get_secure_time();
+    let log_entry = (cast<int64>(event_type) << 32) |
+                    (cast<int64>(subject_id) << 16) |
+                    cast<int64>(object_id);
+    
+    ctx.access_log[ctx.log_count] = log_entry;
+    ctx.log_count = ctx.log_count + 1;
+    
+    // In real system: write to tamper-evident log
+}
+
+// Security event types for audit
+function audit_capability_use(subject: int32, object: int32, operation: int64) -> void {
+    audit_log(1, subject, object, operation);
+}
+
+function audit_access_denied(subject: int32, object: int32, operation: int64) -> void {
+    audit_log(2, subject, object, operation);
+}
+
+function audit_capability_grant(subject: int32, object: int32, permissions: int64) -> void {
+    audit_log(3, subject, object, permissions);
+}
+
+function audit_capability_revoke(subject: int32, object: int32) -> void {
+    audit_log(4, subject, object, 0);
+}
+
+function audit_declassification(buffer: ptr<SecureBuffer>, new_level: int32) -> void {
+    audit_log(5, cast<int32>(buffer), new_level, cast<int64>(buffer.classification));
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+// Get current secure time (tamper-resistant)
+function get_secure_time() -> int64 {
+    return 1000000; // Simplified
+}
+
+function get_current_subject() -> int32 {
+    return 1; // Simplified
+}
+
+// Cryptographic helper functions
+function bytes_to_word(bytes: ptr<int8>) -> int32 {
+    return (cast<int32>(bytes[0]) << 24) |
+           (cast<int32>(bytes[1]) << 16) |
+           (cast<int32>(bytes[2]) << 8) |
+           cast<int32>(bytes[3]);
+}
+
+function word_to_bytes(word: int32, bytes: ptr<int8>) -> void {
+    bytes[0] = cast<int8>((word >> 24) & 0xFF);
+    bytes[1] = cast<int8>((word >> 16) & 0xFF);
+    bytes[2] = cast<int8>((word >> 8) & 0xFF);
+    bytes[3] = cast<int8>(word & 0xFF);
+}
+
+function rotr32(value: int32, amount: int32) -> int32 {
+    return (value >> amount) | (value << (32 - amount));
+}
+
+function rot_word(word: int32) -> int32 {
+    return ((word << 8) | (word >> 24));
+}
+
+// Placeholder functions for complex operations
+function sub_bytes_ct(state: ptr<int8>) -> void { /* Constant-time S-box */ }
+function shift_rows_ct(state: ptr<int8>) -> void { /* Constant-time shift */ }
+function mix_columns_ct(state: ptr<int8>) -> void { /* Constant-time mix */ }
+function add_round_key(state: ptr<int8>, keys: ptr<int32>, round: int32) -> void { /* XOR with round key */ }
+function sub_word_ct(word: int32) -> int32 { return word; /* Simplified */ }
+function rcon(round: int32) -> int32 { return 1; /* Simplified */ }
+function prepare_message_schedule_ct(data: ptr<int8>, chunk: int32, length: int32, w: ptr<int32>) -> void { /* SHA-256 schedule */ }
+function verify_capability_signature(cap: Capability) -> bool { return true; /* Simplified */ }
+function sign_capability(cap: ptr<Capability>) -> void { /* Sign with private key */ }
+function reencrypt_buffer(buffer: ptr<SecureBuffer>, new_level: int32) -> bool { return true; /* Simplified */ }
+function allocate_secure_buffer() -> ptr<SecureBuffer> { return cast<ptr<SecureBuffer>>(0x300000); /* Simplified */ }
+function vm_free(ptr: int32, size: int32) -> void { /* Free virtual memory */ }

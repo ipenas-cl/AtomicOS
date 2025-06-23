@@ -1,0 +1,335 @@
+// AtomicOS Parallel Task System with WCET Guarantees
+// Deterministic task execution across multiple cores
+
+// Task states
+const TASK_READY: int32 = 0;
+const TASK_RUNNING: int32 = 1;
+const TASK_BLOCKED: int32 = 2;
+const TASK_COMPLETED: int32 = 3;
+
+// Task priorities
+const PRIORITY_IDLE: int32 = 0;
+const PRIORITY_LOW: int32 = 1;
+const PRIORITY_NORMAL: int32 = 2;
+const PRIORITY_HIGH: int32 = 3;
+const PRIORITY_REALTIME: int32 = 4;
+const PRIORITY_CRITICAL: int32 = 5;
+
+// Per-CPU task structure
+@align(64)
+struct Task {
+    // Identification
+    id: int32;
+    cpu_affinity: int32;
+    priority: int32;
+    
+    // Timing constraints
+    wcet_cycles: int32;      // Worst-case execution time
+    deadline_cycles: int32;   // Absolute deadline
+    period_cycles: int32;     // For periodic tasks
+    
+    // Runtime tracking
+    start_time: int32;
+    accumulated_cycles: int32;
+    
+    // Stack and context
+    stack_pointer: ptr<int32>;
+    stack_size: int32;
+    context: Context;
+    
+    // State
+    state: int32;
+    next: ptr<Task>;  // For scheduling queues
+}
+
+// CPU-local scheduler data
+@align(4096)  // Page aligned for TLB
+struct CPUScheduler {
+    current_task: ptr<Task>;
+    idle_task: ptr<Task>;
+    
+    // Priority queues (simple arrays for determinism)
+    ready_queues: [ptr<Task>; 6];  // One per priority level
+    
+    // Timing
+    current_time: int64;
+    next_schedule: int64;
+    
+    // Statistics
+    context_switches: int32;
+    wcet_violations: int32;
+}
+
+// Global scheduler state
+struct GlobalScheduler {
+    cpu_schedulers: [CPUScheduler; 16];  // Max 16 CPUs
+    num_cpus: int32;
+    
+    // Task pools
+    task_pool: [Task; 256];
+    free_tasks: ptr<Task>;
+}
+
+// Initialize parallel task system
+@wcet(10000)
+function parallel_init(num_cpus: int32) -> int32 {
+    if num_cpus > 16 {
+        return -1;
+    }
+    
+    global_scheduler.num_cpus = num_cpus;
+    
+    // Initialize per-CPU schedulers
+    for cpu in 0..num_cpus {
+        let sched = &global_scheduler.cpu_schedulers[cpu];
+        
+        // Clear ready queues
+        for pri in 0..6 {
+            sched->ready_queues[pri] = 0 as ptr<Task>;
+        }
+        
+        // Create idle task for each CPU
+        let idle = allocate_task();
+        idle->priority = PRIORITY_IDLE;
+        idle->wcet_cycles = 1000000000;  // Effectively infinite
+        idle->cpu_affinity = cpu;
+        sched->idle_task = idle;
+        sched->current_task = idle;
+    }
+    
+    // Initialize task pool as free list
+    for i in 0..255 {
+        global_scheduler.task_pool[i].next = &global_scheduler.task_pool[i + 1];
+    }
+    global_scheduler.task_pool[255].next = 0 as ptr<Task>;
+    global_scheduler.free_tasks = &global_scheduler.task_pool[0];
+    
+    return 0;
+}
+
+// Create a new parallel task
+@wcet(500)
+function create_task(
+    entry: ptr<void>,
+    wcet: int32,
+    deadline: int32,
+    priority: int32,
+    cpu: int32
+) -> ptr<Task> {
+    // Allocate from pool
+    let task = allocate_task();
+    if task == 0 as ptr<Task> {
+        return 0 as ptr<Task>;
+    }
+    
+    // Initialize task
+    task->wcet_cycles = wcet;
+    task->deadline_cycles = deadline;
+    task->priority = priority;
+    task->cpu_affinity = cpu;
+    task->state = TASK_READY;
+    
+    // Allocate stack (from static pool in real implementation)
+    task->stack_size = 16384;  // 16KB stack
+    task->stack_pointer = allocate_stack(task->stack_size);
+    
+    // Initialize context
+    init_context(&task->context, entry, task->stack_pointer + task->stack_size);
+    
+    // Add to ready queue
+    enqueue_task(task);
+    
+    return task;
+}
+
+// Enqueue task in appropriate ready queue
+@wcet(100)
+function enqueue_task(task: ptr<Task>) -> void {
+    let cpu = task->cpu_affinity;
+    let priority = task->priority;
+    
+    // Get CPU scheduler
+    let sched = &global_scheduler.cpu_schedulers[cpu];
+    
+    // Add to head of priority queue (FIFO within priority)
+    task->next = sched->ready_queues[priority];
+    sched->ready_queues[priority] = task;
+    
+    // Trigger reschedule if higher priority than current
+    if priority > sched->current_task->priority {
+        trigger_reschedule(cpu);
+    }
+}
+
+// Select next task to run (O(1) operation)
+@wcet(50)
+function select_next_task(cpu: int32) -> ptr<Task> {
+    let sched = &global_scheduler.cpu_schedulers[cpu];
+    
+    // Check from highest to lowest priority
+    for pri in (0..6).rev() {
+        if sched->ready_queues[pri] != 0 as ptr<Task> {
+            // Remove from queue
+            let task = sched->ready_queues[pri];
+            sched->ready_queues[pri] = task->next;
+            task->next = 0 as ptr<Task>;
+            return task;
+        }
+    }
+    
+    // No tasks ready, return idle task
+    return sched->idle_task;
+}
+
+// Context switch between tasks
+@wcet(200)
+function context_switch(cpu: int32, next: ptr<Task>) -> void {
+    let sched = &global_scheduler.cpu_schedulers[cpu];
+    let current = sched->current_task;
+    
+    if current == next {
+        return;  // Nothing to do
+    }
+    
+    // Check WCET violation
+    if current->accumulated_cycles > current->wcet_cycles {
+        sched->wcet_violations = sched->wcet_violations + 1;
+        // In real system, would kill or penalize task
+    }
+    
+    // Save current context
+    if current->state == TASK_RUNNING {
+        current->state = TASK_READY;
+        save_context(&current->context);
+    }
+    
+    // Switch to next task
+    sched->current_task = next;
+    next->state = TASK_RUNNING;
+    next->start_time = read_tsc();
+    
+    // Update stats
+    sched->context_switches = sched->context_switches + 1;
+    
+    // Restore context (this doesn't return)
+    restore_context(&next->context);
+}
+
+// Parallel for implementation
+@wcet(1000)
+function parallel_for(
+    start: int32,
+    end: int32,
+    chunk_size: int32,
+    work_fn: ptr<void>,
+    wcet_per_chunk: int32
+) -> void {
+    let num_chunks = (end - start + chunk_size - 1) / chunk_size;
+    let chunks_per_cpu = num_chunks / global_scheduler.num_cpus;
+    
+    // Create worker tasks
+    for cpu in 0..global_scheduler.num_cpus {
+        let chunk_start = start + cpu * chunks_per_cpu * chunk_size;
+        let chunk_end = min(chunk_start + chunks_per_cpu * chunk_size, end);
+        
+        if chunk_start < end {
+            create_task(
+                work_fn,
+                wcet_per_chunk * chunks_per_cpu,
+                wcet_per_chunk * chunks_per_cpu * 2,  // 2x deadline
+                PRIORITY_NORMAL,
+                cpu
+            );
+        }
+    }
+}
+
+// Helper functions
+function allocate_task() -> ptr<Task> {
+    // Lock-free allocation from pool
+    let task = global_scheduler.free_tasks;
+    if task != 0 as ptr<Task> {
+        global_scheduler.free_tasks = task->next;
+    }
+    return task;
+}
+
+function allocate_stack(size: int32) -> ptr<int32> {
+    // In real implementation, from per-CPU pools
+    return 0x200000 as ptr<int32>;  // Dummy address
+}
+
+function trigger_reschedule(cpu: int32) -> void {
+    // Send IPI to target CPU
+    asm {
+        "mov eax, 0xFEE00300"  // APIC ICR low
+        "mov ebx, 0x4000"      // Fixed delivery, vector 0x40
+        "or ebx, ecx"          // Add CPU ID
+        "mov [eax], ebx"
+    };
+}
+
+function read_tsc() -> int32 {
+    let low: int32;
+    asm {
+        "rdtsc"
+        : "=a"(low)
+        :: "edx"
+    };
+    return low;
+}
+
+function min(a: int32, b: int32) -> int32 {
+    if a < b {
+        return a;
+    }
+    return b;
+}
+
+// Context save/restore (simplified)
+struct Context {
+    eax: int32;
+    ebx: int32;
+    ecx: int32;
+    edx: int32;
+    esi: int32;
+    edi: int32;
+    ebp: int32;
+    esp: int32;
+    eip: int32;
+    eflags: int32;
+}
+
+function init_context(ctx: ptr<Context>, entry: ptr<void>, stack: ptr<int32>) -> void {
+    ctx->eip = entry as int32;
+    ctx->esp = stack as int32;
+    ctx->ebp = stack as int32;
+    ctx->eflags = 0x200;  // Interrupts enabled
+}
+
+function save_context(ctx: ptr<Context>) -> void {
+    asm {
+        "mov [eax], ebx"
+        "mov [eax+4], ecx"
+        "mov [eax+8], edx"
+        "mov [eax+12], esi"
+        "mov [eax+16], edi"
+        "mov [eax+20], ebp"
+        "mov [eax+24], esp"
+        :: "a"(ctx)
+    };
+}
+
+function restore_context(ctx: ptr<Context>) -> void {
+    asm {
+        "mov ebx, [eax]"
+        "mov ecx, [eax+4]"
+        "mov edx, [eax+8]"
+        "mov esi, [eax+12]"
+        "mov edi, [eax+16]"
+        "mov ebp, [eax+20]"
+        "mov esp, [eax+24]"
+        "jmp [eax+32]"
+        :: "a"(ctx)
+    };
+}
