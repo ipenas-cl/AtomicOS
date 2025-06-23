@@ -2,7 +2,7 @@
 ; Part of AtomicOS Project - https://github.com/ipenas-cl/AtomicOS
 ; Licensed under MIT License - see LICENSE file for details
 
-; Working bootloader for AtomicOS v1.0.0
+; Working bootloader for AtomicOS v5.1.1
 [BITS 16]
 [ORG 0x7C00]
 
@@ -80,7 +80,7 @@ pmode:
 
 ; Data
 boot_drive: db 0
-boot_msg:   db 'AtomicOS v1.0.0', 13, 10, 0
+boot_msg:   db 'AtomicOS v5.1.0', 13, 10, 0
 err_msg:    db 'Error!', 13, 10, 0
 
 ; GDT

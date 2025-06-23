@@ -3,7 +3,7 @@
 **Deterministic Real-Time Security Operating System**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-5.1.0-green)](https://github.com/ipenas-cl/AtomicOS/releases)
+[![Version](https://img.shields.io/badge/version-5.1.1-green)](https://github.com/ipenas-cl/AtomicOS/releases)
 
 ## Overview
 
@@ -84,8 +84,8 @@ AtomicOS/
 ### Prerequisites
 
 ```bash
-# Install Tempo compiler first
-wget https://github.com/ipenas-cl/tempo-lang/releases/download/v5.0.0/tempo
+# Install Tempo compiler v5.2.1 first (required for collections)
+wget https://github.com/ipenas-cl/tempo-lang/releases/download/v5.2.1/tempo
 chmod +x tempo
 sudo mv tempo /usr/local/bin/
 

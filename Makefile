@@ -3,7 +3,7 @@
 
 # Configuration
 PROJECT_NAME = AtomicOS
-VERSION = 2.0.0
+VERSION = 5.1.1
 ARCH = i386
 
 # Directories
@@ -23,7 +23,7 @@ USER_SRC = $(SRC_DIR)/userspace
 CC = gcc
 AS = nasm
 LD = ld
-TEMPO = $(TOOLS_DIR)/tempo_compiler
+TEMPO = tempo
 
 # Flags
 CFLAGS = -std=c99 -Wall -Wextra -Werror -O2 -m32 -fno-stack-protector -fno-builtin -nostdlib -nostdinc -fno-pie -I$(SRC_DIR)/kernel -I include
@@ -91,21 +91,25 @@ $(BOOTLOADER): $(BOOT_SRC)/boot.asm | $(BUILD_DIR)
 	$(AS) $(ASFLAGS) $< -o $@
 
 # Build kernel C files
-$(BUILD_DIR)/syscall.o: $(KERNEL_SRC)/syscall.c | $(BUILD_DIR)
-	@echo "Compiling syscall.c..."
-	$(CC) $(CFLAGS) -c $< -o $@
+# C files removed - AtomicOS is now pure assembly + Tempo modules
+# $(BUILD_DIR)/syscall.o: $(KERNEL_SRC)/syscall.c | $(BUILD_DIR)
+# 	@echo "Compiling syscall.c..."
+# 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/ipc.o: $(KERNEL_SRC)/ipc.c | $(BUILD_DIR)
-	@echo "Compiling ipc.c..."
-	$(CC) $(CFLAGS) -c $< -o $@
+# $(BUILD_DIR)/ipc.o: $(KERNEL_SRC)/ipc.c | $(BUILD_DIR)
+# 	@echo "Compiling ipc.c..."
+# 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/fs.o: $(KERNEL_SRC)/fs.c | $(BUILD_DIR)
-	@echo "Compiling fs.c..."
-	$(CC) $(CFLAGS) -c $< -o $@
+# $(BUILD_DIR)/fs.o: $(KERNEL_SRC)/fs.c | $(BUILD_DIR)
+# 	@echo "Compiling fs.c..."
+# 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Build kernel
-$(KERNEL): $(KERNEL_SRC)/kernel.asm $(BUILD_DIR)/syscall.o $(BUILD_DIR)/ipc.o $(BUILD_DIR)/fs.o | $(BUILD_DIR)
-	@echo "Assembling kernel with security modules..."
+# Build kernel with all modules
+$(KERNEL): $(KERNEL_SRC)/kernel.asm \
+          $(KERNEL_SRC)/keyboard_driver.asm \
+          $(KERNEL_SRC)/timer.asm \
+          $(KERNEL_SRC)/atomic_shell.asm | $(BUILD_DIR)
+	@echo "Assembling kernel with all modules..."
 	@mkdir -p $(BUILD_DIR)/kernel
 	@cp $(KERNEL_SRC)/*.inc $(BUILD_DIR)/kernel/ 2>/dev/null || true
 	@cp $(KERNEL_SRC)/*.asm $(BUILD_DIR)/kernel/ 2>/dev/null || true
