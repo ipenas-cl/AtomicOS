@@ -2,7 +2,7 @@
 ; Part of AtomicOS Project - https://github.com/ipenas-cl/AtomicOS
 ; Licensed under MIT License - see LICENSE file for details
 
-; AtomicOS v1.0.0 Working Kernel
+; AtomicOS v5.1.1 Working Kernel
 [BITS 32]
 [ORG 0x10000]
 
@@ -54,10 +54,44 @@ kernel_main:
     mov esi, status_msg
     call print_string_direct
     
-    ; Simple idle loop
-.idle:
-    hlt
-    jmp .idle
+    ; Initialize shell and scheduler
+    call init_shell_system
+    
+    ; Enable interrupts for scheduler
+    sti
+    
+    ; Enter scheduled mode
+.scheduled:
+    hlt                     ; Wait for timer interrupt
+    jmp .scheduled          ; Scheduler will handle tasks
+
+; Initialize shell subsystem
+init_shell_system:
+    ; Initialize keyboard driver
+    call kb_init
+    
+    ; Initialize timer
+    call timer_init
+    
+    ; Initialize scheduler (from realtime_scheduler.inc)
+    call init_rt_scheduler
+    
+    ; Schedule shell task to run every 10ms
+    mov edi, shell_task_entry
+    mov esi, 10         ; 10 ticks = 10ms
+    call schedule_task
+    
+    ret
+
+; Shell task entry point
+shell_task_entry:
+    call shell_loop
+    ret
+
+; Include new assembly modules
+%include "kernel/keyboard_driver.asm"
+%include "kernel/timer.asm"
+%include "kernel/atomic_shell.asm"
 
 ; Direct VGA print (no dependencies)
 print_string_direct:
@@ -76,7 +110,7 @@ print_string_direct:
     ret
 
 section .data
-welcome_msg: db 'AtomicOS v1.0.0 - Now with Tempo!', 0
+welcome_msg: db 'AtomicOS v5.1.0 - Pure Assembly + Tempo Security', 0
 tempo_msg:   db 'No More C Needed! Write your OS in Tempo!', 0
 status_msg:  db 'Kernel loaded successfully. All 14 Tempo modules included.', 0
 

@@ -1,0 +1,66 @@
+// AtomicOS Real-Time Task System
+// Copyright (c) 2025 Ignacio Peña Sepúlveda
+// Using Tempo v5.2.1 real-time features
+
+// HTTP Server Task - runs every 100μs on Core 1
+@period(100)    // 100μs period
+@deadline(80)   // Must finish in 80μs
+@core(1)        // Dedicated to Core 1
+task HttpServerTask {
+    fn init() {
+        // Initialize HTTP server
+    }
+    
+    fn tick() @wcet(50) {
+        // Handle HTTP requests in exactly 50μs
+        handle_http_requests();
+    }
+}
+
+// Network Interface Task - runs every 50μs on Core 2  
+@period(50)
+@deadline(40)
+@core(2)
+task NetworkTask {
+    fn init() {
+        // Initialize network interface
+    }
+    
+    fn tick() @wcet(30) {
+        // Process network packets
+        process_network_packets();
+    }
+}
+
+// System Monitor Task - runs every 1ms on Core 0
+@period(1000)
+@deadline(800)
+@core(0)
+task MonitorTask {
+    fn init() {
+        // Initialize monitoring
+    }
+    
+    fn tick() @wcet(500) {
+        // Collect system statistics
+        update_system_stats();
+    }
+}
+
+@wcet(45)
+fn handle_http_requests() -> i32 {
+    // Process HTTP requests from channel
+    return 0;
+}
+
+@wcet(25)
+fn process_network_packets() -> i32 {
+    // Process incoming packets
+    return 0;
+}
+
+@wcet(400)
+fn update_system_stats() -> i32 {
+    // Update CPU, memory, deadline stats
+    return 0;
+}
