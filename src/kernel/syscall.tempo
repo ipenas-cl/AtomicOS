@@ -1,0 +1,36 @@
+// AtomicOS System Call Implementation
+// Basic version compatible with current Tempo compiler
+
+// Initialize the syscall subsystem
+function syscall_init() -> void {
+    // Initialization code will go here
+}
+
+// Handle system calls
+function syscall_dispatch(number: int32, arg0: int32, arg1: int32) -> int32 {
+    // Check for SYS_EXIT (0)
+    if number == 0 {
+        // Handle exit
+        return 0;
+    }
+    
+    // Check for SYS_GETPID (4)
+    if number == 4 {
+        // Return process ID (hardcoded for now)
+        return 1;
+    }
+    
+    // Check for SYS_WRITE (23)
+    if number == 23 {
+        // Handle write (simplified)
+        return arg1; // Return count
+    }
+    
+    // Unknown syscall
+    return -10; // E_NOSYS
+}
+
+// Entry point from interrupt handler
+function syscall_entry_asm(syscall_num: int32, ebx: int32, ecx: int32) -> int32 {
+    return syscall_dispatch(syscall_num, ebx, ecx);
+}

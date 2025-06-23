@@ -1,0 +1,24 @@
+// AtomicOS System Call Implementation in Tempo
+// Minimal working version
+
+const SYS_EXIT: int32 = 0;
+const SYS_GETPID: int32 = 4;
+
+function syscall_init() -> void {
+    // Init
+}
+
+function syscall_dispatch(number: int32, arg0: int32) -> int32 {
+    if number == SYS_EXIT {
+        return 0;
+    }
+    if number == SYS_GETPID {
+        return 1;
+    }
+    return 0;
+}
+
+function syscall_entry_asm(num: int32, arg: int32) -> int32 {
+    return syscall_dispatch(num, arg);
+}
+EOF < /dev/null

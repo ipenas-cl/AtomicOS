@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AtomicOS - Deterministic Real-Time Security OS</title>
+    <meta name="description" content="AtomicOS - A deterministic operating system with real-time guarantees and military-grade security">
+    <style>
+        :root {
+            --primary: #0066cc;
+            --secondary: #00aa44;
+            --dark: #1a1a1a;
+            --light: #f5f5f5;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: var(--dark);
+            margin: 0;
+            padding: 0;
+            background: white;
+        }
+        
+        .hero {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 4rem 0;
+            text-align: center;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+        
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        
+        .tagline {
+            font-size: 1.5rem;
+            opacity: 0.9;
+            margin-bottom: 2rem;
+        }
+        
+        .cta {
+            display: inline-block;
+            background: white;
+            color: var(--primary);
+            padding: 1rem 2rem;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 0.5rem;
+            transition: transform 0.2s;
+        }
+        
+        .cta:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .features {
+            padding: 4rem 0;
+            background: var(--light);
+        }
+        
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .feature {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .feature h3 {
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+        
+        .code-example {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 1.5rem;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 2rem 0;
+        }
+        
+        pre {
+            margin: 0;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin: 3rem 0;
+            text-align: center;
+        }
+        
+        .stat h2 {
+            color: var(--primary);
+            font-size: 3rem;
+            margin: 0;
+        }
+        
+        .footer {
+            background: var(--dark);
+            color: white;
+            padding: 2rem 0;
+            text-align: center;
+        }
+        
+        .footer a {
+            color: white;
+            text-decoration: none;
+            margin: 0 1rem;
+        }
+    </style>
+</head>
+<body>
+    <header class="hero">
+        <div class="container">
+            <h1>AtomicOS</h1>
+            <p class="tagline">Deterministic Real-Time Security Operating System</p>
+            <p class="tagline">Every operation. Guaranteed timing. Military-grade security.</p>
+            <a href="https://github.com/ipenas-cl/AtomicOS" class="cta">View on GitHub</a>
+            <a href="#quick-start" class="cta">Get Started</a>
+        </div>
+    </header>
+
+    <section class="features">
+        <div class="container">
+            <h2>Why AtomicOS?</h2>
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>🕐 100% Deterministic</h3>
+                    <p>Every operation has mathematically proven worst-case execution time. No surprises, no timing variations, no race conditions.</p>
+                </div>
+                <div class="feature">
+                    <h3>🔒 Security First</h3>
+                    <p>12 layers of protection including hardware isolation, W^X enforcement, and quantum-resistant cryptography.</p>
+                </div>
+                <div class="feature">
+                    <h3>⚡ Real-Time Guaranteed</h3>
+                    <p>EDF and RMS schedulers with hardware deadline enforcement. Perfect for mission-critical systems.</p>
+                </div>
+                <div class="feature">
+                    <h3>🎯 Minimal Attack Surface</h3>
+                    <p>Less than 10,000 lines of audited assembly code. No bloat, no unnecessary features, no hidden vulnerabilities.</p>
+                </div>
+                <div class="feature">
+                    <h3>🚀 Instant Boot</h3>
+                    <p>Boot to operational in under 100ms. Context switches in less than 1000 cycles.</p>
+                </div>
+                <div class="feature">
+                    <h3>🛡️ Hardware Verified</h3>
+                    <p>Formal verification of core components. Mathematical proof of correctness.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="container" id="quick-start">
+        <h2>Quick Start</h2>
+        <div class="code-example">
+            <pre>$ git clone https://github.com/ipenas-cl/AtomicOS.git
+$ cd AtomicOS
+$ make all
+$ make run</pre>
+        </div>
+        
+        <div class="stats">
+            <div class="stat">
+                <h2>&lt;100ms</h2>
+                <p>Boot Time</p>
+            </div>
+            <div class="stat">
+                <h2>&lt;1000</h2>
+                <p>Cycles per Context Switch</p>
+            </div>
+            <div class="stat">
+                <h2>12</h2>
+                <p>Security Layers</p>
+            </div>
+            <div class="stat">
+                <h2>100%</h2>
+                <p>Deterministic</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="features">
+        <div class="container">
+            <h2>Perfect For</h2>
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>✈️ Aerospace</h3>
+                    <p>Flight control systems, avionics, satellite systems</p>
+                </div>
+                <div class="feature">
+                    <h3>🏥 Medical</h3>
+                    <p>Pacemakers, insulin pumps, surgical robots</p>
+                </div>
+                <div class="feature">
+                    <h3>🚗 Automotive</h3>
+                    <p>Engine control units, ABS systems, autonomous driving</p>
+                </div>
+                <div class="feature">
+                    <h3>🏭 Industrial</h3>
+                    <p>PLCs, safety controllers, SCADA systems</p>
+                </div>
+                <div class="feature">
+                    <h3>🔐 Defense</h3>
+                    <p>Secure communications, weapon systems, drones</p>
+                </div>
+                <div class="feature">
+                    <h3>💰 Financial</h3>
+                    <p>High-frequency trading, secure transactions</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <p>AtomicOS - Created by Ignacio Peña Sepúlveda</p>
+            <p>
+                <a href="https://github.com/ipenas-cl/AtomicOS">GitHub</a>
+                <a href="https://github.com/ipenas-cl/AtomicOS/blob/main/docs/architecture/KERNEL_DESIGN.md">Documentation</a>
+                <a href="mailto:ignacio@atomicos.io">Contact</a>
+            </p>
+            <p style="margin-top: 2rem; opacity: 0.8;">
+                "Security First, Stability Second, Performance Third"
+            </p>
+        </div>
+    </footer>
+</body>
+</html>

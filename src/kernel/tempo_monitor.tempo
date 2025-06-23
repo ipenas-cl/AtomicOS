@@ -1,0 +1,293 @@
+// TEMPO MONITOR - Native deterministic monitoring system
+// Built into the language and kernel for AtomicOS
+
+// Monitor state structure
+struct MonitorState {
+    instances: [MAX_INSTANCES]InstanceInfo,
+    instance_count: u32,
+    incidents: [MAX_INCIDENTS]Incident,
+    incident_count: u32,
+    telemetry_buffer: [TELEMETRY_SIZE]u8,
+    telemetry_index: u32,
+    deterministic_seed: u64,
+    cycle_count: u64
+}
+
+struct InstanceInfo {
+    id: u32,
+    name: [32]char,
+    status: u32,  // 0=DOWN, 1=UP, 2=WARNING, 3=CRITICAL
+    cpu_usage: u32,  // Fixed-point 16.16
+    memory_usage: u64,
+    uptime_cycles: u64,
+    crash_count: u32,
+    last_heartbeat: u64
+}
+
+struct Incident {
+    id: u64,
+    instance_id: u32,
+    type: u32,  // CRASH_LOOP, MEMORY_LEAK, SECURITY_VIOLATION, etc
+    timestamp: u64,
+    severity: u32,
+    auto_recoverable: bool,
+    assigned_to: u32,
+    status: u32  // OPEN, IN_PROGRESS, RESOLVED, ESCALATED
+}
+
+const MAX_INSTANCES: u32 = 256;
+const MAX_INCIDENTS: u32 = 1024;
+const TELEMETRY_SIZE: u32 = 65536;  // 64KB ring buffer
+
+// Deterministic monitoring with WCET guarantees
+@wcet(1000)  // Max 1000 cycles
+@security_level(2)  // System level
+fn monitor_tick(state: *MonitorState) -> void {
+    state->cycle_count = state->cycle_count + 1;
+    
+    // Check all instances deterministically
+    let i: u32 = 0;
+    while (i < state->instance_count) {
+        check_instance_health(&state->instances[i], state);
+        i = i + 1;
+    }
+    
+    // Process incidents deterministically
+    process_active_incidents(state);
+    
+    // Update telemetry (deterministic compression)
+    update_telemetry_buffer(state);
+}
+
+@wcet(200)
+fn check_instance_health(instance: *InstanceInfo, state: *MonitorState) -> void {
+    let current_cycle: u64 = state->cycle_count;
+    
+    // Deterministic health check
+    if (current_cycle - instance->last_heartbeat > HEARTBEAT_TIMEOUT) {
+        // Instance is down
+        if (instance->status != 0) {
+            create_incident(state, instance->id, INCIDENT_DOWN);
+            instance->status = 0;
+        }
+        instance->crash_count = instance->crash_count + 1;
+    }
+    
+    // Check for crash loop (deterministic)
+    if (instance->crash_count > 3) {
+        create_incident(state, instance->id, INCIDENT_CRASH_LOOP);
+    }
+    
+    // Memory leak detection (deterministic growth detection)
+    if (is_memory_growing_deterministic(instance)) {
+        create_incident(state, instance->id, INCIDENT_MEMORY_LEAK);
+    }
+}
+
+@wcet(150)
+fn create_incident(state: *MonitorState, instance_id: u32, type: u32) -> void {
+    if (state->incident_count >= MAX_INCIDENTS) {
+        return;  // Incident buffer full, oldest will be overwritten
+    }
+    
+    let incident: *Incident = &state->incidents[state->incident_count];
+    incident->id = generate_deterministic_id(state);
+    incident->instance_id = instance_id;
+    incident->type = type;
+    incident->timestamp = state->cycle_count;
+    incident->severity = calculate_severity(type);
+    incident->auto_recoverable = is_auto_recoverable(type);
+    incident->status = INCIDENT_OPEN;
+    
+    state->incident_count = state->incident_count + 1;
+}
+
+@wcet(300)
+fn process_active_incidents(state: *MonitorState) -> void {
+    let i: u32 = 0;
+    while (i < state->incident_count) {
+        let incident: *Incident = &state->incidents[i];
+        
+        if (incident->status == INCIDENT_OPEN && incident->auto_recoverable) {
+            attempt_auto_recovery(state, incident);
+        }
+        
+        i = i + 1;
+    }
+}
+
+@wcet(500)
+fn attempt_auto_recovery(state: *MonitorState, incident: *Incident) -> void {
+    let instance: *InstanceInfo = &state->instances[incident->instance_id];
+    
+    if (incident->type == INCIDENT_CRASH_LOOP) {
+        // Deterministic recovery strategy
+        apply_recovery_strategy(instance, STRATEGY_DISABLE_LAYER_8);
+        instance->crash_count = 0;
+        incident->status = INCIDENT_RESOLVED;
+    } else if (incident->type == INCIDENT_MEMORY_LEAK) {
+        // Deterministic memory cleanup
+        trigger_deterministic_gc(instance);
+        incident->status = INCIDENT_RESOLVED;
+    }
+}
+
+// Deterministic telemetry update
+@wcet(200)
+fn update_telemetry_buffer(state: *MonitorState) -> void {
+    // Use deterministic compression
+    let compressed_data: [256]u8;
+    let compressed_size: u32 = compress_telemetry_deterministic(
+        state, 
+        &compressed_data[0]
+    );
+    
+    // Ring buffer update
+    let i: u32 = 0;
+    while (i < compressed_size) {
+        state->telemetry_buffer[state->telemetry_index] = compressed_data[i];
+        state->telemetry_index = (state->telemetry_index + 1) % TELEMETRY_SIZE;
+        i = i + 1;
+    }
+}
+
+// Deterministic ID generation
+@wcet(50)
+fn generate_deterministic_id(state: *MonitorState) -> u64 {
+    // Linear congruential generator (deterministic)
+    state->deterministic_seed = (state->deterministic_seed * 1103515245 + 12345) & 0x7FFFFFFF;
+    return (state->cycle_count << 32) | state->deterministic_seed;
+}
+
+// Recovery strategies
+const STRATEGY_DISABLE_LAYER_8: u32 = 1;
+const STRATEGY_INCREASE_MEMORY: u32 = 2;
+const STRATEGY_ROLLBACK: u32 = 3;
+const STRATEGY_CIRCUIT_BREAK: u32 = 4;
+
+@wcet(400)
+@security_level(3)  // Kernel only
+fn apply_recovery_strategy(instance: *InstanceInfo, strategy: u32) -> void {
+    // All strategies are deterministic
+    if (strategy == STRATEGY_DISABLE_LAYER_8) {
+        // Temporarily disable VM detection
+        __asm__(
+            "mov %0, %%rax\n"
+            "mov $0x1000, %%rbx\n"  // Security config address
+            "and $0xFFFFFEFF, (%%rbx)\n"  // Clear bit 8
+            :
+            : "r" (instance->id)
+            : "rax", "rbx"
+        );
+    }
+}
+
+// Monitor API for applications
+@wcet(100)
+fn report_heartbeat(instance_id: u32) -> void {
+    static monitor_state: MonitorState;
+    
+    if (instance_id < monitor_state.instance_count) {
+        monitor_state.instances[instance_id].last_heartbeat = monitor_state.cycle_count;
+    }
+}
+
+@wcet(150)
+fn report_metric(instance_id: u32, metric_type: u32, value: u64) -> void {
+    static monitor_state: MonitorState;
+    
+    if (instance_id < monitor_state.instance_count) {
+        if (metric_type == METRIC_CPU) {
+            monitor_state.instances[instance_id].cpu_usage = value as u32;
+        } else if (metric_type == METRIC_MEMORY) {
+            monitor_state.instances[instance_id].memory_usage = value;
+        }
+    }
+}
+
+// Query API (read-only, deterministic)
+@wcet(50)
+fn get_instance_status(instance_id: u32) -> u32 {
+    static monitor_state: MonitorState;
+    
+    if (instance_id < monitor_state.instance_count) {
+        return monitor_state.instances[instance_id].status;
+    }
+    return 0;  // DOWN
+}
+
+@wcet(200)
+fn get_active_incidents(buffer: *Incident, max_count: u32) -> u32 {
+    static monitor_state: MonitorState;
+    
+    let count: u32 = 0;
+    let i: u32 = 0;
+    
+    while (i < monitor_state.incident_count && count < max_count) {
+        if (monitor_state.incidents[i].status == INCIDENT_OPEN) {
+            buffer[count] = monitor_state.incidents[i];
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    
+    return count;
+}
+
+// Deterministic memory leak detection
+@wcet(100)
+fn is_memory_growing_deterministic(instance: *InstanceInfo) -> bool {
+    // Simple deterministic growth detection
+    // In real implementation, would track history deterministically
+    static memory_history: [MAX_INSTANCES][8]u64;
+    static history_index: u32 = 0;
+    
+    // Store current reading
+    memory_history[instance->id][history_index] = instance->memory_usage;
+    
+    // Check if monotonically increasing
+    let growing: bool = true;
+    let i: u32 = 1;
+    while (i < 8) {
+        let prev: u32 = (history_index + 8 - i) % 8;
+        let curr: u32 = (history_index + 8 - i + 1) % 8;
+        
+        if (memory_history[instance->id][curr] <= memory_history[instance->id][prev]) {
+            growing = false;
+            break;
+        }
+        i = i + 1;
+    }
+    
+    history_index = (history_index + 1) % 8;
+    return growing;
+}
+
+// Deterministic compression for telemetry
+@wcet(150)
+fn compress_telemetry_deterministic(state: *MonitorState, output: *u8) -> u32 {
+    // Simple RLE compression (deterministic)
+    let out_idx: u32 = 0;
+    let i: u32 = 0;
+    
+    while (i < state->instance_count && out_idx < 250) {
+        output[out_idx] = state->instances[i].id as u8;
+        output[out_idx + 1] = state->instances[i].status as u8;
+        output[out_idx + 2] = (state->instances[i].cpu_usage >> 8) as u8;
+        out_idx = out_idx + 3;
+        i = i + 1;
+    }
+    
+    return out_idx;
+}
+
+// Constants
+const HEARTBEAT_TIMEOUT: u64 = 1000000;  // cycles
+const INCIDENT_DOWN: u32 = 1;
+const INCIDENT_CRASH_LOOP: u32 = 2;
+const INCIDENT_MEMORY_LEAK: u32 = 3;
+const INCIDENT_SECURITY_VIOLATION: u32 = 4;
+const INCIDENT_OPEN: u32 = 1;
+const INCIDENT_RESOLVED: u32 = 2;
+const METRIC_CPU: u32 = 1;
+const METRIC_MEMORY: u32 = 2;

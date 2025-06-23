@@ -1,0 +1,99 @@
+// AtomicOS Lock-Free Channel System
+// Copyright (c) 2025 Ignacio Peña Sepúlveda
+// Using Tempo v5.2.1 deterministic collections!
+
+// Channel registry with deterministic HashMap
+let channel_registry: HashMap<i32, ChannelInfo, 256>;
+
+struct ChannelInfo {
+    id: u32,
+    owner: u32,              // Identity that owns this channel
+    readers: BitSet<256>,    // Who can read from it
+    writers: BitSet<256>,    // Who can write to it
+    buffer_size: u32,
+}
+
+// Create IPC channel - deterministic time
+@wcet(1000)
+@syscall(number: 100)
+fn sys_create_channel(id: u32, size: u32) -> Result<u32, Error> {
+    let identity = get_current_identity();
+    
+    // Check capability in O(1)
+    if !has_capability(identity, IPC_CREATE_CHANNEL(id)) {
+        return Err(PERMISSION_DENIED);
+    }
+    
+    // O(1) lookup in HashMap
+    if channel_registry.contains(id) {
+        return Err(CHANNEL_EXISTS);
+    }
+    
+    // Create channel info
+    let mut info = ChannelInfo {
+        id: id,
+        owner: identity,
+        readers: BitSet::new(),
+        writers: BitSet::new(),
+        buffer_size: size,
+    };
+    
+    // Grant access to creator
+    info.readers.set(identity);
+    info.writers.set(identity);
+    
+    // O(1) insert
+    channel_registry.insert(id, info);
+    
+    return Ok(id);
+}
+
+// Send to channel - NEVER BLOCKS!
+@wcet(2000)
+@syscall(number: 101)
+fn sys_send_channel(ch_id: u32, msg: *const u8, len: u32) -> Result<u32, Error> {
+    let identity = get_current_identity();
+    
+    // O(1) channel lookup
+    let info = match channel_registry.get(ch_id) {
+        Some(i) => i,
+        None => return Err(INVALID_CHANNEL),
+    };
+    
+    // O(1) permission check
+    if !info.writers.test(identity) {
+        return Err(PERMISSION_DENIED);
+    }
+    
+    // Get channel buffer
+    let channel = get_channel_buffer(ch_id);
+    
+    // Non-blocking send
+    match channel.try_send(msg, len) {
+        Ok(_) => Ok(len),
+        Err(_) => Err(CHANNEL_FULL),
+    }
+}
+
+// Receive from channel - NEVER BLOCKS!
+@wcet(2000)
+@syscall(number: 102)
+fn sys_recv_channel(ch_id: u32, buf: *mut u8, max_len: u32) -> Result<u32, Error> {
+    let identity = get_current_identity();
+    
+    let info = match channel_registry.get(ch_id) {
+        Some(i) => i,
+        None => return Err(INVALID_CHANNEL),
+    };
+    
+    if !info.readers.test(identity) {
+        return Err(PERMISSION_DENIED);
+    }
+    
+    let channel = get_channel_buffer(ch_id);
+    
+    match channel.try_recv(buf, max_len) {
+        Ok(len) => Ok(len),
+        Err(_) => Err(CHANNEL_EMPTY),
+    }
+}

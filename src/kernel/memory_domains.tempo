@@ -1,0 +1,637 @@
+// AtomicOS Memory Isolation and Security Domains
+// Deterministic memory isolation with WCET guarantees
+
+// Security domain constants
+const MAX_DOMAINS: int32 = 16;
+const DOMAIN_KERNEL: int32 = 0;      // Highest privilege
+const DOMAIN_SYSTEM: int32 = 1;      // System services
+const DOMAIN_USER: int32 = 2;        // User applications
+const DOMAIN_GUEST: int32 = 3;       // Untrusted code
+
+// Memory protection levels (Bell-LaPadula inspired)
+const PROTECTION_NONE: int32 = 0;    // No access
+const PROTECTION_READ: int32 = 1;    // Read only
+const PROTECTION_WRITE: int32 = 2;   // Write only
+const PROTECTION_EXEC: int32 = 4;    // Execute only
+const PROTECTION_RW: int32 = 3;      // Read + Write
+const PROTECTION_RX: int32 = 5;      // Read + Execute
+const PROTECTION_RWX: int32 = 7;     // Full access
+
+// Domain classification levels
+const CLASSIFICATION_PUBLIC: int32 = 0;
+const CLASSIFICATION_INTERNAL: int32 = 1;
+const CLASSIFICATION_CONFIDENTIAL: int32 = 2;
+const CLASSIFICATION_SECRET: int32 = 3;
+
+// Memory region types
+const REGION_CODE: int32 = 0;
+const REGION_DATA: int32 = 1;
+const REGION_STACK: int32 = 2;
+const REGION_HEAP: int32 = 3;
+const REGION_SHARED: int32 = 4;
+const REGION_DEVICE: int32 = 5;
+
+// Security domain descriptor
+struct SecurityDomain {
+    domain_id: int32,           // Unique domain identifier
+    privilege_level: int32,     // Privilege level (0=highest)
+    classification: int32,      // Information classification
+    capabilities: int64,        // Capability bit vector
+    memory_quota: int32,        // Maximum memory allocation
+    memory_used: int32,         // Current memory usage
+    
+    // Access control matrix
+    read_domains: int32,        // Bitmask of readable domains
+    write_domains: int32,       // Bitmask of writable domains
+    
+    // Page table for domain
+    page_directory: ptr<int32>,
+    
+    // Memory regions
+    regions: [MemoryRegion; 32],
+    region_count: int32,
+    
+    // Security attributes
+    isolation_level: int32,     // Hardware isolation level
+    crypto_keys: [int32; 8],   // Encryption keys for domain
+}
+
+// Memory region descriptor
+struct MemoryRegion {
+    start_addr: int32,          // Virtual start address
+    end_addr: int32,            // Virtual end address
+    physical_addr: int32,       // Physical address (if direct mapped)
+    protection: int32,          // Protection flags
+    region_type: int32,         // Type of memory region
+    classification: int32,      // Data classification level
+    owner_domain: int32,        // Owning domain
+    shared_domains: int32,      // Domains with access (bitmask)
+    encrypted: bool,            // Region is encrypted
+    integrity_protected: bool,  // Has integrity protection
+}
+
+// Domain access control entry
+struct DomainACE {
+    subject_domain: int32,      // Domain requesting access
+    object_domain: int32,       // Domain being accessed
+    permissions: int32,         // Allowed permissions
+    conditions: int32,          // Access conditions
+}
+
+// Global domain management
+struct DomainManager {
+    domains: [SecurityDomain; MAX_DOMAINS],
+    domain_count: int32,
+    current_domain: int32,
+    
+    // Access control matrix
+    access_matrix: [[int32; MAX_DOMAINS]; MAX_DOMAINS],
+    
+    // Security policy
+    enforce_bell_lapadula: bool,  // No read up, no write down
+    enforce_biba: bool,           // Integrity policy
+    default_deny: bool,           // Default deny access
+    
+    // Hardware features
+    has_smep: bool,               // Supervisor Mode Execution Prevention
+    has_smap: bool,               // Supervisor Mode Access Prevention
+    has_mpe: bool,                // Memory Protection Extensions
+}
+
+@align(64)
+let domain_manager: DomainManager;
+
+// Initialize memory domain system
+@wcet(2000)
+function domains_init() -> int32 {
+    // Clear domain structures
+    for i in 0..MAX_DOMAINS {
+        domain_manager.domains[i].domain_id = -1;
+        domain_manager.domains[i].privilege_level = 3;
+        domain_manager.domains[i].region_count = 0;
+    }
+    
+    // Initialize access control matrix (default deny)
+    for i in 0..MAX_DOMAINS {
+        for j in 0..MAX_DOMAINS {
+            domain_manager.access_matrix[i][j] = PROTECTION_NONE;
+        }
+    }
+    
+    // Create kernel domain
+    create_kernel_domain();
+    
+    // Set security policies
+    domain_manager.enforce_bell_lapadula = true;
+    domain_manager.enforce_biba = true;
+    domain_manager.default_deny = true;
+    
+    // Detect hardware security features
+    detect_hardware_features();
+    
+    return 0;
+}
+
+// Create kernel security domain
+@wcet(500)
+function create_kernel_domain() -> void {
+    let kernel_domain = domain_manager.domains[DOMAIN_KERNEL];
+    
+    kernel_domain.domain_id = DOMAIN_KERNEL;
+    kernel_domain.privilege_level = 0;  // Highest privilege
+    kernel_domain.classification = CLASSIFICATION_SECRET;
+    kernel_domain.capabilities = 0xFFFFFFFFFFFFFFFF; // All capabilities
+    kernel_domain.memory_quota = 0x40000000; // 1GB
+    kernel_domain.memory_used = 0;
+    kernel_domain.isolation_level = 0; // No isolation from hardware
+    
+    // Kernel can read from all domains, write to all domains
+    kernel_domain.read_domains = 0xFFFF;
+    kernel_domain.write_domains = 0xFFFF;
+    
+    domain_manager.domain_count = 1;
+    domain_manager.current_domain = DOMAIN_KERNEL;
+}
+
+// Create new security domain
+@wcet(800)
+function create_domain(
+    privilege_level: int32,
+    classification: int32,
+    memory_quota: int32
+) -> int32 {
+    // Find free domain slot
+    let domain_id = -1;
+    for i in 1..MAX_DOMAINS {
+        if domain_manager.domains[i].domain_id == -1 {
+            domain_id = i;
+            break;
+        }
+    }
+    
+    if domain_id == -1 {
+        return -1; // No free domains
+    }
+    
+    let domain = domain_manager.domains[domain_id];
+    domain.domain_id = domain_id;
+    domain.privilege_level = privilege_level;
+    domain.classification = classification;
+    domain.memory_quota = memory_quota;
+    domain.memory_used = 0;
+    domain.region_count = 0;
+    
+    // Create page directory for domain
+    domain.page_directory = create_domain_page_directory();
+    if domain.page_directory == null {
+        domain.domain_id = -1;
+        return -1;
+    }
+    
+    // Set default access rights based on Bell-LaPadula
+    setup_domain_access_rights(domain_id);
+    
+    domain_manager.domain_count += 1;
+    return domain_id;
+}
+
+// Set up access rights based on security model
+@wcet(300)
+function setup_domain_access_rights(domain_id: int32) -> void {
+    let domain = domain_manager.domains[domain_id];
+    
+    // Bell-LaPadula: can read same or lower classification
+    domain.read_domains = 0;
+    domain.write_domains = 0;
+    
+    for i in 0..MAX_DOMAINS {
+        let other_domain = domain_manager.domains[i];
+        if other_domain.domain_id == -1 {
+            continue;
+        }
+        
+        // Read access: can read same or lower classification
+        if other_domain.classification <= domain.classification {
+            domain.read_domains = domain.read_domains | (1 << i);
+        }
+        
+        // Write access: can write same or higher classification
+        if other_domain.classification >= domain.classification {
+            domain.write_domains = domain.write_domains | (1 << i);
+        }
+    }
+    
+    // Update access control matrix
+    for i in 0..MAX_DOMAINS {
+        let other = domain_manager.domains[i];
+        if other.domain_id == -1 {
+            continue;
+        }
+        
+        // Determine mutual access permissions
+        let read_perm = can_domain_read(domain_id, i);
+        let write_perm = can_domain_write(domain_id, i);
+        
+        let permissions = 0;
+        if read_perm {
+            permissions = permissions | PROTECTION_READ;
+        }
+        if write_perm {
+            permissions = permissions | PROTECTION_WRITE;
+        }
+        
+        domain_manager.access_matrix[domain_id][i] = permissions;
+    }
+}
+
+// Check if domain can read from another domain
+@wcet(50)
+function can_domain_read(from_domain: int32, to_domain: int32) -> bool {
+    if !domain_manager.enforce_bell_lapadula {
+        return true;
+    }
+    
+    let from = domain_manager.domains[from_domain];
+    let to = domain_manager.domains[to_domain];
+    
+    // Bell-LaPadula: no read up
+    return to.classification <= from.classification;
+}
+
+// Check if domain can write to another domain
+@wcet(50)
+function can_domain_write(from_domain: int32, to_domain: int32) -> bool {
+    if !domain_manager.enforce_bell_lapadula {
+        return true;
+    }
+    
+    let from = domain_manager.domains[from_domain];
+    let to = domain_manager.domains[to_domain];
+    
+    // Bell-LaPadula: no write down
+    return to.classification >= from.classification;
+}
+
+// Create isolated page directory for domain
+@wcet(1000)
+function create_domain_page_directory() -> ptr<int32> {
+    // Allocate physical page for page directory
+    let pd_page = alloc_page_frame();
+    if pd_page < 0 {
+        return null;
+    }
+    
+    let page_directory = cast<ptr<int32>>(pd_page * PAGE_SIZE);
+    
+    // Clear page directory
+    for i in 0..ENTRIES_PER_TABLE {
+        page_directory[i] = 0;
+    }
+    
+    // Copy kernel mappings (high memory)
+    let kernel_pd = domain_manager.domains[DOMAIN_KERNEL].page_directory;
+    let kernel_start = KERNEL_VIRTUAL_BASE >> 22;
+    
+    for i in kernel_start..ENTRIES_PER_TABLE {
+        page_directory[i] = kernel_pd[i];
+    }
+    
+    return page_directory;
+}
+
+// Allocate memory region within domain
+@wcet(600)
+function domain_allocate_region(
+    domain_id: int32,
+    size: int32,
+    region_type: int32,
+    protection: int32
+) -> int32 {
+    let domain = domain_manager.domains[domain_id];
+    
+    // Check memory quota
+    if domain.memory_used + size > domain.memory_quota {
+        return 0; // Quota exceeded
+    }
+    
+    // Check if domain has room for more regions
+    if domain.region_count >= 32 {
+        return 0;
+    }
+    
+    // Find virtual address space
+    let virtual_addr = find_domain_free_space(domain_id, size);
+    if virtual_addr == 0 {
+        return 0;
+    }
+    
+    // Allocate physical pages
+    let pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+    for i in 0..pages {
+        let page_frame = alloc_page_frame();
+        if page_frame < 0 {
+            // Clean up partial allocation
+            for j in 0..i {
+                let vaddr = virtual_addr + (j * PAGE_SIZE);
+                unmap_page_from_domain(domain_id, vaddr);
+            }
+            return 0;
+        }
+        
+        let phys_addr = page_frame * PAGE_SIZE;
+        let vaddr = virtual_addr + (i * PAGE_SIZE);
+        
+        map_page_to_domain(domain_id, vaddr, phys_addr, protection);
+    }
+    
+    // Create memory region descriptor
+    let region = domain.regions[domain.region_count];
+    region.start_addr = virtual_addr;
+    region.end_addr = virtual_addr + size;
+    region.protection = protection;
+    region.region_type = region_type;
+    region.owner_domain = domain_id;
+    region.shared_domains = 1 << domain_id; // Only owner initially
+    region.classification = domain.classification;
+    
+    domain.region_count += 1;
+    domain.memory_used += size;
+    
+    return virtual_addr;
+}
+
+// Map page into domain's address space
+@wcet(200)
+function map_page_to_domain(
+    domain_id: int32,
+    virtual_addr: int32,
+    physical_addr: int32,
+    protection: int32
+) -> int32 {
+    let domain = domain_manager.domains[domain_id];
+    let old_directory = mmu.current_directory;
+    
+    // Switch to domain's page directory
+    mmu.current_directory = domain.page_directory;
+    
+    // Convert protection flags
+    let page_flags = 0;
+    if (protection & PROTECTION_READ) != 0 {
+        page_flags = page_flags | PDE_PRESENT;
+    }
+    if (protection & PROTECTION_WRITE) != 0 {
+        page_flags = page_flags | PDE_WRITABLE;
+    }
+    if domain.privilege_level > 0 {
+        page_flags = page_flags | PDE_USER;
+    }
+    
+    // Map the page
+    let result = map_page(virtual_addr, physical_addr, page_flags);
+    
+    // Restore previous page directory
+    mmu.current_directory = old_directory;
+    
+    return result;
+}
+
+// Unmap page from domain
+@wcet(150)
+function unmap_page_from_domain(domain_id: int32, virtual_addr: int32) -> void {
+    let domain = domain_manager.domains[domain_id];
+    let old_directory = mmu.current_directory;
+    
+    // Switch to domain's page directory
+    mmu.current_directory = domain.page_directory;
+    
+    // Unmap the page
+    unmap_page(virtual_addr);
+    
+    // Restore previous page directory
+    mmu.current_directory = old_directory;
+}
+
+// Find free virtual space within domain
+@wcet(400)
+function find_domain_free_space(domain_id: int32, size: int32) -> int32 {
+    let domain = domain_manager.domains[domain_id];
+    let start = USER_VIRTUAL_BASE;
+    let end = USER_VIRTUAL_END - size;
+    
+    // Check against existing regions
+    while start < end {
+        let conflicts = false;
+        
+        for i in 0..domain.region_count {
+            let region = domain.regions[i];
+            
+            // Check for overlap
+            if start < region.end_addr && (start + size) > region.start_addr {
+                conflicts = true;
+                start = region.end_addr;
+                break;
+            }
+        }
+        
+        if !conflicts {
+            return start;
+        }
+    }
+    
+    return 0; // No free space
+}
+
+// Switch to different security domain
+@wcet(300)
+function switch_to_domain(domain_id: int32) -> int32 {
+    if domain_id >= MAX_DOMAINS || 
+       domain_manager.domains[domain_id].domain_id == -1 {
+        return -1;
+    }
+    
+    let old_domain = domain_manager.current_domain;
+    let new_domain = domain_id;
+    
+    // Check if transition is allowed
+    if !is_domain_transition_allowed(old_domain, new_domain) {
+        return -1;
+    }
+    
+    // Switch page directory
+    let domain = domain_manager.domains[new_domain];
+    switch_address_space_to_domain(domain.page_directory);
+    
+    // Update current domain
+    domain_manager.current_domain = new_domain;
+    
+    // Invalidate TLB entries from old domain
+    tlb_invalidate_process(old_domain);
+    
+    return 0;
+}
+
+// Check if domain transition is allowed
+@wcet(100)
+function is_domain_transition_allowed(
+    from_domain: int32,
+    to_domain: int32
+) -> bool {
+    // Kernel can switch to any domain
+    if from_domain == DOMAIN_KERNEL {
+        return true;
+    }
+    
+    // Higher privilege can switch to lower
+    let from = domain_manager.domains[from_domain];
+    let to = domain_manager.domains[to_domain];
+    
+    return from.privilege_level <= to.privilege_level;
+}
+
+// Switch address space to domain
+@wcet(100)
+function switch_address_space_to_domain(page_directory: ptr<int32>) -> void {
+    mmu.current_directory = page_directory;
+    
+    asm {
+        "mov eax, [page_directory]"
+        "mov cr3, eax"
+        :: :: "eax"
+    };
+}
+
+// Check memory access permissions
+@wcet(150)
+function check_memory_access(
+    domain_id: int32,
+    virtual_addr: int32,
+    access_type: int32
+) -> bool {
+    let domain = domain_manager.domains[domain_id];
+    
+    // Find memory region containing address
+    for i in 0..domain.region_count {
+        let region = domain.regions[i];
+        
+        if virtual_addr >= region.start_addr && virtual_addr < region.end_addr {
+            // Check if access type is allowed
+            return (region.protection & access_type) != 0;
+        }
+    }
+    
+    // Check if address is in shared region
+    return check_shared_region_access(domain_id, virtual_addr, access_type);
+}
+
+// Check access to shared memory regions
+@wcet(200)
+function check_shared_region_access(
+    domain_id: int32,
+    virtual_addr: int32,
+    access_type: int32
+) -> bool {
+    // Search all domains for shared regions
+    for i in 0..MAX_DOMAINS {
+        let other_domain = domain_manager.domains[i];
+        if other_domain.domain_id == -1 {
+            continue;
+        }
+        
+        for j in 0..other_domain.region_count {
+            let region = other_domain.regions[j];
+            
+            // Check if region is shared with our domain
+            if (region.shared_domains & (1 << domain_id)) != 0 {
+                if virtual_addr >= region.start_addr && 
+                   virtual_addr < region.end_addr {
+                    // Check access permissions and security policy
+                    return check_cross_domain_access(
+                        domain_id, i, access_type, region.classification
+                    );
+                }
+            }
+        }
+    }
+    
+    return false;
+}
+
+// Check cross-domain access according to security policy
+@wcet(100)
+function check_cross_domain_access(
+    from_domain: int32,
+    to_domain: int32,
+    access_type: int32,
+    classification: int32
+) -> bool {
+    // Check access control matrix
+    let permissions = domain_manager.access_matrix[from_domain][to_domain];
+    
+    if (permissions & access_type) == 0 {
+        return false;
+    }
+    
+    // Additional Bell-LaPadula checks
+    if domain_manager.enforce_bell_lapadula {
+        let from = domain_manager.domains[from_domain];
+        
+        if access_type == PROTECTION_READ {
+            // No read up
+            return classification <= from.classification;
+        }
+        
+        if access_type == PROTECTION_WRITE {
+            // No write down  
+            return classification >= from.classification;
+        }
+    }
+    
+    return true;
+}
+
+// Detect hardware security features
+@wcet(200)
+function detect_hardware_features() -> void {
+    let ecx: int32;
+    let edx: int32;
+    
+    // Check for SMEP/SMAP support
+    asm {
+        "mov eax, 7"
+        "mov ecx, 0"
+        "cpuid"
+        : "=c"(ecx), "=d"(edx)
+        :: "eax", "ebx"
+    };
+    
+    domain_manager.has_smep = (ecx & (1 << 7)) != 0;
+    domain_manager.has_smap = (ecx & (1 << 20)) != 0;
+    
+    // Enable SMEP/SMAP if available
+    if domain_manager.has_smep || domain_manager.has_smap {
+        enable_supervisor_protection();
+    }
+}
+
+// Enable supervisor mode protections
+@wcet(100)
+function enable_supervisor_protection() -> void {
+    asm {
+        "mov eax, cr4"
+        "or eax, 0x100000"  // SMEP bit
+        "or eax, 0x200000"  // SMAP bit
+        "mov cr4, eax"
+        :: :: "eax"
+    };
+}
+
+// Memory domain statistics
+function get_domain_stats(domain_id: int32) -> void {
+    let domain = domain_manager.domains[domain_id];
+    
+    // Would return:
+    // - Memory usage vs quota
+    // - Number of regions
+    // - Access violations
+    // - Performance metrics
+}

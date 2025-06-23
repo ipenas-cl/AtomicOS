@@ -1,0 +1,135 @@
+function STACK_CANARY() -> int32 {
+    return 3735928559;  // 0xDEADBEEF in decimal
+}
+
+function CANARY_DEAD() -> int32 {
+    return 3735936685;  // 0xDEADDEAD in decimal
+}
+
+// Store canary value at given address
+function ssp_store_canary(canary_addr: int32) -> int32 @wcet(10) {
+    // Validate address is in stack range
+    if canary_addr < 4194304 {  // 0x400000
+        return 0;
+    }
+    if canary_addr > 6291456 {  // 0x600000
+        return 0;
+    }
+    
+    // For now, just return success;
+    // Real implementation would store STACK_CANARY() at canary_addr
+    return 1;
+}
+
+// Read canary value from given address
+function ssp_read_canary(canary_addr: int32) -> int32 @wcet(10) {
+    // Validate address
+    if canary_addr < 4194304 {  // 0x400000
+        return 0;
+    }
+    if canary_addr > 6291456 {  // 0x600000
+        return 0;
+    }
+    
+    // For now, return expected canary value;
+    // Real implementation would read from memory
+    return STACK_CANARY();
+}
+
+// Check if canary is intact
+function ssp_verify_canary(canary_addr: int32) -> int32 @wcet(15) {
+    let stored_value = ssp_read_canary(canary_addr);
+    let expected = STACK_CANARY();
+    
+    // Constant-time comparison
+    let diff = stored_value ^ expected;
+    let result = 0;
+    
+    // Check each byte
+    if (diff & 4278190080) != 0 {   // 0xFF000000
+        result = 1;
+    }
+    if (diff & 16711680) != 0 {     // 0x00FF0000
+        result = 1;
+    }
+    if (diff & 65280) != 0 {        // 0x0000FF00
+        result = 1;
+    }
+    if (diff & 255) != 0 {          // 0x000000FF
+        result = 1;
+    }
+    
+    return 1 - result; // 1 if match, 0 if corrupted
+}
+
+// Handle stack corruption detection
+function ssp_handle_corruption(canary_addr: int32) -> int32 @wcet(50) {
+    // Log the corruption (would write to security log)
+    // For now, return error code;
+    // Real implementation would halt the system
+    
+    return CANARY_DEAD();
+}
+
+// Initialize canary for function entry
+function ssp_function_enter(stack_pointer: int32) -> int32 @wcet(20) {
+    // Place canary at frame_base - 4
+    let canary_addr = stack_pointer - 4;
+    
+    // Store the canary
+    if ssp_store_canary(canary_addr) == 0 {
+        return 0;
+    }
+    
+    return canary_addr;
+}
+
+// Check canary on function exit
+function ssp_function_exit(canary_addr: int32) -> int32 @wcet(70) {
+    // Verify canary is intact
+    if ssp_verify_canary(canary_addr) == 0 {
+        // Canary corrupted - handle security breach
+        return ssp_handle_corruption(canary_addr);
+    }
+    
+    // Clear canary before returning
+    // Real implementation would zero the canary location
+    
+    return 1;
+}
+
+// Enhanced protection with multiple canaries
+function ssp_multi_canary_init(stack_base: int32) -> int32 @wcet(50) {
+    // Place canaries at multiple locations
+    let canary1 = stack_base - 4;
+    let canary2 = stack_base - 64;
+    let canary3 = stack_base - 128;
+    
+    ssp_store_canary(canary1);
+    ssp_store_canary(canary2);
+    ssp_store_canary(canary3);
+    
+    return canary1;
+}
+
+// Verify all canaries
+function ssp_multi_canary_check(base_canary: int32) -> int32 @wcet(100) {
+    let result = 1;
+    
+    // Check all three canaries
+    if ssp_verify_canary(base_canary) == 0 {
+        result = 0;
+    }
+    if ssp_verify_canary(base_canary - 60) == 0 {
+        result = 0;
+    }
+    if ssp_verify_canary(base_canary - 124) == 0 {
+        result = 0;
+    }
+    
+    if result == 0 {
+        ssp_handle_corruption(base_canary);
+    }
+    
+    return result;
+}

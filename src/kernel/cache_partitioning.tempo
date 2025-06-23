@@ -1,0 +1,258 @@
+// AtomicOS Cache Partitioning System
+// Intel CAT (Cache Allocation Technology) support
+
+// MSR addresses for Cache Allocation
+const MSR_IA32_PQR_ASSOC: int32 = 0xC8F;      // Per-thread CLOS selection
+const MSR_IA32_L3_MASK_0: int32 = 0xC90;      // L3 mask for CLOS 0
+const MSR_IA32_L3_MASK_BASE: int32 = 0xC90;   // Base for CLOS masks
+const MSR_IA32_L2_MASK_BASE: int32 = 0xD10;   // L2 masks (if supported)
+
+// CAT capability MSRs
+const MSR_IA32_CAT_L3_CBM_LEN: int32 = 0xC91; // L3 CBM length
+const MSR_IA32_CAT_L3_COS_MAX: int32 = 0xC92; // Max CLOS
+
+// Maximum Classes of Service
+const MAX_CLOS: int32 = 16;
+
+// Cache colors for different task types
+const COLOR_REALTIME: int32 = 0xFFF00000;     // Top 12 ways for RT
+const COLOR_SYSTEM: int32 = 0x000FF000;       // Middle 8 ways
+const COLOR_NORMAL: int32 = 0x00000FFF;       // Bottom 12 ways
+const COLOR_ISOLATED: int32 = 0xF0000000;     // Top 4 ways isolated
+
+// Cache partition descriptor
+struct CachePartition {
+    clos_id: int32,          // Class of Service ID
+    l3_mask: int32,          // L3 cache way mask
+    l2_mask: int32,          // L2 cache way mask (if supported)
+    cpu_mask: int64,         // CPUs using this partition
+    task_count: int32,       // Number of tasks
+}
+
+// Global CAT state
+struct CATState {
+    enabled: bool,
+    l3_ways: int32,          // Total L3 cache ways
+    l3_way_size: int32,      // Size of each way in KB
+    l2_ways: int32,          // Total L2 cache ways
+    max_clos: int32,         // Maximum CLOS supported
+    
+    partitions: [CachePartition; MAX_CLOS],
+    free_clos: int32,        // Bitmap of free CLOS
+}
+
+@align(64)
+let cat_state: CATState;
+
+// Check if CPU supports CAT
+@wcet(100)
+function cat_supported() -> bool {
+    let ebx: int32;
+    let ecx: int32;
+    let edx: int32;
+    
+    // Check for CAT support in CPUID
+    asm {
+        "mov eax, 0x10"      // Resource monitoring
+        "mov ecx, 0"         // L3 CAT
+        "cpuid"
+        : "=b"(ebx), "=c"(ecx), "=d"(edx)
+        :: "eax"
+    };
+    
+    // Check CAT bit
+    return (ebx & 0x2) != 0;
+}
+
+// Initialize Cache Allocation Technology
+@wcet(1000)
+function cat_init() -> int32 {
+    if !cat_supported() {
+        return -1;
+    }
+    
+    // Read CAT capabilities
+    let cbm_len = rdmsr(MSR_IA32_CAT_L3_CBM_LEN);
+    let cos_max = rdmsr(MSR_IA32_CAT_L3_COS_MAX);
+    
+    cat_state.l3_ways = cbm_len & 0x1F;  // Bits 0-4
+    cat_state.max_clos = (cos_max & 0xFFFF) + 1;
+    cat_state.enabled = true;
+    
+    // Calculate way size (assume 20MB L3, typical)
+    cat_state.l3_way_size = 20480 / cat_state.l3_ways;
+    
+    // Initialize all CLOS to full access
+    for i in 0..cat_state.max_clos {
+        let mask = (1 << cat_state.l3_ways) - 1;
+        wrmsr(MSR_IA32_L3_MASK_BASE + i, mask);
+        cat_state.partitions[i].l3_mask = mask;
+        cat_state.partitions[i].clos_id = i;
+    }
+    
+    // Mark all CLOS as free except 0 (default)
+    cat_state.free_clos = ((1 << cat_state.max_clos) - 1) & ~1;
+    
+    return 0;
+}
+
+// Allocate cache partition for task type
+@wcet(500)
+function allocate_cache_partition(
+    task_type: int32,
+    min_ways: int32,
+    max_ways: int32
+) -> int32 {
+    // Find free CLOS
+    let clos = find_free_clos();
+    if clos < 0 {
+        return -1;
+    }
+    
+    // Calculate mask based on task type
+    let mask: int32;
+    if task_type == PRIORITY_REALTIME {
+        mask = COLOR_REALTIME;
+    } else if task_type == PRIORITY_HIGH {
+        mask = COLOR_SYSTEM;
+    } else if task_type == PRIORITY_NORMAL {
+        mask = COLOR_NORMAL;
+    } else {
+        // Custom allocation
+        mask = create_mask(min_ways, max_ways);
+    }
+    
+    // Program the mask
+    wrmsr(MSR_IA32_L3_MASK_BASE + clos, mask);
+    
+    // Update partition info
+    cat_state.partitions[clos].l3_mask = mask;
+    cat_state.partitions[clos].task_count = 0;
+    
+    // Mark CLOS as used
+    cat_state.free_clos = cat_state.free_clos & ~(1 << clos);
+    
+    return clos;
+}
+
+// Assign task to cache partition
+@wcet(100)
+function assign_task_to_partition(task_id: int32, clos: int32) -> void {
+    // Set PQR_ASSOC MSR for current CPU
+    let pqr = rdmsr(MSR_IA32_PQR_ASSOC);
+    pqr = (pqr & ~0xFFFF) | clos;  // CLOS in bits 0-15
+    wrmsr(MSR_IA32_PQR_ASSOC, pqr);
+    
+    // Update task count
+    cat_state.partitions[clos].task_count += 1;
+}
+
+// Create custom cache way mask
+@wcet(50)
+function create_mask(start_way: int32, num_ways: int32) -> int32 {
+    let mask = 0;
+    
+    for i in start_way..(start_way + num_ways) {
+        if i < cat_state.l3_ways {
+            mask = mask | (1 << i);
+        }
+    }
+    
+    return mask;
+}
+
+// Find free CLOS
+@wcet(50)
+function find_free_clos() -> int32 {
+    for i in 1..cat_state.max_clos {  // Skip CLOS 0
+        if (cat_state.free_clos & (1 << i)) != 0 {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Memory Bandwidth Allocation (MBA)
+const MSR_IA32_MBA_MASK_BASE: int32 = 0xD50;
+
+// MBA delay values (percentage of bandwidth)
+const MBA_DELAY_10: int32 = 90;   // 10% bandwidth
+const MBA_DELAY_20: int32 = 80;   // 20% bandwidth
+const MBA_DELAY_50: int32 = 50;   // 50% bandwidth
+const MBA_DELAY_70: int32 = 30;   // 70% bandwidth
+const MBA_DELAY_90: int32 = 10;   // 90% bandwidth
+
+// Set memory bandwidth limit for CLOS
+@wcet(100)
+function set_memory_bandwidth(clos: int32, bandwidth_percent: int32) -> void {
+    let delay = 100 - bandwidth_percent;
+    if delay < 0 {
+        delay = 0;
+    }
+    if delay > 90 {
+        delay = 90;
+    }
+    
+    wrmsr(MSR_IA32_MBA_MASK_BASE + clos, delay);
+}
+
+// Cache monitoring using CMT (Cache Monitoring Technology)
+const MSR_IA32_QM_CTR: int32 = 0xC8E;
+const MSR_IA32_QM_EVTSEL: int32 = 0xC8D;
+
+// Monitor cache occupancy for CLOS
+@wcet(200)
+function monitor_cache_occupancy(clos: int32) -> int32 {
+    // Select monitoring event (L3 occupancy)
+    let evtsel = (clos << 16) | 0x01;  // CLOS in bits 16-23, event 0x01
+    wrmsr(MSR_IA32_QM_EVTSEL, evtsel);
+    
+    // Read counter
+    let occupancy = rdmsr(MSR_IA32_QM_CTR);
+    
+    // Convert to KB (counter is in cache line units)
+    return (occupancy * 64) / 1024;
+}
+
+// MSR read/write functions
+function rdmsr(msr: int32) -> int32 {
+    let low: int32;
+    let high: int32;
+    
+    asm {
+        "rdmsr"
+        : "=a"(low), "=d"(high)
+        : "c"(msr)
+    };
+    
+    return low;  // Return low 32 bits for simplicity
+}
+
+function wrmsr(msr: int32, value: int32) -> void {
+    asm {
+        "wrmsr"
+        :: "c"(msr), "a"(value), "d"(0)
+    };
+}
+
+// Example usage: Partition cache for different workloads
+function setup_cache_partitions() -> void {
+    // Initialize CAT
+    if cat_init() < 0 {
+        return;  // CAT not supported
+    }
+    
+    // Create partition for real-time tasks (12 ways)
+    let rt_clos = allocate_cache_partition(PRIORITY_REALTIME, 20, 32);
+    
+    // Create partition for system tasks (8 ways)
+    let sys_clos = allocate_cache_partition(PRIORITY_HIGH, 12, 20);
+    
+    // Create partition for normal tasks (12 ways)
+    let normal_clos = allocate_cache_partition(PRIORITY_NORMAL, 0, 12);
+    
+    // Set memory bandwidth limits
+    set_memory_bandwidth(rt_clos, 90);     // 90% bandwidth for RT
+    set_memory_bandwidth(sys_clos, 50);    // 50% for system
+    set_memory_bandwidth(normal_clos, 30); // 30% for normal
+}

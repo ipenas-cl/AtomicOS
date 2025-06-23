@@ -1,0 +1,744 @@
+// TEMPO DB - Deterministic SQL Database
+// SQLite & PostgreSQL compatible with guaranteed query times
+// ACID compliant with deterministic transaction scheduling
+
+module tempo_db;
+
+import tempo_init;
+import tempo_fs;
+import tempo_crypto;
+
+// Database types
+const DB_TYPE_BTREE: u32 = 1;      // B-Tree for indexes
+const DB_TYPE_HASH: u32 = 2;       // Hash table
+const DB_TYPE_LSM: u32 = 3;        // Log-Structured Merge tree
+const DB_TYPE_COLUMN: u32 = 4;     // Column store
+
+// Transaction states
+const TXN_ACTIVE: u32 = 1;
+const TXN_COMMITTED: u32 = 2;
+const TXN_ABORTED: u32 = 3;
+const TXN_PREPARING: u32 = 4;
+
+// Lock types
+const LOCK_NONE: u32 = 0;
+const LOCK_SHARED: u32 = 1;
+const LOCK_EXCLUSIVE: u32 = 2;
+const LOCK_INTENT_SHARED: u32 = 3;
+const LOCK_INTENT_EXCLUSIVE: u32 = 4;
+
+// Query types
+const QUERY_SELECT: u32 = 1;
+const QUERY_INSERT: u32 = 2;
+const QUERY_UPDATE: u32 = 3;
+const QUERY_DELETE: u32 = 4;
+const QUERY_CREATE: u32 = 5;
+const QUERY_DROP: u32 = 6;
+const QUERY_BEGIN: u32 = 7;
+const QUERY_COMMIT: u32 = 8;
+const QUERY_ROLLBACK: u32 = 9;
+
+// Data types
+const TYPE_NULL: u32 = 0;
+const TYPE_INTEGER: u32 = 1;
+const TYPE_REAL: u32 = 2;
+const TYPE_TEXT: u32 = 3;
+const TYPE_BLOB: u32 = 4;
+const TYPE_BOOLEAN: u32 = 5;
+const TYPE_TIMESTAMP: u32 = 6;
+const TYPE_UUID: u32 = 7;
+
+// Page structure (8KB pages)
+struct Page {
+    id: u64,
+    type: u32,              // Leaf, internal, overflow
+    flags: u32,
+    
+    // Header
+    free_space: u16,
+    cell_count: u16,
+    first_free: u16,
+    fragmented_bytes: u16,
+    
+    // Links
+    right_sibling: u64,
+    parent: u64,
+    
+    // Checksums for integrity
+    checksum: u32,
+    
+    // Data area
+    data: [8176]u8,         // 8KB - header
+    
+    // Deterministic timestamp
+    last_modified: u64      // Cycle count
+}
+
+// B-Tree node
+struct BTreeNode {
+    page: *Page,
+    keys: [510]*Value,     // Max keys per node
+    values: [510]*Value,   // For leaf nodes
+    children: [511]u64,    // For internal nodes
+    key_count: u16,
+    is_leaf: bool
+}
+
+// Value structure
+struct Value {
+    type: u32,
+    length: u32,
+    
+    // Data (union-like)
+    int_val: i64,
+    real_val: f64,
+    text_val: *char,
+    blob_val: *u8,
+    bool_val: bool,
+    timestamp_val: u64,
+    uuid_val: [16]u8
+}
+
+// Table definition
+struct Table {
+    id: u32,
+    name: [128]char,
+    schema: [128]char,
+    
+    // Columns
+    columns: [256]Column,
+    column_count: u32,
+    
+    // Storage
+    root_page: u64,
+    row_count: u64,
+    
+    // Indexes
+    indexes: [64]Index,
+    index_count: u32,
+    
+    // Constraints
+    primary_key: u32,       // Column index
+    foreign_keys: [32]ForeignKey,
+    fk_count: u32,
+    
+    // Statistics (for query optimizer)
+    stats: TableStats
+}
+
+struct Column {
+    name: [128]char,
+    type: u32,
+    nullable: bool,
+    default_value: *Value,
+    
+    // Constraints
+    is_primary: bool,
+    is_unique: bool,
+    check_expr: [256]char
+}
+
+struct Index {
+    name: [128]char,
+    table_id: u32,
+    columns: [16]u32,      // Column indices
+    column_count: u32,
+    root_page: u64,
+    is_unique: bool,
+    
+    // Statistics
+    cardinality: u64,
+    avg_key_size: u32
+}
+
+// Transaction
+struct Transaction {
+    id: u64,
+    state: u32,
+    isolation_level: u32,
+    
+    // Timing
+    start_time: u64,
+    deadline: u64,         // Must commit by this cycle
+    
+    // Locks held
+    locks: [1024]Lock,
+    lock_count: u32,
+    
+    // Write set (for rollback)
+    write_pages: [4096]u64,
+    write_count: u32,
+    undo_log: *UndoLog,
+    
+    // Read set (for validation)
+    read_pages: [4096]u64,
+    read_count: u32,
+    read_versions: [4096]u64
+}
+
+struct Lock {
+    resource_id: u64,      // Page or table ID
+    type: u32,
+    txn_id: u64,
+    granted_at: u64
+}
+
+// Query plan
+struct QueryPlan {
+    type: u32,
+    estimated_cost: u64,   // In cycles
+    estimated_rows: u64,
+    
+    // Operators
+    root_op: *Operator,
+    
+    // Memory budget
+    memory_limit: u64,
+    temp_space: u64
+}
+
+struct Operator {
+    type: u32,             // Scan, Join, Sort, etc.
+    children: [2]*Operator,
+    
+    // Configuration
+    table_id: u32,
+    index_id: u32,
+    join_type: u32,
+    
+    // Runtime state
+    current_row: u64,
+    buffer: *ResultSet
+}
+
+// Result set
+struct ResultSet {
+    columns: [256]ColumnDef,
+    column_count: u32,
+    
+    rows: [10000]*Row,
+    row_count: u32,
+    current_row: u32,
+    
+    // Pagination
+    offset: u64,
+    limit: u64,
+    
+    // Memory management
+    memory_used: u64,
+    is_sorted: bool
+}
+
+struct Row {
+    values: [256]*Value,
+    value_count: u32,
+    row_id: u64
+}
+
+// Database instance
+struct Database {
+    name: [128]char,
+    path: [256]char,
+    
+    // Configuration
+    page_size: u32,
+    cache_size: u32,       // Pages
+    
+    // Storage
+    file_handle: i32,
+    file_size: u64,
+    page_count: u64,
+    
+    // Page cache (deterministic eviction)
+    cache: [65536]*Page,
+    cache_map: [65536]u64, // Page ID -> cache index
+    cache_lru: [65536]u32, // LRU ordering
+    
+    // Catalog
+    tables: [1024]Table,
+    table_count: u32,
+    
+    // Active transactions
+    transactions: [256]Transaction,
+    txn_count: u32,
+    next_txn_id: u64,
+    
+    // Lock manager
+    lock_table: [16384]Lock,
+    lock_count: u32,
+    
+    // Statistics
+    stats: DatabaseStats
+}
+
+// Global state
+let databases: [64]Database;
+let db_count: u32;
+let default_db: u32;
+
+// Initialize database engine
+@wcet(100000)
+@security_level(2)
+fn init_database_engine() -> u32 {
+    db_count = 0;
+    
+    // Create system database
+    create_database("system", "/var/lib/tempo/system.db");
+    
+    // Initialize lock manager
+    init_lock_manager();
+    
+    // Start background workers
+    spawn_checkpoint_worker();
+    spawn_vacuum_worker();
+    spawn_stats_worker();
+    
+    return 0;
+}
+
+// Create database
+@wcet(50000)
+fn create_database(name: *char, path: *char) -> u32 {
+    if (db_count >= 64) {
+        return DB_ERROR_TOO_MANY;
+    }
+    
+    let db: *Database = &databases[db_count];
+    
+    strcpy(&db->name[0], name);
+    strcpy(&db->path[0], path);
+    
+    db->page_size = 8192;
+    db->cache_size = 8192;  // 64MB cache
+    
+    // Create or open file
+    db->file_handle = open_database_file(path);
+    if (db->file_handle < 0) {
+        return DB_ERROR_OPEN;
+    }
+    
+    // Initialize if new
+    if (db->file_size == 0) {
+        init_empty_database(db);
+    } else {
+        load_database_header(db);
+    }
+    
+    db_count = db_count + 1;
+    return db_count - 1;
+}
+
+// Execute SQL query
+@wcet(500000)
+fn execute_query(db_id: u32, sql: *char) -> *ResultSet {
+    if (db_id >= db_count) {
+        return null;
+    }
+    
+    let db: *Database = &databases[db_id];
+    
+    // Parse SQL
+    let ast: *SqlAst = parse_sql(sql);
+    if (!ast) {
+        return null;
+    }
+    
+    // Analyze and optimize
+    let plan: *QueryPlan = optimize_query(db, ast);
+    
+    // Set execution deadline based on query complexity
+    let deadline: u64 = get_cycle_count() + plan->estimated_cost * 2;
+    
+    // Execute
+    let result: *ResultSet = execute_plan(db, plan, deadline);
+    
+    // Clean up
+    free_ast(ast);
+    free_plan(plan);
+    
+    return result;
+}
+
+// Query execution
+@wcet(400000)
+fn execute_plan(db: *Database, plan: *QueryPlan, deadline: u64) -> *ResultSet {
+    // Start transaction if needed
+    let txn: *Transaction = null;
+    if (requires_transaction(plan)) {
+        txn = begin_transaction(db, ISOLATION_SERIALIZABLE);
+    }
+    
+    // Allocate result set
+    let result: *ResultSet = allocate_result_set();
+    
+    // Execute operators
+    execute_operator(plan->root_op, result, deadline);
+    
+    // Commit or rollback
+    if (txn) {
+        if (result->row_count > 0 || is_write_query(plan)) {
+            commit_transaction(txn);
+        } else {
+            rollback_transaction(txn);
+        }
+    }
+    
+    return result;
+}
+
+// B-Tree operations (deterministic)
+@wcet(50000)
+fn btree_insert(root: *BTreeNode, key: *Value, value: *Value) -> *BTreeNode {
+    if (!root) {
+        // Create new root
+        return create_leaf_node(key, value);
+    }
+    
+    if (root->is_leaf) {
+        // Insert into leaf
+        insert_into_leaf(root, key, value);
+        
+        // Split if full
+        if (root->key_count >= 510) {
+            return split_node(root);
+        }
+        
+        return root;
+    }
+    
+    // Find child to insert into
+    let child_idx: u32 = find_child_index(root, key);
+    let child: *BTreeNode = load_node(root->children[child_idx]);
+    
+    let new_child: *BTreeNode = btree_insert(child, key, value);
+    
+    if (new_child != child) {
+        // Child was split
+        insert_child_pointer(root, child_idx, new_child);
+        
+        if (root->key_count >= 510) {
+            return split_node(root);
+        }
+    }
+    
+    return root;
+}
+
+// Transaction management
+@wcet(20000)
+fn begin_transaction(db: *Database, isolation: u32) -> *Transaction {
+    if (db->txn_count >= 256) {
+        return null;  // Too many concurrent transactions
+    }
+    
+    let txn: *Transaction = &db->transactions[db->txn_count];
+    
+    txn->id = db->next_txn_id;
+    db->next_txn_id = db->next_txn_id + 1;
+    
+    txn->state = TXN_ACTIVE;
+    txn->isolation_level = isolation;
+    txn->start_time = get_cycle_count();
+    txn->deadline = txn->start_time + 100000000;  // 100M cycles default
+    
+    txn->lock_count = 0;
+    txn->write_count = 0;
+    txn->read_count = 0;
+    
+    db->txn_count = db->txn_count + 1;
+    
+    return txn;
+}
+
+// Deterministic locking
+@wcet(10000)
+fn acquire_lock(txn: *Transaction, resource_id: u64, lock_type: u32) -> bool {
+    // Check for conflicts
+    let i: u32 = 0;
+    while (i < lock_count) {
+        let lock: *Lock = &lock_table[i];
+        
+        if (lock->resource_id == resource_id) {
+            if (!is_lock_compatible(lock->type, lock_type)) {
+                // Wait or abort based on deadlock prevention
+                if (would_cause_deadlock(txn, lock)) {
+                    return false;  // Abort
+                }
+                
+                // Deterministic wait
+                wait_for_lock(txn, lock);
+            }
+        }
+        
+        i = i + 1;
+    }
+    
+    // Grant lock
+    if (txn->lock_count < 1024) {
+        let new_lock: *Lock = &txn->locks[txn->lock_count];
+        new_lock->resource_id = resource_id;
+        new_lock->type = lock_type;
+        new_lock->txn_id = txn->id;
+        new_lock->granted_at = get_cycle_count();
+        
+        txn->lock_count = txn->lock_count + 1;
+        
+        // Add to global lock table
+        add_to_lock_table(new_lock);
+        
+        return true;
+    }
+    
+    return false;  // Too many locks
+}
+
+// Commit transaction
+@wcet(50000)
+fn commit_transaction(txn: *Transaction) -> bool {
+    if (txn->state != TXN_ACTIVE) {
+        return false;
+    }
+    
+    txn->state = TXN_PREPARING;
+    
+    // Validate read set (for serializable)
+    if (txn->isolation_level == ISOLATION_SERIALIZABLE) {
+        if (!validate_read_set(txn)) {
+            rollback_transaction(txn);
+            return false;
+        }
+    }
+    
+    // Write pages to disk (deterministic order)
+    flush_write_set(txn);
+    
+    // Update transaction log
+    write_commit_record(txn);
+    
+    // Release locks
+    release_all_locks(txn);
+    
+    txn->state = TXN_COMMITTED;
+    
+    return true;
+}
+
+// Query optimization
+@wcet(100000)
+fn optimize_query(db: *Database, ast: *SqlAst) -> *QueryPlan {
+    let plan: *QueryPlan = allocate_query_plan();
+    
+    // Collect statistics
+    let stats: *QueryStats = analyze_query(db, ast);
+    
+    // Generate candidate plans
+    let candidates: [32]*QueryPlan;
+    let candidate_count: u32 = generate_plans(db, ast, &candidates[0]);
+    
+    // Cost each plan (deterministic)
+    let best_cost: u64 = 0xFFFFFFFFFFFFFFFF;
+    let best_idx: u32 = 0;
+    
+    let i: u32 = 0;
+    while (i < candidate_count) {
+        let cost: u64 = estimate_plan_cost(candidates[i], stats);
+        
+        if (cost < best_cost) {
+            best_cost = cost;
+            best_idx = i;
+        }
+        
+        i = i + 1;
+    }
+    
+    // Return best plan
+    *plan = *candidates[best_idx];
+    
+    return plan;
+}
+
+// Index operations
+@wcet(30000)
+fn create_index(db: *Database, table_name: *char, columns: **char, column_count: u32) -> u32 {
+    // Find table
+    let table: *Table = find_table(db, table_name);
+    if (!table) {
+        return INDEX_ERROR_NO_TABLE;
+    }
+    
+    if (table->index_count >= 64) {
+        return INDEX_ERROR_TOO_MANY;
+    }
+    
+    let idx: *Index = &table->indexes[table->index_count];
+    
+    // Generate index name
+    sprintf(&idx->name[0], "idx_%s_%d", table_name, table->index_count);
+    
+    idx->table_id = table->id;
+    idx->column_count = column_count;
+    
+    // Map column names to indices
+    let i: u32 = 0;
+    while (i < column_count) {
+        idx->columns[i] = find_column_index(table, columns[i]);
+        i = i + 1;
+    }
+    
+    // Create B-tree
+    idx->root_page = allocate_page(db);
+    
+    // Build index (background task)
+    schedule_index_build(db, table, idx);
+    
+    table->index_count = table->index_count + 1;
+    
+    return INDEX_OK;
+}
+
+// Backup and recovery
+@wcet(1000000)
+fn backup_database(db_id: u32, backup_path: *char) -> u32 {
+    if (db_id >= db_count) {
+        return BACKUP_ERROR_INVALID_DB;
+    }
+    
+    let db: *Database = &databases[db_id];
+    
+    // Open backup file
+    let backup_fd: i32 = create_file(backup_path);
+    if (backup_fd < 0) {
+        return BACKUP_ERROR_CREATE;
+    }
+    
+    // Lock database for consistent snapshot
+    let backup_txn: *Transaction = begin_transaction(db, ISOLATION_SERIALIZABLE);
+    acquire_lock(backup_txn, 0, LOCK_SHARED);  // Database-level lock
+    
+    // Copy pages in deterministic order
+    let page_id: u64 = 0;
+    while (page_id < db->page_count) {
+        let page: *Page = load_page(db, page_id);
+        
+        // Write page with checksum
+        write_page_with_checksum(backup_fd, page);
+        
+        page_id = page_id + 1;
+        
+        // Yield periodically
+        if (page_id % 1000 == 0) {
+            yield_cpu();
+        }
+    }
+    
+    // Write backup metadata
+    write_backup_metadata(backup_fd, db);
+    
+    // Cleanup
+    commit_transaction(backup_txn);
+    close(backup_fd);
+    
+    return BACKUP_OK;
+}
+
+// SQL parser (simplified)
+@wcet(50000)
+fn parse_sql(sql: *char) -> *SqlAst {
+    let tokens: [1024]SqlToken;
+    let token_count: u32 = tokenize_sql(sql, &tokens[0]);
+    
+    let ast: *SqlAst = allocate_ast();
+    let parser_state: ParserState;
+    parser_state.tokens = &tokens[0];
+    parser_state.token_count = token_count;
+    parser_state.current = 0;
+    
+    // Parse based on first token
+    let first: *SqlToken = &tokens[0];
+    
+    if (strcasecmp(first->value, "SELECT") == 0) {
+        parse_select(&parser_state, ast);
+    } else if (strcasecmp(first->value, "INSERT") == 0) {
+        parse_insert(&parser_state, ast);
+    } else if (strcasecmp(first->value, "UPDATE") == 0) {
+        parse_update(&parser_state, ast);
+    } else if (strcasecmp(first->value, "DELETE") == 0) {
+        parse_delete(&parser_state, ast);
+    } else if (strcasecmp(first->value, "CREATE") == 0) {
+        parse_create(&parser_state, ast);
+    } else {
+        free_ast(ast);
+        return null;
+    }
+    
+    return ast;
+}
+
+// PostgreSQL wire protocol support
+@wcet(20000)
+fn handle_postgres_message(conn: *Connection, msg: *PgMessage) -> void {
+    switch (msg->type) {
+        case 'Q':  // Simple query
+            handle_simple_query(conn, msg->data);
+            break;
+            
+        case 'P':  // Parse (prepared statement)
+            handle_parse(conn, msg);
+            break;
+            
+        case 'B':  // Bind
+            handle_bind(conn, msg);
+            break;
+            
+        case 'E':  // Execute
+            handle_execute(conn, msg);
+            break;
+            
+        case 'X':  // Terminate
+            close_connection(conn);
+            break;
+    }
+}
+
+// Main entry point
+fn main() -> i32 {
+    // Initialize database engine
+    let result: u32 = init_database_engine();
+    if (result != 0) {
+        return 1;
+    }
+    
+    // Create default database
+    let db_id: u32 = create_database("tempo", "/var/lib/tempo/tempo.db");
+    if (db_id == 0xFFFFFFFF) {
+        return 1;
+    }
+    
+    default_db = db_id;
+    
+    // Start network listeners
+    spawn_postgres_listener(5432);      // PostgreSQL protocol
+    spawn_sqlite_listener(3306);        // SQLite protocol
+    
+    // Register with tempo_init
+    register_service_ready();
+    
+    // Main loop
+    while (true) {
+        // Process background tasks
+        process_checkpoint_queue();
+        process_vacuum_queue();
+        update_statistics();
+        
+        // Monitor transactions
+        check_transaction_deadlines();
+        detect_deadlocks();
+        
+        // Report health
+        report_database_health();
+        
+        sleep_cycles(10000000);  // 10M cycles
+    }
+    
+    return 0;
+}

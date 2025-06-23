@@ -1,0 +1,233 @@
+// AtomicOS Capability-Based Security System  
+// Copyright (c) 2025 Ignacio Peña Sepúlveda
+//
+// Simple capability system using current Tempo features
+
+struct Capability {
+    cap_type: i32,      // Capability type
+    resource: i32,      // Resource ID
+    flags: i32,         // Permission flags
+}
+    
+    // Memory Resources  
+    MEM_REGION(u64, u64),       // Physical memory range
+    MEM_ALLOCATE(u64),          // Can allocate N bytes
+    MEM_DMA(u64),               // DMA access to address
+    
+    // I/O Resources
+    IO_PORT(u16),               // x86 I/O port access
+    IO_MMIO(u64),               // Memory-mapped I/O
+    IO_IRQ(u8),                 // IRQ handling
+    
+    // Network Resources
+    NET_BIND(u16),              // Bind to port
+    NET_CONNECT(u32, u16),      // Connect to IP:port  
+    NET_BANDWIDTH(u32),         // Bytes per second
+    NET_PACKET_FILTER,          // Raw packet access
+    
+    // Storage Resources
+    STORAGE_READ(u64),          // Read sector
+    STORAGE_WRITE(u64),         // Write sector
+    STORAGE_FORMAT,             // Format disk
+    
+    // System Resources
+    SYS_REBOOT,                 // Reboot system
+    SYS_SHUTDOWN,               // Shutdown system
+    SYS_TIME_SET,               // Set system time
+    SYS_DEBUG,                  // Debug access
+    
+    // IPC Resources
+    IPC_CREATE_CHANNEL(u32),    // Create channel ID
+    IPC_SEND(u32),              // Send to channel
+    IPC_RECV(u32),              // Receive from channel
+    
+    // Process Management
+    PROC_CREATE,                // Create process
+    PROC_KILL(u32),             // Kill specific PID
+    PROC_SUSPEND(u32),          // Suspend PID
+    PROC_PRIORITY_SET(u32),     // Set priority
+}
+
+// Capability structure - 16 bytes each
+struct Capability {
+    cap_type: u16,              // Type from enum
+    resource_id: u64,           // Resource identifier
+    flags: u16,                 // Permission flags
+    expiry: u32,                // Expiry time (0 = never)
+}
+
+// Identity - replaces traditional users
+struct Identity {
+    uuid: u128,                 // Unique identifier
+    name: [32]u8,               // Human readable name
+    capabilities: [64]Capability, // Fixed size capability list
+    cap_count: u32,             // Active capabilities
+    cpu_budget: u32,            // Total CPU cycles/period
+    mem_budget: u64,            // Total memory allowed
+}
+
+// Global capability table - compile time defined
+const IDENTITY_TABLE: [256]Identity = [
+    // Identity 0: Kernel (minimal privileges!)
+    {
+        uuid: 0x00000000_00000000_00000000_00000000,
+        name: "kernel",
+        capabilities: [
+            { CPU_CORE_ACCESS(0), 0, READ|WRITE|EXEC, 0 },
+            { MEM_REGION(0, 0x100000), 0, READ|WRITE|EXEC, 0 },
+            { SYS_DEBUG, 0, READ|WRITE, 0 },
+        ],
+        cap_count: 3,
+        cpu_budget: 100000,     // 100k cycles per ms
+        mem_budget: 16*1024*1024, // 16MB
+    },
+    
+    // Identity 1: Network Stack  
+    {
+        uuid: 0x00000000_00000000_00000000_00000001,
+        name: "network-stack",
+        capabilities: [
+            { CPU_CORE_ACCESS(2), 0, READ|WRITE|EXEC, 0 },
+            { MEM_REGION(0x10000000, 0x11000000), 0, READ|WRITE, 0 },
+            { IO_PORT(0x300), 0x20, READ|WRITE, 0 }, // NIC ports
+            { NET_PACKET_FILTER, 0, READ|WRITE, 0 },
+            { IPC_CREATE_CHANNEL(100), 0, READ|WRITE, 0 },
+        ],
+        cap_count: 5,
+        cpu_budget: 500000,     // 500k cycles per ms
+        mem_budget: 32*1024*1024,
+    },
+    
+    // Identity 2: HTTP Server
+    {
+        uuid: 0x00000000_00000000_00000000_00000002,  
+        name: "atomic-http",
+        capabilities: [
+            { CPU_CORE_ACCESS(1), 0, READ|WRITE|EXEC, 0 },
+            { MEM_REGION(0x20000000, 0x21000000), 0, READ|WRITE, 0 },
+            { NET_BIND(80), 0, READ|WRITE, 0 },
+            { NET_BIND(443), 0, READ|WRITE, 0 },
+            { IPC_SEND(100), 0, WRITE, 0 },      // Send to network
+            { IPC_RECV(101), 0, READ, 0 },       // Recv from network
+            { STORAGE_READ(0x1000), 0x1000, READ, 0 }, // Read web files
+        ],
+        cap_count: 7,
+        cpu_budget: 1000000,    // 1M cycles per ms  
+        mem_budget: 64*1024*1024,
+    },
+    
+    // ... more identities
+];
+
+// Check capability in constant time - NO SCANNING!
+@wcet(100)
+fn has_capability(identity: u32, cap: CapabilityType) -> bool {
+    if (identity >= 256) {
+        return false;
+    }
+    
+    let ident = &IDENTITY_TABLE[identity];
+    
+    // Use bitmap for O(1) lookup
+    let cap_bit = capability_to_bit(cap);
+    return (ident.cap_bitmap & (1 << cap_bit)) != 0;
+}
+
+// Grant capability (only at boot time)
+@wcet(200)
+fn grant_capability(identity: u32, cap: Capability) -> Result {
+    if (identity >= 256) {
+        return Err(INVALID_IDENTITY);
+    }
+    
+    let ident = &mut IDENTITY_TABLE[identity];
+    if (ident.cap_count >= 64) {
+        return Err(TOO_MANY_CAPABILITIES);
+    }
+    
+    ident.capabilities[ident.cap_count] = cap;
+    ident.cap_count += 1;
+    
+    // Update bitmap for fast lookup
+    let cap_bit = capability_to_bit(cap.cap_type);
+    ident.cap_bitmap |= (1 << cap_bit);
+    
+    return Ok();
+}
+
+// Enforce capability on operation
+@wcet(150)
+fn enforce_capability(identity: u32, required: CapabilityType) -> Result {
+    if (!has_capability(identity, required)) {
+        // Log security violation
+        log_security_event(identity, required);
+        return Err(PERMISSION_DENIED);
+    }
+    
+    // Check if expired
+    let cap = find_capability(identity, required);
+    if (cap.expiry > 0 && get_system_time() > cap.expiry) {
+        return Err(CAPABILITY_EXPIRED);
+    }
+    
+    return Ok();
+}
+
+// Example: System call with capability check
+@wcet(1000)
+fn sys_bind_port(identity: u32, port: u16) -> Result {
+    // Check capability
+    enforce_capability(identity, NET_BIND(port))?;
+    
+    // Check port not already bound
+    if (is_port_bound(port)) {
+        return Err(PORT_IN_USE);
+    }
+    
+    // Bind port (deterministic operation)
+    PORT_BINDING_TABLE[port] = identity;
+    
+    return Ok();
+}
+
+// NO LOGIN SYSTEM! Identities are assigned at process creation
+@wcet(500)
+fn create_process_with_identity(binary: *u8, identity: u32) -> ProcessId {
+    // Verify identity exists
+    if (identity >= 256 || IDENTITY_TABLE[identity].uuid == 0) {
+        return INVALID_PROCESS;
+    }
+    
+    // Allocate process slot
+    let pid = allocate_process_slot();
+    
+    // Set identity (no authentication needed!)
+    PROCESS_TABLE[pid].identity = identity;
+    
+    // Load binary with identity's memory region
+    let mem_cap = find_capability(identity, MEM_REGION);
+    load_binary(binary, mem_cap.resource_id);
+    
+    // Add to scheduler with CPU budget
+    let cpu_budget = IDENTITY_TABLE[identity].cpu_budget;
+    add_to_schedule(pid, cpu_budget);
+    
+    return pid;
+}
+
+// Helper: Convert capability to bit position
+@wcet(50)
+fn capability_to_bit(cap: CapabilityType) -> u8 {
+    // Deterministic mapping
+    match cap {
+        CPU_CORE_ACCESS(_) => 0,
+        CPU_QUANTUM(_) => 1,
+        MEM_REGION(_, _) => 2,
+        NET_BIND(_) => 3,
+        NET_CONNECT(_, _) => 4,
+        STORAGE_READ(_) => 5,
+        STORAGE_WRITE(_) => 6,
+        // ... etc
+        _ => 255
+    }
+}

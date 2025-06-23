@@ -1,0 +1,222 @@
+// Collections module - data structures
+module collections;
+
+import core;
+use core::{malloc, free};
+
+// Generic result type
+export enum Result<T, E> {
+    Ok { value: T },
+    Err { error: E }
+}
+
+// Option type
+export enum Option<T> {
+    Some { value: T },
+    None
+}
+
+// Dynamic array (vector)
+export struct Vec<T> {
+    data: ptr<T>,
+    len: int32,
+    capacity: int32
+}
+
+// Vector implementation
+@wcet(100)
+export function vec_new<T>() -> Vec<T> {
+    return Vec<T> {
+        data: null,
+        len: 0,
+        capacity: 0
+    };
+}
+
+@wcet(200)
+export function vec_with_capacity<T>(capacity: int32) -> Vec<T> {
+    let data = malloc(capacity * sizeof(T)) as ptr<T>;
+    return Vec<T> {
+        data: data,
+        len: 0,
+        capacity: capacity
+    };
+}
+
+@wcet(150)
+export function vec_push<T>(vec: ptr<Vec<T>>, value: T) -> Result<void, int32> {
+    // Check if resize needed
+    if vec->len >= vec->capacity {
+        let new_capacity = if vec->capacity == 0 { 4 } else { vec->capacity * 2 };
+        let new_data = malloc(new_capacity * sizeof(T)) as ptr<T>;
+        
+        if new_data == null {
+            return Result::Err { error: -1 };  // Out of memory
+        }
+        
+        // Copy existing data
+        for let i = 0; i < vec->len; i = i + 1 {
+            new_data[i] = vec->data[i];
+        }
+        
+        // Free old data
+        if vec->data != null {
+            free(vec->data as ptr<void>);
+        }
+        
+        vec->data = new_data;
+        vec->capacity = new_capacity;
+    }
+    
+    // Add element
+    vec->data[vec->len] = value;
+    vec->len = vec->len + 1;
+    
+    return Result::Ok { value: () };
+}
+
+@wcet(50)
+export function vec_get<T>(vec: ptr<Vec<T>>, index: int32) -> Option<T> {
+    if index < 0 || index >= vec->len {
+        return Option::None;
+    }
+    return Option::Some { value: vec->data[index] };
+}
+
+@wcet(30)
+export function vec_len<T>(vec: ptr<Vec<T>>) -> int32 {
+    return vec->len;
+}
+
+// Fixed-size ring buffer
+export struct RingBuffer<T, const N: int32> {
+    data: array<T, N>,
+    head: int32,
+    tail: int32,
+    count: int32
+}
+
+@wcet(50)
+export function ring_new<T, const N: int32>() -> RingBuffer<T, N> {
+    return RingBuffer<T, N> {
+        data: [0; N],  // Zero-initialized
+        head: 0,
+        tail: 0,
+        count: 0
+    };
+}
+
+@wcet(60)
+export function ring_push<T, const N: int32>(
+    ring: ptr<RingBuffer<T, N>>, 
+    value: T
+) -> Result<void, int32> {
+    if ring->count >= N {
+        return Result::Err { error: -2 };  // Buffer full
+    }
+    
+    ring->data[ring->tail] = value;
+    ring->tail = (ring->tail + 1) % N;
+    ring->count = ring->count + 1;
+    
+    return Result::Ok { value: () };
+}
+
+@wcet(60)
+export function ring_pop<T, const N: int32>(
+    ring: ptr<RingBuffer<T, N>>
+) -> Option<T> {
+    if ring->count == 0 {
+        return Option::None;
+    }
+    
+    let value = ring->data[ring->head];
+    ring->head = (ring->head + 1) % N;
+    ring->count = ring->count - 1;
+    
+    return Option::Some { value: value };
+}
+
+// Simple hash map (fixed size)
+export struct HashMap<K, V, const SIZE: int32> {
+    keys: array<Option<K>, SIZE>,
+    values: array<V, SIZE>,
+    count: int32
+}
+
+// Hash function (simple for demo)
+@wcet(20)
+function hash<K>(key: K) -> int32 {
+    // Would use proper hash function
+    return (key as int32) % SIZE;
+}
+
+@wcet(100)
+export function hashmap_new<K, V, const SIZE: int32>() -> HashMap<K, V, SIZE> {
+    let map = HashMap<K, V, SIZE> {
+        keys: [Option::None; SIZE],
+        values: [0; SIZE],
+        count: 0
+    };
+    return map;
+}
+
+@wcet(150)
+export function hashmap_insert<K, V, const SIZE: int32>(
+    map: ptr<HashMap<K, V, SIZE>>,
+    key: K,
+    value: V
+) -> Result<void, int32> {
+    let index = hash(key);
+    let original_index = index;
+    
+    // Linear probing for collision resolution
+    while true {
+        match map->keys[index] {
+            Option::None => {
+                map->keys[index] = Option::Some { value: key };
+                map->values[index] = value;
+                map->count = map->count + 1;
+                return Result::Ok { value: () };
+            },
+            Option::Some { value: existing_key } => {
+                if existing_key == key {
+                    // Update existing
+                    map->values[index] = value;
+                    return Result::Ok { value: () };
+                }
+                // Continue probing
+                index = (index + 1) % SIZE;
+                if index == original_index {
+                    return Result::Err { error: -3 };  // Map full
+                }
+            }
+        }
+    }
+}
+
+@wcet(150)
+export function hashmap_get<K, V, const SIZE: int32>(
+    map: ptr<HashMap<K, V, SIZE>>,
+    key: K
+) -> Option<V> {
+    let index = hash(key);
+    let original_index = index;
+    
+    while true {
+        match map->keys[index] {
+            Option::None => {
+                return Option::None;
+            },
+            Option::Some { value: existing_key } => {
+                if existing_key == key {
+                    return Option::Some { value: map->values[index] };
+                }
+                index = (index + 1) % SIZE;
+                if index == original_index {
+                    return Option::None;
+                }
+            }
+        }
+    }
+}
