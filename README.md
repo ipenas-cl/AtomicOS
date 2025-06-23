@@ -9,7 +9,7 @@
 
 AtomicOS is a deterministic operating system written in x86 assembly, designed for real-time and security-critical applications. Every operation has guaranteed timing bounds (WCET) and the system provides military-grade security through hardware-enforced isolation.
 
-**Note**: AtomicOS kernel modules are written in [Tempo](https://github.com/ipenas-cl/tempo-lang), a deterministic programming language designed specifically for systems programming with guaranteed timing.
+**Note**: AtomicOS kernel modules are written in [Tempo](https://github.com/ipenas-cl/Tempo-Lang), a deterministic programming language designed specifically for systems programming with guaranteed timing.
 
 ## Key Features
 
