@@ -3,7 +3,7 @@
 
 # Configuration
 PROJECT_NAME = AtomicOS
-VERSION = 5.2.1
+VERSION = 5.2.2
 ARCH = x86_64
 
 # Directories
