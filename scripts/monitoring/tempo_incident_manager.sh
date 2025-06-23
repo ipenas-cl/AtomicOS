@@ -24,7 +24,7 @@ handle_incident() {
             echo "  • Memory dump: Available (encrypted)"
             echo "  • CPU spike: 100% before crash"
             echo ""
-            echo "🤖 AI Analysis:"
+            echo "🔍 Analysis:"
             echo "  Likely cause: VM detection triggering security"
             echo "  Confidence: 87%"
             echo ""

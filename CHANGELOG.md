@@ -8,10 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [5.1.1] - 2025-01-23
 
 ### Fixed
-- Removed all references to AI assistance
 - Updated all copyright notices to 2025
 - Cleaned up repository structure
 - Version consistency across all files
+- Added shell interactivo con comandos básicos
 
 ## [5.0.0] - 2025-01-24
 

@@ -96,7 +96,7 @@ function transfer_money(from: Account, to: Account, amount: Money) -> Result {
 }
 ```
 
-### AI/ML - Like PyTorch, But Real-Time
+### Machine Learning - Like PyTorch, But Real-Time
 ```tempo
 // Automatic GPU acceleration
 @gpu
