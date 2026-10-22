@@ -15,6 +15,8 @@ AtomicOS is a hobby operating system. Its kernel is written in [Copihue](https:/
 
 ![AtomicOS shell running a Copihue kernel in QEMU](docs/copihue-shell.png)
 
+Demo video (40 s): [docs/atomicos-copihue-demo.mp4](docs/atomicos-copihue-demo.mp4) — compiling the kernel with `copihue --flat`, booting it in QEMU and typing shell commands.
+
 ## How much of AtomicOS is written in Copihue
 
 Measured by source lines that end up in the boot image:
