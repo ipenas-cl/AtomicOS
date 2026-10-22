@@ -107,8 +107,8 @@ $(BOOTLOADER): $(BOOT_SRC)/boot64.asm | $(BUILD_DIR)
 # Copihue compiler, pinned to an exact commit so kernel builds are reproducible.
 # Override COPIHUE=/path/to/copihue to use a local build instead.
 COPIHUE_REPO   ?= https://github.com/ipenas-cl/copihue.git
-# v0.18.1
-COPIHUE_COMMIT ?= 9a7350ffaa16bc0adcf73f0524954c552aa5517b
+# v0.18.2
+COPIHUE_COMMIT ?= 56836cf5c0eea2608a82aa71a399afe002b934dc
 COPIHUE_DIR     = $(BUILD_DIR)/copihue
 COPIHUE       ?= $(COPIHUE_DIR)/copihue
 
