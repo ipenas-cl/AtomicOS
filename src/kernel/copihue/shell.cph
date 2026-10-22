@@ -82,7 +82,7 @@ fn run_command() -> i64 {
     }
     if (cmd_is("clear")) { con_clear(); return 0; }
     if (cmd_is("version")) {
-        puts("AtomicOS 0.8 - kernel console, keyboard and shell written in Copihue\n");
+        puts("AtomicOS 0.8 - kernel written in Copihue\n");
         return 0;
     }
     if (cmd_is("reboot")) {
