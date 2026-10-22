@@ -105,40 +105,38 @@ $(BOOTLOADER): $(BOOT_SRC)/boot64.asm | $(BUILD_DIR)
 # 	$(CC) $(CFLAGS) -c $< -o $@
 
 # Copihue compiler, pinned to an exact commit so kernel builds are reproducible.
-# Override COPIHUEC=/path/to/copihuec to use a local build instead.
+# Override COPIHUE=/path/to/copihue to use a local build instead.
 COPIHUE_REPO   ?= https://github.com/ipenas-cl/copihue.git
-COPIHUE_COMMIT ?= 415e9089b7a6ab98297511d1625dad4613c70e8c
+# v0.18.1
+COPIHUE_COMMIT ?= 9a7350ffaa16bc0adcf73f0524954c552aa5517b
 COPIHUE_DIR     = $(BUILD_DIR)/copihue
-COPIHUEC       ?= $(COPIHUE_DIR)/copihuec
+COPIHUE       ?= $(COPIHUE_DIR)/copihue
 
-$(COPIHUE_DIR)/copihuec: | $(BUILD_DIR)
+$(COPIHUE_DIR)/copihue: | $(BUILD_DIR)
 	@echo "Building Copihue compiler @ $(COPIHUE_COMMIT)..."
 	rm -rf $(COPIHUE_DIR)
 	git init -q $(COPIHUE_DIR)
 	git -C $(COPIHUE_DIR) fetch -q --depth 1 $(COPIHUE_REPO) $(COPIHUE_COMMIT)
 	git -C $(COPIHUE_DIR) checkout -q FETCH_HEAD
-	$(MAKE) -C $(COPIHUE_DIR) copihuec
+	$(MAKE) -C $(COPIHUE_DIR) copihue
 
-# Kernel: console, PS/2 keyboard driver and shell in Copihue, plus a small
-# assembly entry stub (stack, .bss clear, call kmain).
+# Kernel: 100% Copihue. `copihue --flat` emits a flat binary that starts at fn _start.
 COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.cph $(KERNEL_SRC)/copihue/keyboard.cph \
                      $(KERNEL_SRC)/copihue/shell.cph $(KERNEL_SRC)/copihue/kernel.cph
-KERNEL_MAX_BYTES = 32768   # boot64.asm loads 64 sectors
+# boot64.asm loads 64 sectors
+KERNEL_MAX_BYTES = 32768
 
-$(BUILD_DIR)/kernel_copihue.asm: $(COPIHUE_KERNEL_SRC) $(COPIHUEC) | $(BUILD_DIR)
-	@echo "Compiling kernel with Copihue (freestanding)..."
+$(KERNEL): $(COPIHUE_KERNEL_SRC) $(COPIHUE) | $(BUILD_DIR)
+	@echo "Compiling kernel with Copihue..."
 	cat $(COPIHUE_KERNEL_SRC) > $(BUILD_DIR)/kernel_all.cph
-	$(COPIHUEC) --freestanding -o $@ $(BUILD_DIR)/kernel_all.cph
-
-$(KERNEL): $(KERNEL_SRC)/entry64.asm $(BUILD_DIR)/kernel_copihue.asm
-	$(AS) -f bin -I $(BUILD_DIR)/ $< -o $@
+	cd $(BUILD_DIR) && $(abspath $(COPIHUE)) --flat 0x10000 -o kernel.bin kernel_all.cph
 	@size=$$(stat -c %s $@); echo "kernel.bin: $$size bytes (max $(KERNEL_MAX_BYTES))"; \
 	  test $$size -le $(KERNEL_MAX_BYTES) || { echo "kernel too large for bootloader"; rm -f $@; exit 1; }
 
 # Boot in QEMU, type commands via the monitor (sendkey), check serial output.
 .PHONY: qemu-test
 qemu-test: $(OS_IMAGE)
-	python3 $(TESTS_DIR)/qemu_shell_test.py $(OS_IMAGE)
+	$(TESTS_DIR)/qemu_shell_test.sh $(OS_IMAGE)
 
 # Create OS image
 $(OS_IMAGE): $(BOOTLOADER) $(KERNEL) | $(BUILD_DIR)
