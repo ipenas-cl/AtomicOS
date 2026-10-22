@@ -107,8 +107,8 @@ $(BOOTLOADER): $(BOOT_SRC)/boot64.asm | $(BUILD_DIR)
 # Copihue compiler, pinned to an exact commit so kernel builds are reproducible.
 # Override COPIHUE=/path/to/copihue to use a local build instead.
 COPIHUE_REPO   ?= https://github.com/ipenas-cl/copihue.git
-# v0.18.2
-COPIHUE_COMMIT ?= 56836cf5c0eea2608a82aa71a399afe002b934dc
+# v0.19.0
+COPIHUE_COMMIT ?= 7dfb4b4f2179803bcfc71975ff13a2c6e9abd19f
 COPIHUE_DIR     = $(BUILD_DIR)/copihue
 COPIHUE       ?= $(COPIHUE_DIR)/copihue
 
@@ -121,15 +121,15 @@ $(COPIHUE_DIR)/copihue: | $(BUILD_DIR)
 	$(MAKE) -C $(COPIHUE_DIR) copihue
 
 # Kernel: 100% Copihue. `copihue --flat` emits a flat binary that starts at fn _start.
-COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.cph $(KERNEL_SRC)/copihue/keyboard.cph \
-                     $(KERNEL_SRC)/copihue/shell.cph $(KERNEL_SRC)/copihue/kernel.cph
+COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap $(KERNEL_SRC)/copihue/keyboard.lap \
+                     $(KERNEL_SRC)/copihue/shell.lap $(KERNEL_SRC)/copihue/kernel.lap
 # boot64.asm loads 64 sectors
 KERNEL_MAX_BYTES = 32768
 
 $(KERNEL): $(COPIHUE_KERNEL_SRC) $(COPIHUE) | $(BUILD_DIR)
 	@echo "Compiling kernel with Copihue..."
-	cat $(COPIHUE_KERNEL_SRC) > $(BUILD_DIR)/kernel_all.cph
-	cd $(BUILD_DIR) && $(abspath $(COPIHUE)) --flat 0x10000 -o kernel.bin kernel_all.cph
+	cat $(COPIHUE_KERNEL_SRC) > $(BUILD_DIR)/kernel_all.lap
+	cd $(BUILD_DIR) && $(abspath $(COPIHUE)) --flat 0x10000 -o kernel.bin kernel_all.lap
 	@size=$$(stat -c %s $@); echo "kernel.bin: $$size bytes (max $(KERNEL_MAX_BYTES))"; \
 	  test $$size -le $(KERNEL_MAX_BYTES) || { echo "kernel too large for bootloader"; rm -f $@; exit 1; }
 

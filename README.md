@@ -25,7 +25,7 @@ Measured by source lines that end up in the boot image:
 |---|---|---|
 | Bootloader (NASM) | 231 | 233 (`boot64.asm`, now reads the kernel with LBA) |
 | Kernel, assembly | 75 (`kernel_simple64.asm`) | 0 (no entry stub, no inline `asm()`) |
-| Kernel, Copihue | 0 | 318 (`src/kernel/copihue/*.cph`, built with `copihue --flat 0x10000`) |
+| Kernel, Copihue | 0 | 318 (`src/kernel/copihue/*.lap`, built with `copihue --flat 0x10000`) |
 | **Share in Copihue** | **0%** | **100% of the kernel; ~58% of the image by source lines (the rest is the bootloader)** |
 
 The compiler is pinned to an exact commit (`COPIHUE_COMMIT` in the `Makefile`); `make` fetches and builds it into `build/copihue`. To use a local compiler: `make COPIHUE=/path/to/copihue`. The older `*.asm`, `*.inc` and `*.tempo` files under `src/kernel/` are not part of the current image (see `src/kernel/LEGACY.md`).
