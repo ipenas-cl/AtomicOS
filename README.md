@@ -7,7 +7,7 @@
 
 ## Overview
 
-AtomicOS is a deterministic operating system written in x86 assembly, designed for real-time and security-critical applications. Every operation has guaranteed timing bounds (WCET) and the system provides military-grade security through hardware-enforced isolation.
+AtomicOS is a hobby operating system written in x86-64 assembly. The long-term idea is a deterministic, real-time kernel for security-critical use, where every operation has a known worst-case execution time (WCET) and isolation is enforced by hardware.
 
 > **Status: experimental hobby OS.** `make all` builds a bootable 64-bit image from a NASM bootloader and kernel: it boots in QEMU, switches the CPU into long mode and prints the kernel banner and prompt. Keyboard input and the shell are not wired up in this build yet. The features below are the design goals; the Tempo modules under `examples/` are the experiments behind them. Tempo later evolved into [Chronos](https://github.com/ipenas-cl/Chronos).
 
@@ -34,16 +34,17 @@ make all
 # Run in QEMU
 make run
 
-# Debug with GDB
+# Run headless (no curses window), e.g. over SSH
+qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -serial stdio
+
+# Debug with GDB (QEMU waits for gdb on :1234)
 make debug
 ```
 
 ## System Requirements
 
-- x86 processor (i386 or higher)
-- 4MB RAM minimum
-- QEMU for testing
-- GNU toolchain (as, ld, make)
+- x86-64 machine or QEMU (`qemu-system-x86_64`)
+- `nasm`, `make`
 
 ## Architecture
 
@@ -99,49 +100,31 @@ sudo pacman -S base-devel nasm qemu
 ### Build Commands
 
 ```bash
-make all        # Build complete OS
-make kernel     # Build kernel only
-make clean      # Clean build files
-make test       # Run test suite
+make all        # Build the bootable image: build/atomicos.img
+make run        # Boot it in QEMU
+make clean      # Remove build output
 ```
 
 ## Testing
 
-```bash
-# Run automated tests
-make test
-
-# Run specific test
-make test-scheduler
-make test-memory
-make test-security
-```
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) builds the image on every push and boots it in QEMU as a smoke test.
+The kernel unit tests under `src/tests/` depend on the old Tempo toolchain and are not wired into the Makefile yet.
 
 ## Documentation
 
 - [Architecture Guide](docs/architecture/KERNEL_DESIGN.md)
-- [Security Model](docs/SECURITY.md)
-- [Real-Time Scheduling](docs/SCHEDULING.md)
-- [API Reference](docs/api/)
-
-## Use Cases
-
-- **Aerospace**: Flight control systems
-- **Medical**: Life-critical devices
-- **Industrial**: Safety-critical controllers
-- **Defense**: Secure communication systems
-- **Automotive**: Engine control units
+- [Architecture overview](docs/architecture/overview.md)
 
 ## Contributing
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing`)
-3. Run tests (`make test`)
+3. Check it still builds and boots (`make all && make run`)
 4. Commit changes (`git commit -m 'Add feature'`)
 5. Push to branch (`git push origin feature/amazing`)
 6. Open a Pull Request
 
-## Performance
+## Performance targets (not measured yet)
 
 - Boot time: < 100ms
 - Context switch: < 1000 cycles
@@ -154,8 +137,7 @@ MIT License - see [LICENSE](LICENSE) file
 
 ## Author
 
-**Ignacio Peña Sepúlveda**  
-Email: ignacio@atomicos.io
+**Ignacio Peña Sepúlveda** ([@ipenas-cl](https://github.com/ipenas-cl))
 
 ---
 
