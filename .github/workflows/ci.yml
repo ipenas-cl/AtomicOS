@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y nasm qemu-system-x86 python3-pil
+      - run: sudo apt-get update && sudo apt-get install -y nasm qemu-system-x86 socat
       - name: Build image (fetches Copihue at the commit pinned in the Makefile)
         run: make all
       - name: Boot smoke test in QEMU (10s)
