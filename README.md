@@ -9,9 +9,11 @@
 
 AtomicOS is a deterministic operating system written in x86 assembly, designed for real-time and security-critical applications. Every operation has guaranteed timing bounds (WCET) and the system provides military-grade security through hardware-enforced isolation.
 
-**Note**: AtomicOS kernel modules are written in [Tempo](https://github.com/ipenas-cl/Tempo-Lang), a deterministic programming language designed specifically for systems programming with guaranteed timing.
+> **Status: experimental hobby OS.** `make all` builds a bootable 64-bit image from a NASM bootloader and kernel: it boots in QEMU, switches the CPU into long mode and prints the kernel banner and prompt. Keyboard input and the shell are not wired up in this build yet. The features below are the design goals; the Tempo modules under `examples/` are the experiments behind them. Tempo later evolved into [Chronos](https://github.com/ipenas-cl/Chronos).
 
-## Key Features
+![AtomicOS booting in QEMU](docs/boot.png)
+
+## Design goals
 
 - **100% Deterministic**: Every operation has proven worst-case execution time
 - **Real-Time Guarantees**: EDF and RMS schedulers with deadline enforcement
@@ -42,7 +44,6 @@ make debug
 - 4MB RAM minimum
 - QEMU for testing
 - GNU toolchain (as, ld, make)
-- Tempo compiler (for building kernel modules)
 
 ## Architecture
 
@@ -84,11 +85,7 @@ AtomicOS/
 ### Prerequisites
 
 ```bash
-# Install Tempo compiler v5.2.1 first (required for collections)
-wget https://github.com/ipenas-cl/tempo-lang/releases/download/v5.2.1/tempo
-chmod +x tempo
-sudo mv tempo /usr/local/bin/
-
+# Only nasm, make and QEMU are needed for `make all` / `make run`.
 # Ubuntu/Debian
 sudo apt-get install build-essential nasm qemu-system-x86
 
