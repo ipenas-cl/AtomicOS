@@ -9,16 +9,42 @@
 
 AtomicOS is a hobby operating system written in x86-64 assembly. The long-term idea is a deterministic, real-time kernel for security-critical use, where every operation has a known worst-case execution time (WCET) and isolation is enforced by hardware.
 
-> **Status: experimental hobby OS.** `make all` builds a bootable 64-bit image from a NASM bootloader and kernel: it boots in QEMU, switches the CPU into long mode and prints the kernel banner and prompt. Keyboard input and the shell are not wired up in this build yet. The features below are the design goals; the Tempo modules under `examples/` are the experiments behind them. Tempo later evolved into [Chronos](https://github.com/ipenas-cl/Chronos).
+> **Status: experimental hobby OS.** `make all` builds a bootable 64-bit image: a NASM bootloader switches to long mode and loads a kernel whose **VGA/serial console, PS/2 keyboard driver and shell are written in [Copihue](https://github.com/ipenas-cl/copihue)** (the language formerly called Chronos, which grew out of Tempo). In QEMU you can type commands (`help`, `echo`, `add`, `mul`, `clear`, `version`, `reboot`); CI boots the image, types commands with QEMU's `sendkey` and checks the replies. The features under "Design goals" are goals, not implemented features.
 
-![AtomicOS booting in QEMU](docs/boot.png)
+![AtomicOS shell running a Copihue kernel in QEMU](docs/copihue-shell.png)
+
+## How much of AtomicOS is written in Copihue
+
+Measured by source lines that end up in the boot image:
+
+| | Before (v5.2.2) | Now |
+|---|---|---|
+| Bootloader (NASM) | 231 | 233 (`boot64.asm`, now reads the kernel with LBA) |
+| Kernel, assembly | 75 (`kernel_simple64.asm`) | 29 (`entry64.asm`: stack, clear .bss, call `kmain`) |
+| Kernel, Copihue | 0 | 299 (`src/kernel/copihue/*.cph`) |
+| **Share in Copihue** | **0%** | **~53% of the image, ~91% of the kernel** |
+
+The compiler is pinned to an exact commit (`COPIHUE_COMMIT` in the `Makefile`); `make` fetches and builds it into `build/copihue`. To use a local compiler: `make COPIHUEC=/path/to/copihuec`. The older `*.asm`, `*.inc` and `*.tempo` files under `src/kernel/` are not part of the current image (see `src/kernel/LEGACY.md`).
+
+## Co-evolution roadmap (planned)
+
+AtomicOS and Copihue grow together: each OS milestone names the compiler feature it needs. Nothing below is done yet.
+
+| OS milestone | Copihue feature it needs |
+|---|---|
+| IDT, exceptions and interrupt-driven keyboard | interrupt-handler functions (`iretq` epilogue, saved registers) or naked functions |
+| PIT timer and a tick counter | same as above, plus `volatile`-style memory access |
+| Physical page allocator and paging in Copihue | `u64` bit manipulation helpers, section/address control |
+| Bootloader stage 2 in Copihue | 16/32-bit code generation (or keep the asm stub) |
+| Separate compilation of kernel modules | modules/imports and a linker-friendly output (ELF objects) |
+| User mode and syscalls | `syscall`/`sysret` entry stubs, a calling-convention attribute |
 
 ## Design goals
 
 - **100% Deterministic**: Every operation has proven worst-case execution time
 - **Real-Time Guarantees**: EDF and RMS schedulers with deadline enforcement
 - **Security First**: 12 layers of protection, hardware-enforced isolation
-- **Pure Assembly**: No high-level language overhead
+- **Small, auditable code**: assembly only where hardware requires it, the rest in Copihue
 - **Minimal Attack Surface**: < 10,000 lines of audited code
 
 ## Quick Start
@@ -34,6 +60,9 @@ make all
 # Run in QEMU
 make run
 
+# Boot headless, type shell commands via sendkey, check the output
+make qemu-test
+
 # Run headless (no curses window), e.g. over SSH
 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -serial stdio
 
@@ -44,7 +73,7 @@ make debug
 ## System Requirements
 
 - x86-64 machine or QEMU (`qemu-system-x86_64`)
-- `nasm`, `make`
+- `nasm`, `make`, `gcc` and `git` (to build the pinned Copihue compiler), `python3` for `make qemu-test`
 
 ## Architecture
 
