@@ -26,15 +26,11 @@ start:
     ; Enable A20 line
     call enable_a20
     
-    ; Load kernel from disk
-    mov ah, 0x02        ; Read sectors
-    mov al, 64          ; 64 sectors
-    mov ch, 0           ; Cylinder 0
-    mov cl, 2           ; Sector 2
-    mov dh, 0           ; Head 0
-    mov bx, 0x1000      ; Load at 0x10000
-    mov es, bx
-    xor bx, bx
+    ; Load kernel from disk (64 sectors from LBA 1 to 0x10000).
+    ; Uses INT 13h extensions (LBA) so the read does not depend on
+    ; the BIOS-reported CHS geometry (CHS reads stop at a track end).
+    mov ah, 0x42
+    mov si, disk_packet
     int 0x13
     jc disk_error
     
@@ -181,6 +177,12 @@ long_mode:
     jmp 0x10000
 
 ; Data
+disk_packet:
+    db 0x10, 0          ; packet size, reserved
+    dw 64               ; sector count
+    dw 0x0000, 0x1000   ; offset, segment -> 0x10000
+    dq 1                ; starting LBA (sector after the boot sector)
+
 boot_msg:       db 'AtomicOS v5.2.1 64-bit', 13, 10, 0
 disk_err_msg:   db 'Disk error!', 13, 10, 0
 no_lm_msg:      db 'CPU does not support 64-bit mode!', 13, 10, 0
