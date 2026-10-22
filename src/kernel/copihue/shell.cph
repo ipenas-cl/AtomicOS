@@ -1,0 +1,111 @@
+// AtomicOS shell: line editing and built-in commands.
+
+let line: [u8; 80];
+let line_len: i64 = 0;
+
+// Compare the first word of the line with a command name.
+fn cmd_is(name: *u8) -> i64 {
+    let i = 0;
+    while (name[i] != 0) {
+        if (i >= line_len) { return 0; }
+        if (line[i] != name[i]) { return 0; }
+        i++;
+    }
+    return i == line_len || line[i] == ' ';
+}
+
+fn read_line() -> i64 {
+    line_len = 0;
+    while (1) {
+        let c = kbd_getc();
+        if (c == '\n') {
+            putc('\n');
+            return line_len;
+        }
+        if (c == 8) {
+            if (line_len > 0) { line_len--; putc(8); }
+            continue;
+        }
+        if (line_len < 79) {
+            line[line_len] = c;
+            line_len++;
+            putc(c);
+        }
+    }
+    return 0;
+}
+
+// Parse a decimal integer from line[*pos]; skips leading spaces.
+let parse_pos: i64 = 0;
+fn parse_int() -> i64 {
+    while (parse_pos < line_len && line[parse_pos] == ' ') { parse_pos++; }
+    let neg = 0;
+    if (parse_pos < line_len && line[parse_pos] == '-') { neg = 1; parse_pos++; }
+    let v = 0;
+    while (parse_pos < line_len && line[parse_pos] >= '0' && line[parse_pos] <= '9') {
+        v = v * 10 + (line[parse_pos] - '0');
+        parse_pos++;
+    }
+    if (neg) { return 0 - v; }
+    return v;
+}
+
+fn cmd_help() -> i64 {
+    puts("Commands:\n");
+    puts("  help            this list\n");
+    puts("  echo <text>     print text\n");
+    puts("  add <a> <b>     add two integers\n");
+    puts("  mul <a> <b>     multiply two integers\n");
+    puts("  clear           clear the screen\n");
+    puts("  version         kernel and compiler version\n");
+    puts("  reboot          reset the machine\n");
+    return 0;
+}
+
+fn run_command() -> i64 {
+    if (line_len == 0) { return 0; }
+    if (cmd_is("help")) { cmd_help(); return 0; }
+    if (cmd_is("echo")) {
+        let i = 5;
+        while (i < line_len) { putc(line[i]); i++; }
+        putc('\n');
+        return 0;
+    }
+    if (cmd_is("add") || cmd_is("mul")) {
+        let is_add = cmd_is("add");
+        parse_pos = 3;
+        let a = parse_int();
+        let b = parse_int();
+        if (is_add) { put_int(a + b); } else { put_int(a * b); }
+        putc('\n');
+        return 0;
+    }
+    if (cmd_is("clear")) { con_clear(); return 0; }
+    if (cmd_is("version")) {
+        puts("AtomicOS 0.8 - kernel console, keyboard and shell written in Copihue\n");
+        return 0;
+    }
+    if (cmd_is("reboot")) {
+        puts("Rebooting...\n");
+        while ((inb(0x64) & 2) != 0) { pause(); }
+        outb(0x64, 0xFE);
+        hlt();
+        return 0;
+    }
+    puts("unknown command: ");
+    let i = 0;
+    while (i < line_len && line[i] != ' ') { putc(line[i]); i++; }
+    puts(" (try 'help')\n");
+    return 0;
+}
+
+fn shell_run() -> i64 {
+    while (1) {
+        set_color(0x0A);
+        puts("atomicos> ");
+        set_color(0x0F);
+        read_line();
+        run_command();
+    }
+    return 0;
+}
