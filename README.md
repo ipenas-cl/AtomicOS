@@ -5,11 +5,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-5.2.2-green)](VERSION) [![CI](https://github.com/ipenas-cl/AtomicOS/actions/workflows/ci.yml/badge.svg)](https://github.com/ipenas-cl/AtomicOS/actions/workflows/ci.yml)
 
+**Written in [Copihue](https://github.com/ipenas-cl/copihue).**
+
 ## Overview
 
-AtomicOS is a hobby operating system written in x86-64 assembly. The long-term idea is a deterministic, real-time kernel for security-critical use, where every operation has a known worst-case execution time (WCET) and isolation is enforced by hardware.
+AtomicOS is a hobby operating system. Its kernel is written in [Copihue](https://github.com/ipenas-cl/copihue); only the 512-byte bootloader is x86-64 assembly. The long-term idea is a deterministic, real-time kernel for security-critical use, where every operation has a known worst-case execution time (WCET) and isolation is enforced by hardware.
 
-> **Status: experimental hobby OS.** `make all` builds a bootable 64-bit image: a NASM bootloader switches to long mode and loads a kernel whose **VGA/serial console, PS/2 keyboard driver and shell are written in [Copihue](https://github.com/ipenas-cl/copihue)** (the language formerly called Chronos, which grew out of Tempo). In QEMU you can type commands (`help`, `echo`, `add`, `mul`, `clear`, `version`, `reboot`); CI boots the image, types commands with QEMU's `sendkey` and checks the replies. The features under "Design goals" are goals, not implemented features.
+> **Status: experimental hobby OS.** `make all` builds a bootable 64-bit image: a NASM bootloader switches to long mode and loads a kernel that is **written entirely in [Copihue](https://github.com/ipenas-cl/copihue)**: entry point and .bss setup, VGA/serial console, PS/2 keyboard driver and shell (the language formerly called Chronos, which grew out of Tempo). In QEMU you can type commands (`help`, `echo`, `add`, `mul`, `clear`, `version`, `reboot`); CI boots the image, types commands with QEMU's `sendkey` and checks the replies. The features under "Design goals" are goals, not implemented features.
 
 ![AtomicOS shell running a Copihue kernel in QEMU](docs/copihue-shell.png)
 
@@ -20,11 +22,11 @@ Measured by source lines that end up in the boot image:
 | | Before (v5.2.2) | Now |
 |---|---|---|
 | Bootloader (NASM) | 231 | 233 (`boot64.asm`, now reads the kernel with LBA) |
-| Kernel, assembly | 75 (`kernel_simple64.asm`) | 29 (`entry64.asm`: stack, clear .bss, call `kmain`) |
-| Kernel, Copihue | 0 | 299 (`src/kernel/copihue/*.cph`) |
-| **Share in Copihue** | **0%** | **~53% of the image, ~91% of the kernel** |
+| Kernel, assembly | 75 (`kernel_simple64.asm`) | 0 (no entry stub, no inline `asm()`) |
+| Kernel, Copihue | 0 | 318 (`src/kernel/copihue/*.cph`, built with `copihue --flat 0x10000`) |
+| **Share in Copihue** | **0%** | **100% of the kernel; ~58% of the image by source lines (the rest is the bootloader)** |
 
-The compiler is pinned to an exact commit (`COPIHUE_COMMIT` in the `Makefile`); `make` fetches and builds it into `build/copihue`. To use a local compiler: `make COPIHUEC=/path/to/copihuec`. The older `*.asm`, `*.inc` and `*.tempo` files under `src/kernel/` are not part of the current image (see `src/kernel/LEGACY.md`).
+The compiler is pinned to an exact commit (`COPIHUE_COMMIT` in the `Makefile`); `make` fetches and builds it into `build/copihue`. To use a local compiler: `make COPIHUE=/path/to/copihue`. The older `*.asm`, `*.inc` and `*.tempo` files under `src/kernel/` are not part of the current image (see `src/kernel/LEGACY.md`).
 
 ## Co-evolution roadmap (planned)
 
@@ -73,7 +75,7 @@ make debug
 ## System Requirements
 
 - x86-64 machine or QEMU (`qemu-system-x86_64`)
-- `nasm`, `make`, `gcc` and `git` (to build the pinned Copihue compiler), `python3` for `make qemu-test`
+- `nasm`, `make`, `gcc` and `git` (to build the pinned Copihue compiler), `socat` for `make qemu-test` (`ffmpeg` only for screenshots)
 
 ## Architecture
 
