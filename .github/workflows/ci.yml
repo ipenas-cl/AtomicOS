@@ -10,11 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y nasm qemu-system-x86
-      - name: Build image
+      - run: sudo apt-get update && sudo apt-get install -y nasm qemu-system-x86 python3-pil
+      - name: Build image (fetches Copihue at the commit pinned in the Makefile)
         run: make all
-      - name: Boot smoke test in QEMU (serial/VGA, 10s)
+      - name: Boot smoke test in QEMU (10s)
         run: |
           timeout 10 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -no-reboot || code=$?
-          # 124 = still running after 10s (kernel booted and is idling); anything else is a crash/reset
+          # 124 = still running after 10s; anything else is a crash/reset
           test "${code:-0}" = "124"
+      - name: Shell test (types commands with QEMU sendkey, checks serial output)
+        run: make qemu-test
