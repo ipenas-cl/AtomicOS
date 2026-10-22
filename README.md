@@ -3,7 +3,7 @@
 **Deterministic Real-Time Security Operating System**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-5.1.1-green)](https://github.com/ipenas-cl/AtomicOS/releases)
+[![Version](https://img.shields.io/badge/version-5.2.2-green)](VERSION) [![CI](https://github.com/ipenas-cl/AtomicOS/actions/workflows/ci.yml/badge.svg)](https://github.com/ipenas-cl/AtomicOS/actions/workflows/ci.yml)
 
 ## Overview
 
