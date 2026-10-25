@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(qemu-system-x86_64:*)"
-    ],
-    "deny": []
-  }
-}

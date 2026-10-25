@@ -1,4 +1,4 @@
-// AtomicOS kernel entry. boot64.asm loads this flat image at 0x10000 and
+// AtomicOS kernel entry. stage2.lap loads this flat image at 0x10000 and
 // jumps to its first byte in 64-bit long mode (stack at 0x90000).
 // Built with `copihue --flat 0x10000`, which places _start first.
 
