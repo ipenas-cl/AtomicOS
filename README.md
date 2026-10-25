@@ -63,7 +63,7 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - `exec`: después del `fs`, `exec plant` escribe en el disco el programa `hola` (cabecera `AXE1`), `malo` (magic malo) y `gordo` (tamaño 65535). `exec hola` imprime `desde disco` y `exec ok`. `exec noesta` imprime `exec fail 7`. `exec malo` imprime `exec bad magic`. `exec gordo` imprime `exec bad size`. `fs corrupt hola` y otro `exec hola` imprimen `exec corrupt` y no vuelven a imprimir `desde disco`;
 - `ud2` imprime la excepción `#UD`.
 
-En QEMU 8.2.2, con el pin v0.27.1, `make qemu-test` tiene que terminar en 0. El conteo del timer y el orden de las letras dependen del tiempo. `version` dice Copihue v0.27.1.
+En QEMU 8.2.2, con el pin v0.27.1, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 929 ms, ticks 200 → 416, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `abababababab`, `switch timer=22 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473, las líneas `ata ok`, `blk ok`, `blk corrupt detected`, y después del segundo arranque con el mismo `data.img` la línea `fs persist v2, snap v1, corrupt detected`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. `version` dice Copihue v0.27.1.
 
 El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -no-reboot`) salió con código 124: el proceso seguía vivo.
 
