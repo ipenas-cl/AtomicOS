@@ -8,11 +8,24 @@ para ese commit es `legacy-tempo`.
 
 ## 0.8
 
-Kernel en Copihue v0.29.4 (commit
-`cac6fc27453c0136711e5de4ead703f836eff987`). `git ls-remote` devuelve
+Kernel en Copihue v0.30.0 (commit
+`899dc7de7ce362e61dd4fa3ae384f64176a64a86`). `git ls-remote` devuelve
 ese commit para el tag y para `HEAD`. `git -C build/copihue rev-parse
 HEAD` después del `make` también, y `copihue --version` imprime
-`Copihue 0.29.4`. Esta imagen junta la red e1000, el nombre
+`Copihue 0.30.0`. v0.30.0 recorta `u8`/`u16`/`u32` después de cada
+operador y `volatile` forma parte del tipo del puntero. Un
+`(byte & 255) << 8` quedaba en 0: `ata_id_word`, la MAC del e1000, el
+ethertype, el largo y el fragmento IP, el id y la secuencia ICMP, el
+opcode ARP y el byte impar de `net_csum` ensanchan ese byte con
+`as i64` antes del desplazamiento. El CRC-32 y el checksum par siguen
+en un acumulador sin tipo (`i64`). `parse_int` resta `'0'` solo en un
+dígito; el `movzx` no cambia 0..9. `fs_commit` suma 1 a un campo
+`u32`: el valor que vuelve al campo es el del store recortado de
+antes. `e_rd` enmascara 32 bits. Las páginas se calculan en `i64`.
+No hubo un error de `*volatile` asignado a un puntero sin `volatile`.
+El caso mínimo del `<<` y la lista de conversiones implícitas
+puntero/entero están en `docs/PEDIDOS_COPIHUE.md`. Esta imagen junta
+la red e1000, el nombre
 LapageriaOS, las trazas y las zonas ligeras sobre el kernel sin
 `asm()`. El planificador guarda el marco del shell con `save_context`
 y vuelve con `restore_context`. El PIT y el `#PF` leen el marco de la
@@ -37,12 +50,13 @@ el `if (ebx == 0)`. El caso está en `docs/PEDIDOS_COPIHUE.md`.
 
 El arranque es `src/bootloader/boot.lap` (512 bytes, firma `55 aa`;
 el último byte distinto de cero antes de la firma está en el offset
-168) y `src/bootloader/stage2.lap` (en `0x8200`, 1678 bytes). La
+168) y `src/bootloader/stage2.lap` (en `0x8200`, 1682 bytes). La
 etapa 2 pide los sectores que ocupa `kernel.bin`, de a 128 por INT
-13h. En esta compilación `kernel.bin` mide 136535 bytes: 267
-sectores, LBA 9..275, paquete `10 00 0b 01 00 00 00 10 09 00 00 00
+13h. En esta compilación `kernel.bin` mide 136835 bytes: 268
+sectores, LBA 9..276, paquete `10 00 0c 01 00 00 00 10 09 00 00 00
 00 00 00 00`. La `.bss` mide 22060 bytes y `0x10000 + kernel.bin +
-.bss` termina en `0x36B83`.
+.bss` termina en `0x36CAF`. `stage2.bin` crece 4 bytes por el
+`movzx eax, ax` del conteo E820; la palabra en `0x8000` es la misma.
 
 El archivo puede pasar de `0x20000`; imagen y `.bss` tienen que
 terminar antes de `0x58000` (la pila de `0x60000` crece hacia abajo).
@@ -61,11 +75,11 @@ constante no pasa por `rax`. `src/user/zona.lap` pide la cuota con
 ensamblado está en `docs/PEDIDOS_COPIHUE.md`.
 
 En QEMU 8.2.2, `make qemu-test` de esta imagen terminó en 0. El
-script imprimió ticks 100 → 200 en 933 ms, ticks 200 → 416,
+script imprimió ticks 100 → 200 en 1043 ms, ticks 200 → 423,
 `keyboard IRQ count=151`, `cr3=0x1000 pml4=0x2023 pdpt=0x3023`,
 `e820 n=7`, `pmm free=32480 base=0x0000000000100000
 end=0x0000000007fe0000`, `pmm ok, high page 0x00201000`, letras
-`babababababa`, `round-robin timer=25 yield=4`, `exit freed 7+6
+`babababababa`, `round-robin timer=27 yield=4`, `exit freed 7+6
 pages, pmm back to 32473`, `trace counters ok`, `ata ok, blk ok,
 blk corrupt detected`, `trace syscall ok`, `trace off ok`, `exec
 desde disco, missing, bad magic, bad size, corrupt`, `zone fs,
@@ -77,7 +91,8 @@ persist v2, snap v1, corrupt detected`. El humo de 10 s
 124. La serie mostró `e820 n=7`, las siete entradas, `pmm free=32480`
 y `lapageria>`. Esa corrida no escribe comandos. No se probó
 `reboot`, `clear`, el teclado a mano, TCP, UDP, AHCI, NVMe, el bit
-NX ni un kernel en la mitad alta.
+NX ni un kernel en la mitad alta. El borde `gen == 0xFFFFFFFF` de
+`fs_commit` no se ejecutó.
 
 El esclavo IDE (`build/data.img`, QEMU index=1) tiene driver ATA PIO
 LBA28 y bloques de 512 B con CRC-32 en un sector de metadatos. `disk`
