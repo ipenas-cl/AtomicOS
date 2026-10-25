@@ -3,7 +3,9 @@
 # check the replies on the serial console (the kernel mirrors VGA to COM1).
 # Also checks that the PIT counter advances by 100 ticks in about one second,
 # that a later `ticks` read is larger, that IRQ1 delivered keystrokes, and
-# that a deliberate #UD prints its exception line.
+# that a deliberate #UD prints its exception line, that read_cr3 matches
+# the bootloader page table, and that a read of unmapped 0x200000 prints
+# that address from CR2.
 # Usage: tests/qemu_shell_test.sh [image] [--screenshot out.png]
 # Needs: qemu-system-x86_64, socat; ffmpeg only for --screenshot.
 set -u
@@ -65,6 +67,8 @@ CASES=("echo hello from copihue|hello from copihue" "add 40 2|42" "mul 6 -7|-42"
 for c in "${CASES[@]}"; do typeline "${c%%|*}"; done
 typeline ticks
 typeline irqs
+typeline cr3
+typeline pf
 sleep 1
 if [ -n "$SHOT" ]; then
     mon "screendump $TMP/s.ppm"; sleep 1
@@ -92,6 +96,22 @@ kbd=$(tr -d '\r' < "$SERIAL" | sed -n 's/^kbd_irqs \([0-9][0-9]*\)$/\1/p' | tail
 [ -n "${kbd:-}" ] || fail "no irqs command reply"
 [ "$kbd" -ge 8 ] || fail "kbd_irqs=$kbd, want >= 8 (keyboard IRQ not delivering keys)"
 echo "ok   keyboard IRQ count=$kbd"
+
+clean=$(tr -d '\r' < "$SERIAL")
+# boot64.asm writes CR3=0x1000, PML4[0]=0x2003, PDPT[0]=0x3003.
+# The CPU sets the accessed bit (bit 5) on the entries it walks, so they
+# read back as 0x2023 and 0x3023. CR3 itself stays 0x1000.
+printf '%s\n' "$clean" | grep -qx "cr3=0x00001000" || fail "read_cr3 is not the bootloader PML4 at 0x1000"
+printf '%s\n' "$clean" | grep -qx "pml4=0x00002023" || fail "PML4[0] is not 0x2003 with the accessed bit"
+printf '%s\n' "$clean" | grep -qx "pdpt=0x00003023" || fail "PDPT[0] is not 0x3003 with the accessed bit"
+echo "ok   cr3=0x1000 pml4=0x2023 pdpt=0x3023"
+
+if printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=0x00000000 cr2=0x00200000"; then
+    echo "ok   pf -> cr2=0x200000"
+else
+    fail "page fault did not report cr2=0x200000"
+fi
+printf '%s\n' "$clean" | grep -qx "pf resumed" || fail "kernel did not resume after #PF"
 
 typeline ud2
 sleep 0.5

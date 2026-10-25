@@ -106,10 +106,10 @@ $(BOOTLOADER): $(BOOT_SRC)/boot64.asm | $(BUILD_DIR)
 
 # Copihue compiler, pinned so kernel builds are reproducible.
 # Override COPIHUE=/path/to/copihue to use a local build instead.
-# v0.20.0 is tag, commit c489a3052b9e63a6446c4eab0001480c64adfcf4
-# (same tree as 96cdf31). `git fetch` accepts the tag name.
+# v0.20.1 is the tag, commit 626e3e80d55eaf065b173ea545b6de14f98b6ad4.
+# `git fetch` accepts the tag name.
 COPIHUE_REPO   ?= https://github.com/ipenas-cl/copihue.git
-COPIHUE_COMMIT ?= v0.20.0
+COPIHUE_COMMIT ?= v0.20.1
 COPIHUE_DIR     = $(BUILD_DIR)/copihue
 COPIHUE       ?= $(COPIHUE_DIR)/copihue
 

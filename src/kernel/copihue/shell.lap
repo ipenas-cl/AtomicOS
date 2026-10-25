@@ -60,6 +60,8 @@ fn cmd_help() -> i64 {
     puts("  version         kernel and compiler version\n");
     puts("  ticks           PIT tick count\n");
     puts("  irqs            keyboard IRQ count\n");
+    puts("  cr3             CR3 and the bootloader page table\n");
+    puts("  pf              read unmapped 0x200000\n");
     puts("  ud2             raise #UD and halt\n");
     puts("  reboot          reset the machine\n");
     return 0;
@@ -85,7 +87,7 @@ fn run_command() -> i64 {
     }
     if (cmd_is("clear")) { con_clear(); return 0; }
     if (cmd_is("version")) {
-        puts("AtomicOS 0.8 - kernel written in Copihue v0.20.0\n");
+        puts("AtomicOS 0.8 - kernel written in Copihue v0.20.1\n");
         return 0;
     }
     if (cmd_is("ticks")) {
@@ -98,6 +100,31 @@ fn run_command() -> i64 {
         puts("kbd_irqs ");
         put_int(kbd_irqs);
         putc('\n');
+        return 0;
+    }
+    if (cmd_is("cr3")) {
+        let cr3 = read_cr3();
+        puts("cr3=");
+        put_hex(cr3);
+        putc('\n');
+        let pml4: *u64 = cr3;
+        puts("pml4=");
+        put_hex(pml4[0]);
+        putc('\n');
+        let pdpt: *u64 = (pml4[0] >> 12) << 12;
+        puts("pdpt=");
+        put_hex(pdpt[0]);
+        putc('\n');
+        return 0;
+    }
+    if (cmd_is("pf")) {
+        // The byte itself is not printed. A later `let b` in this function
+        // is stored in its own slot, but a use of that name still reads the
+        // earlier `b` from the add/mul branch (Copihue v0.20.1).
+        puts("raising #PF\n");
+        let p: *u8 = 0x200000;
+        let fault_byte = p[0];
+        if (fault_byte == fault_byte) { puts("pf resumed\n"); }
         return 0;
     }
     if (cmd_is("ud2")) {

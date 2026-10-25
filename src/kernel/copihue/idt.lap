@@ -9,9 +9,9 @@
 // 8, 10, 11, 12, 13, 14, 17, 21, 29 and 30; the rest do not. IRQ0 (vector
 // 32) is the PIT. IRQ1 (vector 33) is the keyboard handler in keyboard.lap.
 //
-// Copihue v0.20.0 cannot read CR2, so a page fault prints its error code
-// and not the fault address. read_cr2 arrives in v0.20.1; this kernel does
-// not invent that instruction.
+// #PF prints read_cr2() as well as the error code. The bootloader's PD
+// lives at 0x3000 and only maps the first 2MB. A fault in the next
+// 2MB slot is filled with an identity page so the instruction can retry.
 
 packed struct IdtEntry {
     off_lo: u16,
@@ -58,7 +58,22 @@ fn exc_name(vec: i64) -> i64 {
     return "reserved";
 }
 
+// Identity-map the 2MB page that contains addr, using the bootloader PD.
+// Returns 1 if a not-present slot was filled.
+fn map_2mb(addr: i64) -> i64 {
+    let pd: *u64 = 0x3000;
+    let idx = addr >> 21;
+    if (idx >= 0 && idx < 512 && pd[idx] == 0) {
+        pd[idx] = (idx << 21) | 0x83;
+        invlpg(addr);
+        return 1;
+    }
+    return 0;
+}
+
 fn cpu_fault(vec: i64, err: i64, has_err: i64) -> i64 {
+    let fault_addr = 0;
+    if (vec == 14) { fault_addr = read_cr2(); }
     cli();
     puts("exception: vector ");
     put_int(vec);
@@ -68,7 +83,12 @@ fn cpu_fault(vec: i64, err: i64, has_err: i64) -> i64 {
         puts(" err=");
         put_hex(err);
     }
+    if (vec == 14) {
+        puts(" cr2=");
+        put_hex(fault_addr);
+    }
     puts("\n");
+    if (vec == 14 && map_2mb(fault_addr) != 0) { return 0; }
     while (1) { hlt(); }
     return 0;
 }
