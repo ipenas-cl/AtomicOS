@@ -15,6 +15,20 @@
 // grows down from 0x7C00 and does not reach it.
 //
 // `dw 8`, `dw 0x8200` and `jmp 0x8200` are checked against the Makefile.
+//
+// Pedido al lenguaje (Copihue v0.24.1, commit f2f9f386). Cada asm() que
+// queda falló al escribirlo como llamada o asignación:
+//   ds = 0                         assignment to undeclared variable 'ds'
+//   es = 0, ss = 0, fs = 0x10, gs = 0
+//                                  assignment to undeclared variable 'es'/'ss'/'fs'/'gs'
+//   sp = 0x7C00                    assignment to undeclared variable 'sp'
+//   ah = 0x42, dl = 0, si = 0, ax = 0
+//                                  assignment to undeclared variable 'ah'/'dl'/'si'/'ax'
+//   jmp 0x8200                     expected ';' after this, found '0x8200'
+//   lodsb()                        unknown function 'lodsb'
+//   let en naked                   a naked function cannot have local variables
+//   parámetro en naked             a naked function takes no parameters
+// if carry / while (1) { hlt(); } sí ensamblan dentro de bits 16 naked.
 
 data packet {
     db 0x10, 0;
@@ -29,31 +43,33 @@ data fail_msg {
 
 bits 16 naked fn _start() {
     cli();
-    asm("xor ax, ax");
-    asm("mov ds, ax");
-    asm("mov es, ax");
-    asm("mov ss, ax");
-    asm("mov sp, 0x7C00");
-    asm("mov [0x0500], dl");
-    asm("mov ah, 0x42");
-    asm("mov si, packet");
-    asm("mov dl, [0x0500]");
+    asm("xor ax, ax"); // pedido: ax = 0 → assignment to undeclared variable 'ax'
+    asm("mov ds, ax"); // pedido 0.24.2: ds = 0 → assignment to undeclared variable 'ds'
+    asm("mov es, ax"); // pedido 0.24.2: es = 0 → assignment to undeclared variable 'es'
+    asm("mov ss, ax"); // pedido 0.24.2: ss = 0 → assignment to undeclared variable 'ss'
+    asm("mov sp, 0x7C00"); // pedido: sp = 0x7C00 → assignment to undeclared variable 'sp'
+    asm("mov [0x0500], dl"); // pedido: dl = 0 → assignment to undeclared variable 'dl'
+    asm("mov ah, 0x42"); // pedido: ah = 0x42 → assignment to undeclared variable 'ah'
+    asm("mov si, packet"); // pedido: si = 0 → assignment to undeclared variable 'si'
+    asm("mov dl, [0x0500]"); // pedido: dl no es una variable (assignment to undeclared variable 'dl')
     int(0x13);
-    asm("jc load_fail");
-    asm("jmp 0x8200");
+    if carry {
+        load_fail();
+    } else {
+        asm("jmp 0x8200"); // pedido: jmp 0x8200 → expected ';' after this, found '0x8200'
+    }
 }
 
 bits 16 naked fn load_fail() {
-    asm("mov si, fail_msg");
-    asm("cld");
-    asm(".p:");
-    asm("lodsb");
-    asm("test al, al");
-    asm("jz .h");
-    asm("mov ah, 0x0E");
+    asm("mov si, fail_msg"); // pedido: si = 0 → assignment to undeclared variable 'si'
+    asm("cld"); // pedido: lodsb() → unknown function 'lodsb'; el lazo no cabe en un while sin local
+    asm(".p:"); // pedido: una naked no tiene etiquetas; a naked function cannot have local variables
+    asm("lodsb"); // pedido: lodsb() → unknown function 'lodsb'
+    asm("test al, al"); // pedido: al = 1 → assignment to undeclared variable 'al'
+    asm("jz .h"); // pedido: jmp other → expected ';' after this, found 'other'
+    asm("mov ah, 0x0E"); // pedido: ah = 0x42 → assignment to undeclared variable 'ah'
     int(0x10);
-    asm("jmp .p");
-    asm(".h:");
-    hlt();
-    asm("jmp .h");
+    asm("jmp .p"); // pedido: jmp other → expected ';' after this, found 'other'
+    asm(".h:"); // pedido: una naked no tiene etiquetas
+    while (1) { hlt(); }
 }

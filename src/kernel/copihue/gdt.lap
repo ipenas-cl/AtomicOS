@@ -90,15 +90,17 @@ fn gdt_load() -> i64 {
     gdtr.base = gdt as u64;
     puts("gdt load\n");
     lgdt(&gdtr);
-    asm("push 0x18");
-    asm("lea rax, [.cs_reload]");
-    asm("push rax");
-    asm("retfq");
-    asm(".cs_reload:");
-    asm("mov ax, 0x20");
-    asm("mov ds, ax");
-    asm("mov es, ax");
-    asm("mov ss, ax");
+    // ljmp(0x18, cs_reload) emite `jmp 24:cs_reload`. nasm, en bits 64:
+    // instruction not supported in 64-bit mode. retfq() → unknown function 'retfq'.
+    asm("push 0x18"); // pedido: push() → unknown function 'push'
+    asm("lea rax, [.cs_reload]"); // pedido: jmp other → expected ';' after this, found 'other'
+    asm("push rax"); // pedido: push() → unknown function 'push'
+    asm("retfq"); // pedido: retfq() → unknown function 'retfq'
+    asm(".cs_reload:"); // pedido: una naked no tiene etiquetas; a naked function cannot have local variables
+    asm("mov ax, 0x20"); // pedido: ax = 0 → assignment to undeclared variable 'ax'
+    asm("mov ds, ax"); // pedido 0.24.2: ds = 0x20 → assignment to undeclared variable 'ds'
+    asm("mov es, ax"); // pedido 0.24.2: es = 0 → assignment to undeclared variable 'es'
+    asm("mov ss, ax"); // pedido 0.24.2: ss = 0 → assignment to undeclared variable 'ss'
     return 0;
 }
 
@@ -106,8 +108,8 @@ fn gdt_load() -> i64 {
 // immediately before iretq, on the shell's stack.
 fn resume_shell() -> i64 {
     if (resume_rip == 0) { return 0; }
-    asm("mov rsp, [resume_rsp]");
-    asm("mov rbp, [resume_rbp]");
-    asm("jmp qword [resume_rip]");
+    asm("mov rsp, [resume_rsp]"); // pedido: rsp = 0 → assignment to undeclared variable 'rsp'
+    asm("mov rbp, [resume_rbp]"); // pedido: rbp = → assignment to undeclared variable 'rbp'
+    asm("jmp qword [resume_rip]"); // pedido: jmp other → expected ';' after this, found 'other'
     return 0;
 }

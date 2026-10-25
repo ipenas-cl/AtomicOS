@@ -17,41 +17,31 @@
 // calculation of an empty image only when it is empty; a global would
 // move _start off the first byte. Constants live in `data`.
 //
-// Pedido al lenguaje (Copihue v0.23.0, the probes are not in this tree).
-// The lines below are asm() because the compiler's own codegen is
-// 64-bit and nasm rejects it in the mode this code has to run in.
-// Nothing here is a separate .asm file. Same escape hatch as
-// tests/boot/boot_sector.lap and tests/usermode/kernel.lap.
-//
-//   read_cr0() in bits 16 naked fn emits `mov rax, cr0`.
-//     nasm: r16.asm:10: error: instruction not supported in 16-bit mode
-//   write_cr4(read_cr4() | 32) in bits 32 emits `mov rax, cr4`.
-//     nasm: r32.asm:19: error: instruction not supported in 32-bit mode
-//   outb(0x92, inb(0x92) | 2) in bits 16 emits `mov rax, 146`.
-//     nasm: io16.asm:10: error: instruction not supported in 16-bit mode
-//   wrmsr(0xC0000080, rdmsr(0xC0000080) | 0x100) in bits 32 emits
-//     `mov rax, 3221225600` / `shl rdx, 32`.
-//     nasm: m32.asm:19: error: instruction not supported in 32-bit mode
-//   lgdt(&gdtr) where gdtr is a data label:
-//     data_addr.lap:4:11: error: use of undeclared variable 'gdtr'
-//   lgdt of a `let` array in bits 16 emits `lea rax, [...]` / `lgdt [rax]`.
-//     nasm: g16.asm:11: error: impossible combination of address sizes
-//     nasm: g16.asm:11: error: invalid 16-bit effective address
-//     and --boot drops the uninitialized `let` (no label in the sector).
-//   while (1) { hlt(); } in bits 16 naked fn emits `mov rax, 1`.
-//     nasm: loop16.asm:11: error: instruction not supported in 16-bit mode
-//   a local in a naked function:
-//     naked_local.lap:1:18: error: a naked function cannot have local variables
-//   bits 16 fn _start() without naked:
-//     bits_frame.lap:1:12: error: --boot _start must be 'bits 16 naked fn' (real mode, no 64-bit frame)
-//   cpuid():
-//     cpuid_call.lap:2:5: error: unknown function 'cpuid'
-//   ds = 0:
-//     seg.lap:2:8: error: assignment to undeclared variable 'ds'
-//   dq next + 3 in a data block (a page-table entry cannot name its target):
-//     plus.lap:2:12: error: expected ';' after this, found '+'
-// There is no carry-flag expression, so `jc` after int 0x13 / int 0x15
-// is asm as well. cli(), hlt(), int() and ljmp() are real calls.
+// Pedido al lenguaje (Copihue v0.24.1, commit f2f9f386). Lo que v0.23.0
+// rechazaba y esta versión ya compila no va en asm(): read_cr*/write_cr*,
+// inb/outb, rdmsr/wrmsr, lgdt(&gdtr), cpuid/cpuid_edx, if carry, int_carry,
+// while (1) { hlt(); }, y una llamada sin argumentos (ensambla como
+// `call` de 16 bits; se comprobó con ndisasm). Sigue en asm() porque
+// el compilador lo rechazó:
+//   ds = 0, es = 0, ss = 0, fs = 0x10, gs = 0
+//       assignment to undeclared variable 'ds' (y 'es', 'ss', 'fs', 'gs')
+//   sp = 0x7C00, esp = 0, rsp = 0
+//       assignment to undeclared variable 'sp' / 'esp' / 'rsp'
+//   ah = 0x42, dl = 0, si = 0, di = 0, ax = 0, al = 1, eax = 1, ecx = 1
+//       assignment to undeclared variable con ese nombre
+//   let en naked
+//       a naked function cannot have local variables
+//   parámetro en naked
+//       a naked function takes no parameters
+//   jmp 0x10000
+//       expected ';' after this, found '0x8200' (la misma sentencia jmp)
+//   lodsb() / stosd() / pushfd() / clc()
+//       unknown function 'lodsb' / 'stosd' / 'pushfd' / 'clc'
+//   *(0x1000 as *u32) = 0x2003
+//       expected ';' after this, found '='
+// `dq page + 3` sí ensambla en un bloque data (tests/freestanding de
+// v0.24.1). No sirve aquí: qemu-test lee las tablas en la dirección
+// física 0x1000, y esta imagen vive en 0x8200.
 
 data kern_packet {
     db 0x10, 0;
@@ -107,169 +97,159 @@ data gdtr {
 
 bits 16 naked fn _start() {
     cli();
-    asm("xor ax, ax");
-    asm("mov ds, ax");
-    asm("mov es, ax");
-    asm("mov ss, ax");
-    asm("mov sp, 0x7C00");
-    asm("mov ax, 0x0003");
+    asm("xor ax, ax"); // pedido: ax = 0 → assignment to undeclared variable 'ax'
+    asm("mov ds, ax"); // pedido 0.24.2: ds = 0 → assignment to undeclared variable 'ds'
+    asm("mov es, ax"); // pedido 0.24.2: es = 0 → assignment to undeclared variable 'es'
+    asm("mov ss, ax"); // pedido 0.24.2: ss = 0 → assignment to undeclared variable 'ss'
+    asm("mov sp, 0x7C00"); // pedido: sp = 0x7C00 → assignment to undeclared variable 'sp'
+    asm("mov ax, 0x0003"); // pedido: ax = 0 → assignment to undeclared variable 'ax'
     int(0x10);
-    asm("mov si, boot_msg");
-    asm("call print_string");
-    asm("call enable_a20");
-    asm("call load_kernel");
-    asm("jc disk_error");
-    asm("call get_e820");
-    asm("call check_long_mode");
-    asm("jc no_long_mode");
-    asm("call setup_page_tables");
+    asm("mov si, boot_msg"); // pedido: si = 0 → assignment to undeclared variable 'si'
+    print_string();
+    enable_a20();
+    load_kernel();
+    get_e820();
+    check_long_mode();
+    setup_page_tables();
     cli();
-    asm("lgdt [gdtr]");
-    asm("mov eax, cr0");
-    asm("or eax, 1");
-    asm("mov cr0, eax");
+    lgdt(&gdtr);
+    write_cr0(read_cr0() | 1);
     ljmp(0x08, protected_mode);
 }
 
 bits 16 naked fn print_string() {
-    asm("push ax");
-    asm("push si");
-    asm("cld");
-    asm(".loop:");
-    asm("lodsb");
-    asm("test al, al");
-    asm("jz .done");
-    asm("mov ah, 0x0E");
+    asm("push ax"); // pedido: push() → unknown function 'push'
+    asm("push si"); // pedido: push() → unknown function 'push'; si = 0 → assignment to undeclared variable 'si'
+    asm("cld"); // pedido: lodsb() → unknown function 'lodsb'
+    asm(".loop:"); // pedido: a naked function cannot have local variables
+    asm("lodsb"); // pedido: lodsb() → unknown function 'lodsb'
+    asm("test al, al"); // pedido: al = 1 → assignment to undeclared variable 'al'
+    asm("jz .done"); // pedido: jmp other → expected ';' after this, found 'other'
+    asm("mov ah, 0x0E"); // pedido: ah = 0x42 → assignment to undeclared variable 'ah'
     int(0x10);
-    asm("jmp .loop");
-    asm(".done:");
-    asm("pop si");
-    asm("pop ax");
+    asm("jmp .loop"); // pedido: jmp other → expected ';' after this, found 'other'
+    asm(".done:"); // pedido: una naked no tiene etiquetas
+    asm("pop si"); // pedido: pop() → unknown function 'pop'
+    asm("pop ax"); // pedido: pop() → unknown function 'pop'
 }
 
 bits 16 naked fn enable_a20() {
-    asm("in al, 0x92");
-    asm("or al, 2");
-    asm("out 0x92, al");
+    outb(0x92, inb(0x92) | 2);
 }
 
 bits 16 naked fn load_kernel() {
-    asm("mov ah, 0x42");
-    asm("mov si, kern_packet");
-    asm("mov dl, [0x0500]");
+    asm("mov ah, 0x42"); // pedido: ah = 0x42 → assignment to undeclared variable 'ah'
+    asm("mov si, kern_packet"); // pedido: si = 0 → assignment to undeclared variable 'si'
+    asm("mov dl, [0x0500]"); // pedido: dl = 0 → assignment to undeclared variable 'dl'
     int(0x13);
+    if (int_carry() != 0) {
+        asm("jmp disk_error"); // pedido: jmp other → expected ';' after this, found 'other'
+    }
 }
 
 bits 16 naked fn get_e820() {
-    asm("xor ebx, ebx");
-    asm("mov di, 0x8004");
-    asm("mov word [0x8000], 0");
-    asm("push ds");
-    asm("pop es");
-    asm(".loop:");
-    asm("mov eax, 0xE820");
-    asm("mov ecx, 24");
-    asm("mov edx, 0x534D4150");
-    asm("mov dword [di + 20], 1");
+    asm("xor ebx, ebx"); // pedido: rbx = 1 → assignment to undeclared variable 'rbx'
+    asm("mov di, 0x8004"); // pedido: di = 0 → assignment to undeclared variable 'di'
+    asm("mov word [0x8000], 0"); // pedido: *(0x1000 as *u32) = 0x2003 → expected ';' after this, found '='
+    asm("push ds"); // pedido 0.24.2: ds = 0 → assignment to undeclared variable 'ds'
+    asm("pop es"); // pedido: pop() → unknown function 'pop'; es = 0 → assignment to undeclared variable 'es'
+    asm(".loop:"); // pedido: a naked function cannot have local variables
+    asm("mov eax, 0xE820"); // pedido: eax = 1 → assignment to undeclared variable 'eax'
+    asm("mov ecx, 24"); // pedido: ecx = 1 → assignment to undeclared variable 'ecx'
+    asm("mov edx, 0x534D4150"); // pedido: edx = 1 → assignment to undeclared variable 'edx'
+    asm("mov dword [di + 20], 1"); // pedido: store absoluto → expected ';' after this, found '='
     int(0x15);
-    asm("jc .done");
-    asm("cmp eax, 0x534D4150");
-    asm("jne .done");
-    asm("inc word [0x8000]");
-    asm("add di, 24");
-    asm("cmp di, 0x8184");
-    asm("jae .done");
-    asm("test ebx, ebx");
-    asm("jnz .loop");
-    asm(".done:");
+    if carry {
+        asm("jmp .done"); // pedido: jmp other → expected ';' after this, found 'other'
+    }
+    asm("cmp eax, 0x534D4150"); // pedido: eax = 1 → assignment to undeclared variable 'eax'
+    asm("jne .done"); // pedido: jmp other → expected ';' after this, found 'other'
+    asm("inc word [0x8000]"); // pedido: store absoluto → expected ';' after this, found '='
+    asm("add di, 24"); // pedido: di = 0 → assignment to undeclared variable 'di'
+    asm("cmp di, 0x8184"); // pedido: di = 0 → assignment to undeclared variable 'di'
+    asm("jae .done"); // pedido: jmp other → expected ';' after this, found 'other'
+    asm("test ebx, ebx"); // pedido: rbx = 1 → assignment to undeclared variable 'rbx'
+    asm("jnz .loop"); // pedido: jmp other → expected ';' after this, found 'other'
+    asm(".done:"); // pedido: una naked no tiene etiquetas
 }
 
 bits 16 naked fn check_long_mode() {
-    asm("pushfd");
-    asm("pop eax");
-    asm("mov ecx, eax");
-    asm("xor eax, 0x200000");
-    asm("push eax");
-    asm("popfd");
-    asm("pushfd");
-    asm("pop eax");
-    asm("push ecx");
-    asm("popfd");
-    asm("cmp eax, ecx");
-    asm("je .no");
-    asm("mov eax, 0x80000000");
-    asm("cpuid");
-    asm("cmp eax, 0x80000001");
-    asm("jb .no");
-    asm("mov eax, 0x80000001");
-    asm("cpuid");
-    asm("test edx, 1 << 29");
-    asm("jz .no");
-    asm("clc");
-    asm("ret");
-    asm(".no:");
-    asm("stc");
+    // El bit ID de EFLAGS no tiene builtin. pushfd() → unknown function 'pushfd'.
+    asm("pushfd"); // pedido: pushfd() → unknown function 'pushfd'
+    asm("pop eax"); // pedido: pop() → unknown function 'pop'
+    asm("mov ecx, eax"); // pedido: ecx = 1 → assignment to undeclared variable 'ecx'
+    asm("xor eax, 0x200000"); // pedido: eax = 1 → assignment to undeclared variable 'eax'
+    asm("push eax"); // pedido: push() → unknown function 'push'
+    asm("popfd"); // pedido: pushfd() → unknown function 'pushfd'
+    asm("pushfd"); // pedido: pushfd() → unknown function 'pushfd'
+    asm("pop eax"); // pedido: pop() → unknown function 'pop'
+    asm("push ecx"); // pedido: ecx = 1 → assignment to undeclared variable 'ecx'
+    asm("popfd"); // pedido: pushfd() → unknown function 'pushfd'
+    asm("cmp eax, ecx"); // pedido: eax = 1 → assignment to undeclared variable 'eax'
+    asm("je no_long_mode"); // pedido: jmp other → expected ';' after this, found 'other'
+    // `<` ensambla setl (con signo). 0x80000000 comparado así no es el jb
+    // del manual. El AND previo descarta un leaf básico (bit 31 en claro);
+    // en el rango 0x80000000..0xFFFFFFFF el orden con signo coincide con
+    // el orden sin signo. cpuid(0x80000000) es idempotente.
+    if ((cpuid(0x80000000) & 0x80000000) == 0) {
+        asm("jmp no_long_mode"); // pedido: jmp other → expected ';' after this, found 'other'
+    }
+    if (cpuid(0x80000000) < 0x80000001) {
+        asm("jmp no_long_mode"); // pedido: jmp other → expected ';' after this, found 'other'
+    }
+    if ((cpuid_edx(0x80000001) & (1 << 29)) == 0) {
+        asm("jmp no_long_mode"); // pedido: jmp other → expected ';' after this, found 'other'
+    }
 }
 
 bits 16 naked fn setup_page_tables() {
-    asm("mov edi, 0x1000");
-    asm("mov cr3, edi");
-    asm("xor eax, eax");
-    asm("mov ecx, 4096");
-    asm("cld");
-    asm("rep stosd");
-    asm("mov edi, 0x1000");
-    asm("mov dword [edi], 0x2003");
-    asm("add edi, 0x1000");
-    asm("mov dword [edi], 0x3003");
-    asm("add edi, 0x1000");
-    asm("mov dword [edi], 0x83");
+    write_cr3(0x1000);
+    asm("mov edi, eax"); // pedido: di = 0 → assignment to undeclared variable 'di'. write_cr3 deja el valor en eax
+    asm("xor eax, eax"); // pedido: eax = 1 → assignment to undeclared variable 'eax'
+    asm("mov ecx, 4096"); // pedido: ecx = 1 → assignment to undeclared variable 'ecx'
+    asm("cld"); // pedido: stosd() → unknown function 'stosd'
+    asm("rep stosd"); // pedido: rep() → unknown function 'rep'; stosd() → unknown function 'stosd'
+    asm("mov edi, 0x1000"); // pedido: di = 0 → assignment to undeclared variable 'di'
+    asm("mov dword [edi], 0x2003"); // pedido: *(0x1000 as *u32) = 0x2003 → expected ';' after this, found '='
+    asm("add edi, 0x1000"); // pedido: di = 0 → assignment to undeclared variable 'di'
+    asm("mov dword [edi], 0x3003"); // pedido: store absoluto → expected ';' after this, found '='
+    asm("add edi, 0x1000"); // pedido: di = 0 → assignment to undeclared variable 'di'
+    asm("mov dword [edi], 0x83"); // pedido: store absoluto → expected ';' after this, found '='
 }
 
 bits 16 naked fn disk_error() {
-    asm("mov si, disk_err_msg");
-    asm("call print_string");
-    asm(".hang:");
-    hlt();
-    asm("jmp .hang");
+    asm("mov si, disk_err_msg"); // pedido: si = 0 → assignment to undeclared variable 'si'
+    print_string();
+    while (1) { hlt(); }
 }
 
 bits 16 naked fn no_long_mode() {
-    asm("mov si, no_lm_msg");
-    asm("call print_string");
-    asm(".hang:");
-    hlt();
-    asm("jmp .hang");
+    asm("mov si, no_lm_msg"); // pedido: si = 0 → assignment to undeclared variable 'si'
+    print_string();
+    while (1) { hlt(); }
 }
 
 bits 32 naked fn protected_mode() {
-    asm("mov ax, 0x10");
-    asm("mov ds, ax");
-    asm("mov es, ax");
-    asm("mov fs, ax");
-    asm("mov gs, ax");
-    asm("mov ss, ax");
-    asm("mov esp, 0x90000");
-    asm("mov eax, cr4");
-    asm("or eax, 1 << 5");
-    asm("mov cr4, eax");
-    asm("mov ecx, 0xC0000080");
-    asm("rdmsr");
-    asm("or eax, 1 << 8");
-    asm("wrmsr");
-    asm("mov eax, cr0");
-    asm("or eax, 1 << 31");
-    asm("mov cr0, eax");
+    asm("mov ax, 0x10"); // pedido: ax = 0 → assignment to undeclared variable 'ax'
+    asm("mov ds, ax"); // pedido 0.24.2: ds = 0 → assignment to undeclared variable 'ds'
+    asm("mov es, ax"); // pedido 0.24.2: es = 0 → assignment to undeclared variable 'es'
+    asm("mov fs, ax"); // pedido 0.24.2: fs = 0x10 → assignment to undeclared variable 'fs'
+    asm("mov gs, ax"); // pedido 0.24.2: gs = 0 → assignment to undeclared variable 'gs'
+    asm("mov ss, ax"); // pedido 0.24.2: ss = 0 → assignment to undeclared variable 'ss'
+    asm("mov esp, 0x90000"); // pedido: esp = 0 → assignment to undeclared variable 'esp'
+    write_cr4(read_cr4() | 32);
+    wrmsr(0xC0000080, rdmsr(0xC0000080) | 0x100);
+    write_cr0(read_cr0() | 0x80000000);
     ljmp(0x18, long_mode);
 }
 
 bits 64 naked fn long_mode() {
-    asm("mov ax, 0x20");
-    asm("mov ds, ax");
-    asm("mov es, ax");
-    asm("mov fs, ax");
-    asm("mov gs, ax");
-    asm("mov ss, ax");
-    asm("mov rsp, 0x90000");
-    asm("jmp 0x10000");
+    asm("mov ax, 0x20"); // pedido: ax = 0 → assignment to undeclared variable 'ax'
+    asm("mov ds, ax"); // pedido 0.24.2: ds = 0 → assignment to undeclared variable 'ds'
+    asm("mov es, ax"); // pedido 0.24.2: es = 0 → assignment to undeclared variable 'es'
+    asm("mov fs, ax"); // pedido 0.24.2: fs = 0x10 → assignment to undeclared variable 'fs'
+    asm("mov gs, ax"); // pedido 0.24.2: gs = 0 → assignment to undeclared variable 'gs'
+    asm("mov ss, ax"); // pedido 0.24.2: ss = 0 → assignment to undeclared variable 'ss'
+    asm("mov rsp, 0x90000"); // pedido: rsp = 0 → assignment to undeclared variable 'rsp'
+    asm("jmp 0x10000"); // pedido: jmp 0x8200 → expected ';' after this, found '0x8200'
 }
