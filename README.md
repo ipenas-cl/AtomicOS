@@ -29,13 +29,13 @@ En esta compilación (`copihue` v0.26.1, commit `54dc238f943968e676040e67bdac206
 | Archivo | Tamaño |
 |---|---|
 | `build/boot.bin` | 512 bytes |
-| `build/stage2.bin` | 1736 bytes (cabe en 8 × 512) |
-| `build/kernel.bin` | 68608 bytes → 134 sectores (LBA 9..142). La `.bss` mide 18160 bytes y `0x10000 + kernel.bin + .bss` termina en `0x252F0` |
+| `build/stage2.bin` | 1739 bytes (cabe en 8 × 512) |
+| `build/kernel.bin` | 68615 bytes → 135 sectores (LBA 9..143). La `.bss` mide 18160 bytes y `0x10000 + kernel.bin + .bss` termina en `0x252F7` |
 | `src/bootloader/boot.lap` | 76 líneas, ninguna `asm("...")` |
 | `src/bootloader/stage2.lap` | 268 líneas, ninguna `asm("...")` |
 | `src/kernel/copihue/*.lap` | 3065 líneas, 17 de ellas `asm("...")`. `exec_img.lap` lo genera `mkaxe.sh` (173 líneas, ninguna `asm`) y no entra en ese conteo |
 
-`copihue --help` en v0.26.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 86 00 00 00 00 10 09 00 00 00 00 00 00 00`: 134 sectores (`0x0086`) desde LBA 9 hacia `0x1000:0`. 134 pasa de 128, así que la etapa 2 manda 128 y después 6. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt: el segundo paquete no pisa el kernel.
+`copihue --help` en v0.26.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 87 00 00 00 00 10 09 00 00 00 00 00 00 00`: 135 sectores (`0x0087`) desde LBA 9 hacia `0x1000:0`. 135 pasa de 128, así que la etapa 2 manda 128 y después 7. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt: el segundo paquete no pisa el kernel.
 
 Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `lapageria>`.
 
