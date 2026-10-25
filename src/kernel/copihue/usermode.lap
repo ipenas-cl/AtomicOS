@@ -38,39 +38,37 @@ fn program_syscall() -> i64 {
     return 0;
 }
 
-// Pedido para cada asm() de user_prog (Copihue v0.24.1). Es la imagen de
-// anillo 3 copiada hasta user_prog_end.
-//   syscall() → 'syscall' needs the hosted runtime (Linux syscalls) and is not available with --freestanding
-//   rax = 1 / al = 1 → assignment to undeclared variable 'rax' / 'al'
-//   a naked function cannot have local variables
+// Imagen de anillo 3, copiada hasta user_prog_end. Sin locales: un let
+// naked es un hueco de la imagen del núcleo y en anillo 3 esa dirección
+// es de supervisor. La lectura de 0x10000 es la que tiene que fallar.
 naked fn user_prog() {
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rdi, 117"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rdi, 115"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rdi, 101"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rdi, 114"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rdi, 32"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rdi, 111"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rdi, 107"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rdi, 10"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov al, [0x10000]"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("mov rax, 2"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de user_prog)
+    rax = 1;
+    rdi = 117;
+    syscall();
+    rax = 1;
+    rdi = 115;
+    syscall();
+    rax = 1;
+    rdi = 101;
+    syscall();
+    rax = 1;
+    rdi = 114;
+    syscall();
+    rax = 1;
+    rdi = 32;
+    syscall();
+    rax = 1;
+    rdi = 111;
+    syscall();
+    rax = 1;
+    rdi = 107;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    al = *(0x10000 as *u8);
+    rax = 2;
+    syscall();
 }
 
 naked fn user_prog_end() {
@@ -123,17 +121,20 @@ fn enter_user() -> i64 {
     write_cr3(read_cr3());
     user_ran = 1;
     cli();
-    asm("mov [resume_rsp], rsp"); // pedido: rsp = 0 → assignment to undeclared variable 'rsp'
-    asm("mov [resume_rbp], rbp"); // pedido: rbp = → assignment to undeclared variable 'rbp'
-    asm("lea rax, [.after_user]"); // pedido: jmp other → expected ';' after this, found 'other'
-    asm("mov [resume_rip], rax"); // pedido: rax = 1 → assignment to undeclared variable 'rax'
-    asm("push 0x33"); // pedido: push() → unknown function 'push'
-    asm("push 0x402000"); // pedido: push() → unknown function 'push'
-    asm("push 0x2"); // pedido: push() → unknown function 'push'
-    asm("push 0x3B"); // pedido: push() → unknown function 'push'
-    asm("push 0x400000"); // pedido: push() → unknown function 'push'
+    // Esta función tiene marco. rsp/rbp solo dentro de naked:
+    // register 'rsp' is only available in a naked function.
+    // .after_user no es un nombre del lenguaje; resume_shell salta ahí.
+    asm("mov [resume_rsp], rsp");
+    asm("mov [resume_rbp], rbp");
+    asm("lea rax, [.after_user]");
+    asm("mov [resume_rip], rax");
+    push(0x33);
+    push(0x402000);
+    push(0x2);
+    push(0x3B);
+    push(0x400000);
     iretq();
-    asm(".after_user:"); // pedido: jmp other → expected ';' after this, found 'other'
+    asm(".after_user:");
     resume_rip = 0;
     sti();
     puts("user returned\n");

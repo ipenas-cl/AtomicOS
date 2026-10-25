@@ -22,18 +22,18 @@ La etapa 1 solo carga los 8 sectores de la etapa 2. La etapa 2 habilita A20, lee
 
 El número de sectores del kernel no está fijo en el fuente. `stage2.lap` tiene el marcador `dw 0; // KERNEL_SECTORS`. `make` copia el archivo a `build/stage2.lap` y escribe ahí `ceil(kernel.bin / 512)`. Un solo paquete INT 13h usa un offset de 16 bits desde `0x1000:0`, así que el tope es 128 sectores (65536 bytes). El disquete deja más sitio (2880 − 9). `make` falla si el kernel pasa de ese tope: con un `kernel.bin` de 65537 bytes la etapa 2 sale con `kernel too large for stage 2` y Make termina en 2.
 
-En esta compilación (`copihue` v0.25.0, commit `b8b0d0740cd7b7bdbe4a2f6d5ba01baf9301f575`, `wc -l` y `stat`):
+En esta compilación (`copihue` v0.26.1, commit `54dc238f943968e676040e67bdac206ce201bc7f`, `wc -l` y `stat`):
 
 | Archivo | Tamaño |
 |---|---|
 | `build/boot.bin` | 512 bytes |
-| `build/stage2.bin` | 846 bytes (cabe en 8 × 512) |
-| `build/kernel.bin` | 45355 bytes → 89 sectores (LBA 9..97) |
-| `src/bootloader/boot.lap` | 75 líneas, 19 de ellas `asm("...")` |
-| `src/bootloader/stage2.lap` | 255 líneas, 86 de ellas `asm("...")` |
-| `src/kernel/copihue/*.lap` | 2258 líneas, 183 de ellas `asm("...")` |
+| `build/stage2.bin` | 1319 bytes (cabe en 8 × 512) |
+| `build/kernel.bin` | 45639 bytes → 90 sectores (LBA 9..98) |
+| `src/bootloader/boot.lap` | 76 líneas, ninguna `asm("...")` |
+| `src/bootloader/stage2.lap` | 242 líneas, ninguna `asm("...")` |
+| `src/kernel/copihue/*.lap` | 2232 líneas, 17 de ellas `asm("...")` |
 
-`copihue --help` en v0.25.0 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 59 00 00 00 00 10 09 00 00 00 00 00 00 00`: 89 sectores (`0x0059`) desde LBA 9 hacia `0x1000:0`.
+`copihue --help` en v0.26.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 5a 00 00 00 00 10 09 00 00 00 00 00 00 00`: 90 sectores (`0x005a`) desde LBA 9 hacia `0x1000:0`.
 
 Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `atomicos>`.
 
@@ -59,7 +59,7 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - `disk`: en el esclavo IDE, `ata ok`, `blk ok` y `blk corrupt detected`, en ese orden (un byte del sector de datos pisado con el driver, sin pasar por `blk`);
 - `ud2` imprime la excepción `#UD`.
 
-En QEMU 8.2.2, con el pin v0.25.0, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 1031 ms, ticks 200 → 417, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `aabbabababab`, `switch timer=18 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473, y las líneas `ata ok`, `blk ok`, `blk corrupt detected`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. El texto de `version` sigue diciendo Copihue v0.24.1. El `kernel.bin` de esta imagen ya no es el de ese pin: suma el driver ATA y los bloques.
+En QEMU 8.2.2, con el pin v0.26.1, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 931 ms, ticks 200 → 417, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `babbaababbaa`, `switch timer=19 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473, y las líneas `ata ok`, `blk ok`, `blk corrupt detected`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. `version` dice Copihue v0.26.1.
 
 El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -no-reboot`) salió con código 124: el proceso seguía vivo.
 
@@ -95,7 +95,7 @@ qemu-system-x86_64 -drive format=raw,file=build/atomicos.img \
     -display none -serial stdio
 ```
 
-El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.25.0`, commit `b8b0d0740cd7b7bdbe4a2f6d5ba01baf9301f575`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
+El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.26.1`, commit `54dc238f943968e676040e67bdac206ce201bc7f`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
 
 ```bash
 make COPIHUE=/ruta/al/copihue all
@@ -139,7 +139,7 @@ docs/copihue-shell.png
 docs/atomicos-copihue-demo.mp4
 ```
 
-`make` compila `src/kernel/copihue/kernel.lap`. Ese archivo importa el resto, en el orden de `COPIHUE_KERNEL_SRC`, y Copihue los junta en un solo espacio de nombres. `build/` no se versiona. El `kernel.bin` de ese árbol es idéntico al que salía de concatenar los mismos archivos con v0.24.1.
+`make` compila `src/kernel/copihue/kernel.lap`. Ese archivo importa el resto, en el orden de `COPIHUE_KERNEL_SRC`, y Copihue los junta en un solo espacio de nombres. `build/` no se versiona.
 
 ## Hoja de ruta
 
@@ -147,7 +147,7 @@ El estado de cada etapa es el de la imagen que arranca `make qemu-test`.
 
 ### 1. Arranque y consola — en la imagen
 
-Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. En v0.24.1, `lgdt`, `read_cr*` / `write_cr*`, `inb` / `outb`, `rdmsr` / `wrmsr`, `cpuid` / `cpuid_edx`, `if carry`, `int_carry` y `while (1) { hlt(); }` reemplazan el `asm()` de esas operaciones, también dentro de `bits 16 naked` y `bits 32 naked`. El `asm()` que queda está comentado en `boot.lap` y `stage2.lap` con el error de v0.24.1: no hay asignación a registros de segmento ni a `sp`/`esp`/`rsp`, una función `naked` no tiene locales ni parámetros, y no existen `lodsb`, `stosd`, `pushfd`, `push` ni `pop`. `dq page + 3` ensambla, pero las tablas tienen que quedar en la dirección física `0x1000`, fuera de esta imagen.
+Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. En v0.26.1, `boot.lap` y `stage2.lap` no tienen `asm()`: los segmentos, `jmp`, los stores con ancho, `lodsb`, `rep_stosd`, `pushfd` / `popfd` y `push` / `pop` están en el lenguaje. `cld()` sigue siendo `unknown function 'cld'`; el arranque apaga DF con `pushfd` antes de `lodsb` y de `rep_stosd`. En el kernel quedan 17 `asm()`: el salto indirecto de `resume_shell` (`jmp resume_rip` es `unknown jump target 'resume_rip'`), el marco de `enter_user` y de `sched_go` (`register 'rsp' is only available in a naked function`) y el marco de las `interrupt fn` (`register 'rbp' is only available in a naked function`). `dq page + 3` ensambla, pero las tablas tienen que quedar en la dirección física `0x1000`, fuera de esta imagen.
 
 ### 2. Interrupciones y temporizador — en la imagen
 

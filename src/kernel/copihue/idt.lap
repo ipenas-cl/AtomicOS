@@ -103,10 +103,10 @@ interrupt fn exc14(err: i64) {
     // qword, so the CPU error code is at [rbp+128] and RIP at [rbp+136].
     if (sched_on != 0 && (err & 4) != 0) {
         note_user_fault(err);
-        // rbp no es una variable: use of undeclared variable 'rbp'.
-        // *(rbp + 136) = patch_rip → expected ';' after this, found '='
-        asm("mov rax, [patch_rip]"); // pedido: use of undeclared variable 'rbp'
-        asm("mov [rbp+136], rax"); // pedido: *(rbp + 136) = patch_rip → expected ';' after this, found '='
+        // Una interrupt fn no es naked. *(rbp + 136) = patch_rip →
+        // register 'rbp' is only available in a naked function.
+        asm("mov rax, [patch_rip]");
+        asm("mov [rbp+136], rax");
         return;
     }
     cpu_fault(14, err, 1);
@@ -136,11 +136,12 @@ interrupt fn irq_timer() {
     // CPU loaded this frame from TSS.rsp0. The epilogue pops that frame,
     // so replacing rbp resumes the next process.
     if (sched_on != 0) {
-        asm("mov rax, [rbp+128]"); // pedido: use of undeclared variable 'rbp'
-        asm("mov [saved_cs], rax"); // pedido: *(rbp + 128) no parsea; expected ';' after this, found '='
-        asm("mov [saved_ksp], rbp"); // pedido: rbp = → assignment to undeclared variable 'rbp'
+        // register 'rbp' is only available in a naked function.
+        asm("mov rax, [rbp+128]");
+        asm("mov [saved_cs], rax");
+        asm("mov [saved_ksp], rbp");
         if (timer_should_switch() != 0) {
-            asm("mov rbp, [saved_ksp]"); // pedido: rbp = → assignment to undeclared variable 'rbp'
+            asm("mov rbp, [saved_ksp]");
         }
     }
 }
