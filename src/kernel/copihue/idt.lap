@@ -235,7 +235,7 @@ fn idt_init() -> i64 {
     while (i < 48) { set_gate(i, &irq_slave); i = i + 1; }
     let idtr: DescPtr;
     idtr.limit = 48 * 16 - 1;
-    idtr.base = idt;
+    idtr.base = idt as u64;
     lidt(&idtr);
     ltr(0x40);
     program_syscall();

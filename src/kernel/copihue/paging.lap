@@ -20,13 +20,13 @@ fn cr3_root() -> i64 {
 fn map_in(root: i64, va: i64, pa: i64, flags: i64) -> i64 {
     last_alloc_pt = 0;
     if (va < 0 || pa < 0 || root <= 0) { return 0; }
-    let pml4: *u64 = root;
+    let pml4: *u64 = root as *u64;
     let e = pml4[(va >> 39) & 511];
     if ((e & 1) == 0) { return 0; }
-    let pdpt: *u64 = (e >> 12) << 12;
+    let pdpt: *u64 = ((e >> 12) << 12) as *u64;
     e = pdpt[(va >> 30) & 511];
     if ((e & 1) == 0) { return 0; }
-    let pd: *u64 = (e >> 12) << 12;
+    let pd: *u64 = ((e >> 12) << 12) as *u64;
     let i2 = (va >> 21) & 511;
     e = pd[i2];
     if ((e & 128) != 0) { return 0; }
@@ -38,7 +38,7 @@ fn map_in(root: i64, va: i64, pa: i64, flags: i64) -> i64 {
         last_alloc_pt = table;
         e = pd[i2];
     }
-    let pt: *u64 = (e >> 12) << 12;
+    let pt: *u64 = ((e >> 12) << 12) as *u64;
     pt[(va >> 12) & 511] = ((pa >> 12) << 12) | flags;
     invlpg(va);
     return 1;
@@ -50,16 +50,16 @@ fn map_page(va: i64, pa: i64, flags: i64) -> i64 {
 
 fn unmap_in(root: i64, va: i64) -> i64 {
     if (va < 0 || root <= 0) { return 0; }
-    let pml4: *u64 = root;
+    let pml4: *u64 = root as *u64;
     let e = pml4[(va >> 39) & 511];
     if ((e & 1) == 0) { return 0; }
-    let pdpt: *u64 = (e >> 12) << 12;
+    let pdpt: *u64 = ((e >> 12) << 12) as *u64;
     e = pdpt[(va >> 30) & 511];
     if ((e & 1) == 0) { return 0; }
-    let pd: *u64 = (e >> 12) << 12;
+    let pd: *u64 = ((e >> 12) << 12) as *u64;
     e = pd[(va >> 21) & 511];
     if ((e & 1) == 0 || (e & 128) != 0) { return 0; }
-    let pt: *u64 = (e >> 12) << 12;
+    let pt: *u64 = ((e >> 12) << 12) as *u64;
     pt[(va >> 12) & 511] = 0;
     invlpg(va);
     return 1;
@@ -70,7 +70,7 @@ fn unmap_page(va: i64) -> i64 {
 }
 
 fn zero_va(va: i64) -> i64 {
-    let p: *u8 = va;
+    let p: *u8 = va as *u8;
     let i = 0;
     while (i < 4096) {
         p[i] = 0;

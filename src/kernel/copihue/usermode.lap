@@ -73,7 +73,7 @@ naked fn user_prog_end() {
 }
 
 fn copy_user_page() -> i64 {
-    let src: *u8 = &user_prog;
+    let src: *u8 = &user_prog as *u8;
     let n = &user_prog_end - &user_prog;
     if (n <= 0 || n > 4096) { return 0; }
     zero_va(0x400000);

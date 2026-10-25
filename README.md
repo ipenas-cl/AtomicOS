@@ -22,18 +22,18 @@ La etapa 1 solo carga los 8 sectores de la etapa 2. La etapa 2 habilita A20, lee
 
 El número de sectores del kernel no está fijo en el fuente. `stage2.lap` tiene el marcador `dw 0; // KERNEL_SECTORS`. `make` copia el archivo a `build/stage2.lap` y escribe ahí `ceil(kernel.bin / 512)`. Un solo paquete INT 13h usa un offset de 16 bits desde `0x1000:0`, así que el tope es 128 sectores (65536 bytes). El disquete deja más sitio (2880 − 9). `make` falla si el kernel pasa de ese tope: con un `kernel.bin` de 65537 bytes la etapa 2 sale con `kernel too large for stage 2` y Make termina en 2.
 
-En esta compilación (`copihue` v0.23.0, `wc -l` y `stat`):
+En esta compilación (`copihue` v0.24.0, commit `4040b250da22ed906bcdfde4d9782d961fc0084c`, `wc -l` y `stat`):
 
 | Archivo | Tamaño |
 |---|---|
 | `build/boot.bin` | 512 bytes |
 | `build/stage2.bin` | 520 bytes (cabe en 8 × 512) |
-| `build/kernel.bin` | 38311 bytes → 75 sectores (LBA 9..83) |
+| `build/kernel.bin` | 38303 bytes → 75 sectores (LBA 9..83) |
 | `src/bootloader/boot.lap` | 59 líneas, 21 de ellas `asm("...")` |
 | `src/bootloader/stage2.lap` | 275 líneas, 126 de ellas `asm("...")` |
-| `src/kernel/copihue/*.lap` | 1879 líneas, 193 de ellas `asm("...")` |
+| `src/kernel/copihue/*.lap` | 1878 líneas, 193 de ellas `asm("...")` |
 
-`copihue --help` en v0.23.0 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 4b 00 00 00 00 10 09 00 00 00 00 00 00 00`: 75 sectores (`0x004b`) desde LBA 9 hacia `0x1000:0`.
+`copihue --help` en v0.24.0 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 4b 00 00 00 00 10 09 00 00 00 00 00 00 00`: 75 sectores (`0x004b`) desde LBA 9 hacia `0x1000:0`.
 
 Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `atomicos>`.
 
@@ -58,7 +58,7 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - `sched`: dos PML4 distintos, la mitad alta compartida, `alias ok` dos veces, `pf-cross` de lectura y de escritura, `getpid 1` y `getpid 2`, letras `a`/`b` intercaladas, al menos un cambio por el PIT y uno por `yield`, y `exit` devolviendo todas las páginas contadas;
 - `ud2` imprime la excepción `#UD`.
 
-En QEMU 8.2.2, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 1037 ms, ticks 200 → 419, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `bababababbaa`, `switch timer=11 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba.
+En QEMU 8.2.2, con el pin v0.24.0, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 1033 ms, ticks 200 → 418, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `babababababa`, `switch timer=13 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba.
 
 El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -no-reboot`) salió con código 124: el proceso seguía vivo.
 
@@ -86,7 +86,7 @@ La consola serie repite el texto de VGA. Con `-display none -serial stdio` se ve
 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -serial stdio
 ```
 
-El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.23.0`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
+El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.24.0`, commit `4040b250da22ed906bcdfde4d9782d961fc0084c`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
 
 ```bash
 make COPIHUE=/ruta/al/copihue all
@@ -135,7 +135,7 @@ El estado de cada etapa es el de la imagen que arranca `make qemu-test`.
 
 ### 1. Arranque y consola — en la imagen
 
-Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. `cli`, `hlt`, `int` y `ljmp` son llamadas. El resto del modo real y del modo protegido que v0.23.0 no puede emitir sigue en `asm()`. Los errores de nasm y del compilador están citados en la cabecera de `src/bootloader/stage2.lap`.
+Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. `cli`, `hlt`, `int` y `ljmp` son llamadas. El resto del modo real y del modo protegido sigue en `asm()`. Los errores con los que v0.23.0 los rechazó están citados en la cabecera de `src/bootloader/stage2.lap`; v0.24.0 compila esas dos etapas sin diagnósticos nuevos.
 
 ### 2. Interrupciones y temporizador — en la imagen
 

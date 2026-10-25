@@ -79,7 +79,7 @@ fn map_user(pi: i64, va: i64, pa: i64, flags: i64) -> i64 {
 }
 
 fn pml4_slot(pi: i64, i: i64) -> i64 {
-    let p: *u64 = proc_pml4[pi];
+    let p: *u64 = proc_pml4[pi] as *u64;
     return p[i];
 }
 
@@ -90,15 +90,15 @@ fn shared_init() -> i64 {
     if (shared_pdpt == 0 || shared_pd == 0) { return 0; }
     zero_va(shared_pdpt);
     zero_va(shared_pd);
-    let pdpt: *u64 = shared_pdpt;
-    let pd: *u64 = shared_pd;
+    let pdpt: *u64 = shared_pdpt as *u64;
+    let pd: *u64 = shared_pd as *u64;
     pdpt[0] = shared_pd | 3;
     pd[0] = 0x83;
     return 1;
 }
 
 fn attach_half(pml4pa: i64) -> i64 {
-    let p: *u64 = pml4pa;
+    let p: *u64 = pml4pa as *u64;
     let i = 256;
     while (i < 512) {
         p[i] = shared_pdpt | 3;
@@ -120,7 +120,7 @@ fn other_runnable(me: i64) -> i64 {
 // and iretq's, which is 160 bytes below that top.
 fn forge(pi: i64, rip: i64, rsp: i64, rfl: i64) -> i64 {
     let base = proc_rsp0[pi] - 160;
-    let s: *u64 = base;
+    let s: *u64 = base as *u64;
     let i = 0;
     while (i < 15) {
         s[i] = 0;
@@ -320,11 +320,11 @@ fn paint_secret(pa: i64) -> i64 {
     unmap_page(0x300000);
     if (created != 0) {
         let root = cr3_root();
-        let pml4: *u64 = root;
+        let pml4: *u64 = root as *u64;
         let e = pml4[(0x300000 >> 39) & 511];
-        let pdpt: *u64 = (e >> 12) << 12;
+        let pdpt: *u64 = ((e >> 12) << 12) as *u64;
         e = pdpt[(0x300000 >> 30) & 511];
-        let pd: *u64 = (e >> 12) << 12;
+        let pd: *u64 = ((e >> 12) << 12) as *u64;
         pd[(0x300000 >> 21) & 511] = 0;
         invlpg(0x300000);
         free_page(created);
@@ -338,7 +338,7 @@ fn copy_user(pi: i64, src: i64, n: i64, code: i64) -> i64 {
     zero_va(0x400000);
     zero_va(0x401000);
     let dst: *u8 = 0x400000;
-    let s: *u8 = src;
+    let s: *u8 = src as *u8;
     let i = 0;
     while (i < n) {
         dst[i] = s[i];
@@ -363,9 +363,9 @@ fn build_proc(pi: i64, src: i64, n: i64, secret: i64) -> i64 {
     let pdpt = take_table(pi);
     let pd = take_table(pi);
     if (pml4 == 0 || pdpt == 0 || pd == 0) { return 0; }
-    let p4: *u64 = pml4;
-    let p3: *u64 = pdpt;
-    let p2: *u64 = pd;
+    let p4: *u64 = pml4 as *u64;
+    let p3: *u64 = pdpt as *u64;
+    let p2: *u64 = pd as *u64;
     p4[0] = pdpt | 7;
     p3[0] = pd | 7;
     p2[0] = 0x83;

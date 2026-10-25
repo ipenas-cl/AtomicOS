@@ -70,7 +70,7 @@ fn gdt_tss(off: i64, base: i64) -> i64 {
 }
 
 fn gdt_load() -> i64 {
-    let p: *u8 = &tss;
+    let p: *u8 = &tss as *u8;
     let i = 0;
     while (i < 104) {
         p[i] = 0;
@@ -84,10 +84,10 @@ fn gdt_load() -> i64 {
     gdt_seg(0x20, 0, 0x92, 0x00);
     gdt_seg(0x30, 0xFFFF, 0xF2, 0xCF);
     gdt_seg(0x38, 0, 0xFA, 0x20);
-    gdt_tss(0x40, &tss);
+    gdt_tss(0x40, &tss as i64);
     let gdtr: DescPtr;
     gdtr.limit = 79;
-    gdtr.base = gdt;
+    gdtr.base = gdt as u64;
     puts("gdt load\n");
     lgdt(&gdtr);
     asm("push 0x18");

@@ -17,22 +17,22 @@ let pmm_lo: i64 = 0;
 let pmm_hi: i64 = 0;
 
 fn e820_base(i: i64) -> i64 {
-    let p: *u64 = 0x8004 + i * 24;
+    let p: *u64 = (0x8004 + i * 24) as *u64;
     return p[0];
 }
 
 fn e820_len(i: i64) -> i64 {
-    let p: *u64 = 0x800C + i * 24;
+    let p: *u64 = (0x800C + i * 24) as *u64;
     return p[0];
 }
 
 fn e820_kind(i: i64) -> i64 {
-    let p: *u32 = 0x8014 + i * 24;
+    let p: *u32 = (0x8014 + i * 24) as *u32;
     return p[0];
 }
 
 fn e820_acpi(i: i64) -> i64 {
-    let p: *u32 = 0x8018 + i * 24;
+    let p: *u32 = (0x8018 + i * 24) as *u32;
     return p[0];
 }
 
@@ -85,9 +85,8 @@ fn pmm_mark_range(base: i64, len: i64) -> i64 {
 // must not be handed out.
 fn pmm_reserve_image() -> i64 {
     let a = 0x10000;
-    let b = bss_end();
-    b = (b + 4095) >> 12;
-    b = b << 12;
+    let end = bss_end() as i64;
+    let b = ((end + 4095) >> 12) << 12;
     while (a < b) {
         pmm_take(a >> 12);
         a = a + 4096;
@@ -197,9 +196,9 @@ fn pmm_test() -> i64 {
     if (a == b || a == c || b == c) { puts("pmm fail distinct\n"); return 0; }
     if (a >= 0x200000 || b >= 0x200000 || c >= 0x200000) { puts("pmm fail low\n"); return 0; }
     if (pmm_free != before - 3) { puts("pmm fail count\n"); return 0; }
-    let pa: *u8 = a;
-    let pb: *u8 = b;
-    let pc: *u8 = c;
+    let pa: *u8 = a as *u8;
+    let pb: *u8 = b as *u8;
+    let pc: *u8 = c as *u8;
     pa[0] = 0x11;
     pb[0] = 0x22;
     pc[0] = 0x33;
@@ -209,7 +208,7 @@ fn pmm_test() -> i64 {
     if (free_page(a) != 0) { puts("pmm fail double\n"); return 0; }
     let d = alloc_page();
     if (d == 0) { puts("pmm fail reuse\n"); return 0; }
-    let pd: *u8 = d;
+    let pd: *u8 = d as *u8;
     pd[0] = 0x44;
     if (pd[0] != 0x44) { puts("pmm fail rewrite\n"); return 0; }
     if (free_page(d) == 0 || pmm_free != before) { puts("pmm fail restore\n"); return 0; }
