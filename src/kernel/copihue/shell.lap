@@ -80,14 +80,14 @@ fn run_command() -> i64 {
         let is_add = cmd_is("add");
         parse_pos = 3;
         let a = parse_int();
-        let rhs = parse_int();
-        if (is_add) { put_int(a + rhs); } else { put_int(a * rhs); }
+        let b = parse_int();
+        if (is_add) { put_int(a + b); } else { put_int(a * b); }
         putc('\n');
         return 0;
     }
     if (cmd_is("clear")) { con_clear(); return 0; }
     if (cmd_is("version")) {
-        puts("AtomicOS 0.8 - kernel written in Copihue v0.22.1\n");
+        puts("AtomicOS 0.8 - kernel written in Copihue v0.22.2\n");
         return 0;
     }
     if (cmd_is("ticks")) {
@@ -118,14 +118,11 @@ fn run_command() -> i64 {
         return 0;
     }
     if (cmd_is("pf")) {
-        // `fault_byte` is not named `b`: until Copihue v0.22.2, a second
-        // `let b` in this function is stored in a new slot but a use of `b`
-        // still reads the earlier one (the right-hand operand of add/mul).
         puts("raising #PF\n");
         let p: *u8 = 0x200000;
-        let fault_byte = p[0];
+        let b = p[0];
         puts("pf resumed ");
-        put_hex(fault_byte);
+        put_hex(b);
         puts("\n");
         return 0;
     }
@@ -143,11 +140,8 @@ fn run_command() -> i64 {
         return 0;
     }
     puts("unknown command: ");
-    // `name_i` is not named `i`: the echo loop above already binds `i`,
-    // and until Copihue v0.22.2 a later `let` of the same name is stored
-    // in a new slot while uses still read the earlier one.
-    let name_i = 0;
-    while (name_i < line_len && line[name_i] != ' ') { putc(line[name_i]); name_i++; }
+    let i = 0;
+    while (i < line_len && line[i] != ' ') { putc(line[i]); i++; }
     puts(" (try 'help')\n");
     return 0;
 }

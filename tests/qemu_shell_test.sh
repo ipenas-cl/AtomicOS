@@ -111,9 +111,9 @@ if printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=0x
 else
     fail "page fault did not report cr2=0x200000"
 fi
-# `mul 6 -7` runs before `pf`. The byte at physical 0x200000 is 0, so the
-# resumed line is `pf resumed 0x00000000`. A second local also named `b`
-# used to print the mul operand -7 as 0xfffffff9.
+# `mul 6 -7` runs before `pf`. Both blocks bind `b`. The byte at physical
+# 0x200000 is 0, so the resumed line is `pf resumed 0x00000000`. Before
+# block scope, the second `b` printed the mul operand -7 as 0xfffffff9.
 mul_at=$(printf '%s\n' "$clean" | grep -n "^-42$" | head -1 | cut -d: -f1)
 pf_line=$(printf '%s\n' "$clean" | grep -n "^pf resumed " | head -1)
 pf_at=$(printf '%s\n' "$pf_line" | cut -d: -f1)
