@@ -33,6 +33,23 @@ TEMPO_FLAGS =
 
 # Build targets
 BOOTLOADER = $(BUILD_DIR)/boot.bin
+STAGE2 = $(BUILD_DIR)/stage2.bin
+# Stage 1 (boot.lap) loads STAGE2_SECTORS from LBA 1 to STAGE2_ORG.
+# Stage 2 (stage2.lap, --flat STAGE2_ORG) reads the kernel at KERNEL_LBA.
+# boot.lap's `dw 8`, `dw 0x8200` and `jmp 0x8200`, and stage2.lap's `dq 9`,
+# must stay equal to these three values. KERNEL_LBA is 1 + STAGE2_SECTORS.
+# The sector count is not a fourth constant. stage2.lap keeps
+# `dw 0; // KERNEL_SECTORS`; the stage-2 rule rewrites that on a copy in
+# build/ to ceil(kernel.bin / 512). One INT 13h packet uses a 16-bit
+# offset at 0x1000:0, so 128 sectors (64 KiB) is the loadable window.
+# The floppy has more room than that. make fails if the kernel is larger.
+STAGE2_ORG = 0x8200
+STAGE2_SECTORS = 8
+KERNEL_LBA = 9
+FLOPPY_SECTORS = 2880
+KERNEL_SEGMENT_SECTORS = 128
+KERNEL_MAX_SECTORS := $(shell a=$$(($(FLOPPY_SECTORS)-$(KERNEL_LBA))); b=$(KERNEL_SEGMENT_SECTORS); if [ $$a -lt $$b ]; then echo $$a; else echo $$b; fi)
+KERNEL_MAX_BYTES := $(shell echo $$(( $(KERNEL_MAX_SECTORS) * 512 )))
 KERNEL = $(BUILD_DIR)/kernel.bin
 OS_IMAGE = $(BUILD_DIR)/atomicos.img
 TEMPO_BIN = $(BUILD_DIR)/tempo_compiler
@@ -85,10 +102,40 @@ $(BUILD_DIR)/%.inc: $(EXAMPLES_DIR)/%.tempo $(TEMPO_BIN) | $(BUILD_DIR)
 	$(TEMPO_BIN) $< $(BUILD_DIR)/$*.s
 	@cp $(KERNEL_SRC)/$*.inc $@ 2>/dev/null || echo "; Generated from $<" > $@
 
-# Build 64-bit bootloader
-$(BOOTLOADER): $(BOOT_SRC)/boot64.asm | $(BUILD_DIR)
-	@echo "Assembling 64-bit bootloader..."
-	$(AS) $(ASFLAGS) $< -o $@
+# Stage 1: 512-byte Copihue sector. Stage 2: Copihue flat binary at 0x8200.
+$(BOOTLOADER): $(BOOT_SRC)/boot.lap $(COPIHUE) | $(BUILD_DIR)
+	@echo "Compiling stage-1 boot sector with Copihue..."
+	@grep -q 'dw $(STAGE2_SECTORS);' $<
+	@grep -q 'dw $(STAGE2_ORG), 0;' $<
+	@grep -q 'jmp $(STAGE2_ORG)' $<
+	$(abspath $(COPIHUE)) --boot -o $@ $<
+	@test $$(stat -c %s $@) -eq 512
+	@test "$$(tail -c 2 $@ | od -An -tx1 | tr -d ' \n')" = "55aa"
+
+# KERNEL is defined above, so this prerequisite is real even though the
+# rule is parsed before COPIHUE exists. The extra dependency below waits
+# for the compiler. The recipe fills in the DAP count from kernel.bin.
+$(STAGE2): $(BOOT_SRC)/stage2.lap $(KERNEL) | $(BUILD_DIR)
+	@echo "Compiling stage-2 bootloader with Copihue..."
+	@set -eu; \
+	  test $(KERNEL_LBA) -eq $$((1 + $(STAGE2_SECTORS))); \
+	  grep -q 'dq $(KERNEL_LBA);' $<; \
+	  grep -q 'dw 0; // KERNEL_SECTORS' $<; \
+	  size=$$(stat -c %s $(KERNEL)); \
+	  sectors=$$(( (size + 511) / 512 )); \
+	  echo "kernel.bin: $$size bytes, $$sectors sectors (max $(KERNEL_MAX_SECTORS))"; \
+	  test $$sectors -ge 1; \
+	  test $$sectors -le $(KERNEL_MAX_SECTORS) || { echo "kernel too large for stage 2"; rm -f $@; exit 1; }; \
+	  sed 's/dw 0; \/\/ KERNEL_SECTORS/dw '"$$sectors"'; \/\/ KERNEL_SECTORS/' $< > $(BUILD_DIR)/stage2.lap; \
+	  grep -q "dw $$sectors; // KERNEL_SECTORS" $(BUILD_DIR)/stage2.lap; \
+	  $(abspath $(COPIHUE)) --flat $(STAGE2_ORG) -o $@ $(BUILD_DIR)/stage2.lap; \
+	  st2=$$(stat -c %s $@); \
+	  echo "stage2.bin: $$st2 bytes (max $$(($(STAGE2_SECTORS) * 512)))"; \
+	  test $$st2 -le $$(($(STAGE2_SECTORS) * 512)) || { echo "stage2 too large for its sectors"; rm -f $@; exit 1; }; \
+	  lo=$$(printf '%02x' $$((sectors & 255))); \
+	  hi=$$(printf '%02x' $$((sectors >> 8))); \
+	  hex=$$(od -An -tx1 -v $@ | tr -d ' \n'); \
+	  printf '%s\n' "$$hex" | grep -q "1000$${lo}$${hi}000000100900000000000000" || { echo "stage2 DAP does not load $$sectors sectors from LBA $(KERNEL_LBA) to 0x10000"; rm -f $@; exit 1; }
 
 # Build kernel C files
 # C files removed - AtomicOS is now pure assembly + Tempo modules
@@ -121,6 +168,11 @@ $(COPIHUE_DIR)/copihue: | $(BUILD_DIR)
 	git -C $(COPIHUE_DIR) checkout -q FETCH_HEAD
 	$(MAKE) -C $(COPIHUE_DIR) copihue
 
+# The stage rules are parsed before this variable exists, so $(COPIHUE) in
+# their prerequisite lists was empty. This line is read afterwards and is
+# what actually makes stage 1 and stage 2 wait for the compiler.
+$(BOOTLOADER) $(STAGE2): $(COPIHUE)
+
 # Kernel: 100% Copihue. `copihue --flat` emits a flat binary that starts at fn _start.
 COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap $(KERNEL_SRC)/copihue/keyboard.lap \
                      $(KERNEL_SRC)/copihue/pmm.lap $(KERNEL_SRC)/copihue/paging.lap \
@@ -128,28 +180,27 @@ COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap $(KERNEL_SRC)/copihue/key
                      $(KERNEL_SRC)/copihue/usermode.lap \
                      $(KERNEL_SRC)/copihue/idt.lap $(KERNEL_SRC)/copihue/shell.lap \
                      $(KERNEL_SRC)/copihue/kernel.lap
-# boot64.asm loads 96 sectors (the count is a word in the DAP; the stub
-# stays 512 bytes). v0.23 scheduler image no longer fits in 64 sectors.
-KERNEL_MAX_BYTES = 49152
+# KERNEL_MAX_BYTES is the stage-2 window (see KERNEL_SEGMENT_SECTORS).
 
 $(KERNEL): $(COPIHUE_KERNEL_SRC) $(COPIHUE) | $(BUILD_DIR)
 	@echo "Compiling kernel with Copihue..."
 	cat $(COPIHUE_KERNEL_SRC) > $(BUILD_DIR)/kernel_all.lap
 	cd $(BUILD_DIR) && $(abspath $(COPIHUE)) --flat 0x10000 -o kernel.bin kernel_all.lap
 	@size=$$(stat -c %s $@); echo "kernel.bin: $$size bytes (max $(KERNEL_MAX_BYTES))"; \
-	  test $$size -le $(KERNEL_MAX_BYTES) || { echo "kernel too large for bootloader"; rm -f $@; exit 1; }
+	  test $$size -le $(KERNEL_MAX_BYTES) || { echo "kernel too large for stage 2"; rm -f $@; exit 1; }
 
 # Boot in QEMU, type commands via the monitor (sendkey), check serial output.
 .PHONY: qemu-test
 qemu-test: $(OS_IMAGE)
 	$(TESTS_DIR)/qemu_shell_test.sh $(OS_IMAGE)
 
-# Create OS image
-$(OS_IMAGE): $(BOOTLOADER) $(KERNEL) | $(BUILD_DIR)
+# Create OS image. LBA 0 is stage 1, LBA 1 is stage 2, LBA KERNEL_LBA is the kernel.
+$(OS_IMAGE): $(BOOTLOADER) $(STAGE2) $(KERNEL) | $(BUILD_DIR)
 	@echo "Creating OS image..."
-	dd if=/dev/zero of=$@ bs=512 count=2880 status=none
+	dd if=/dev/zero of=$@ bs=512 count=$(FLOPPY_SECTORS) status=none
 	dd if=$(BOOTLOADER) of=$@ conv=notrunc status=none
-	dd if=$(KERNEL) of=$@ bs=512 seek=1 conv=notrunc status=none
+	dd if=$(STAGE2) of=$@ bs=512 seek=1 conv=notrunc status=none
+	dd if=$(KERNEL) of=$@ bs=512 seek=$(KERNEL_LBA) conv=notrunc status=none
 	@echo "AtomicOS v$(VERSION) image created: $@"
 
 # Release management

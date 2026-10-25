@@ -9,9 +9,9 @@
 
 ## Overview
 
-AtomicOS is a hobby operating system. Its kernel is written in [Copihue](https://github.com/ipenas-cl/copihue); only the 512-byte bootloader is x86-64 assembly. The long-term idea is a deterministic, real-time kernel for security-critical use, where every operation has a known worst-case execution time (WCET) and isolation is enforced by hardware.
+AtomicOS is a hobby operating system. The kernel and the bootloader are written in [Copihue](https://github.com/ipenas-cl/copihue). The bootloader is two stages, both Copihue: a 512-byte sector and a second stage loaded at 0x8200. The long-term idea is a deterministic, real-time kernel for security-critical use, where every operation has a known worst-case execution time (WCET) and isolation is enforced by hardware.
 
-> **Status: experimental hobby OS, kernel 0.8.** `make all` builds a bootable 64-bit image. A NASM bootloader switches to long mode, records the BIOS E820 map, and loads a kernel **written entirely in [Copihue](https://github.com/ipenas-cl/copihue) v0.23.0**: entry and .bss, VGA text and COM1, an IDT (CPU exceptions print a line on the console, which is mirrored to serial; `#PF` also prints `read_cr2()`; exception names are `-> *u8`), the PIC remapped to vectors 32-47, a PIT at 100 Hz (`let volatile ticks`), a PS/2 keyboard on IRQ1, a physical page allocator, a GDT with user segments and a TSS (`ltr`), two process address spaces, a PIT round-robin, and a shell. `make qemu-test` checks the previous shell, timer, IRQ, `cr3`, `#PF` and `#UD` cases, alloc/free, a mapped page above 2MB, a ring-3 program that syscalls `user ok` and then faults on a kernel read, and `sched` (two processes, separate PML4s, shared kernel half, `write` / `getpid` / `yield` / `exit`). `clear` and `reboot` are still in the shell; the test does not type `reboot`, because that resets the machine. The features under "Design goals" are goals, not implemented features.
+> **Status: experimental hobby OS, kernel 0.8.** `make all` builds a bootable 64-bit image. A Copihue bootloader (stage 1 at 0x7C00, stage 2 at 0x8200) switches to long mode, records the BIOS E820 map, and loads a kernel **written entirely in [Copihue](https://github.com/ipenas-cl/copihue) v0.23.0**: entry and .bss, VGA text and COM1, an IDT (CPU exceptions print a line on the console, which is mirrored to serial; `#PF` also prints `read_cr2()`; exception names are `-> *u8`), the PIC remapped to vectors 32-47, a PIT at 100 Hz (`let volatile ticks`), a PS/2 keyboard on IRQ1, a physical page allocator, a GDT with user segments and a TSS (`ltr`), two process address spaces, a PIT round-robin, and a shell. `make qemu-test` checks the previous shell, timer, IRQ, `cr3`, `#PF` and `#UD` cases, alloc/free, a mapped page above 2MB, a ring-3 program that syscalls `user ok` and then faults on a kernel read, and `sched` (two processes, separate PML4s, shared kernel half, `write` / `getpid` / `yield` / `exit`). `clear` and `reboot` are still in the shell; the test does not type `reboot`, because that resets the machine. The features under "Design goals" are goals, not implemented features.
 
 ![AtomicOS shell running a Copihue kernel in QEMU](docs/copihue-shell.png)
 
@@ -23,12 +23,13 @@ Measured by source lines that end up in the boot image:
 
 | | Before (v5.2.2) | Now (kernel 0.8) |
 |---|---|---|
-| Bootloader (NASM) | 231 | 263 (`boot64.asm`, LBA read of 96 sectors, E820 map at 0x8000; 64-bit code selector is 0x18) |
+| Bootloader, NASM source | 231 | 0 (no `.asm` is linked; `boot64.asm` is gone) |
+| Bootloader, Copihue | 0 | 334 (`boot.lap` 59 + `stage2.lap` 275, `wc -l`). 147 of those lines are `asm("...")` |
 | Kernel, assembly files | 75 (`kernel_simple64.asm`) | 0 (no `.asm` in the kernel image) |
 | Kernel, Copihue | 0 | 1879 (`src/kernel/copihue/*.lap`, `wc -l`, built with `copihue --flat 0x10000`) |
-| **Share in Copihue** | **0%** | **100% of the kernel; ~88% of the image by source lines (1879 of 2142; the rest is the bootloader)** |
+| **Share in Copihue** | **0%** | **every file linked into the image is `.lap` (2213 lines). 147 bootloader lines and 193 kernel lines are still `asm()` strings** |
 
-Inline `asm` in the `.lap` sources is the `ud2` shell command, the `retfq` that reloads CS after `lgdt`, the pushes that build an `iretq` frame, the jump back from a ring-3 `#PF`, the body of the `user` program, the two `sched` programs, and the register restore in `resume_frame`. Those are Copihue `asm` builtins, the same ones `tests/usermode` in the compiler uses. There is no kernel `.asm` file. The flat image is 38311 bytes. The stub's disk packet asks for 96 sectors (49152 bytes); `nasm -l` puts the `times 510-($-$$)` padding at offset `0x1F6`, so 8 bytes remain before the signature.
+Inline `asm` in the kernel `.lap` sources is the `ud2` shell command, the `retfq` that reloads CS after `lgdt`, the pushes that build an `iretq` frame, the jump back from a ring-3 `#PF`, the body of the `user` program, the two `sched` programs, and the register restore in `resume_frame`. Those are Copihue `asm` builtins, the same ones `tests/usermode` in the compiler uses. There is no kernel `.asm` file. The bootloader's `asm()` lines are the real-mode and protected-mode operations v0.23.0 cannot express any other way (segment loads, BIOS register setup, `cpuid`, the carry flag, and the 64-bit forms of `read_cr*` / `inb` / `rdmsr` / `lgdt`). `cli`, `hlt`, `int` and `ljmp` are calls. The compiler and nasm errors are quoted in the header of `stage2.lap`. Stage 2 does not hardcode a kernel sector count: `make` writes `ceil(kernel.bin / 512)` into the DAP and refuses to build if that exceeds 128 sectors (64 KiB from `0x10000`).
 
 The compiler is pinned to the tag `v0.23.0` (`COPIHUE_COMMIT` in the `Makefile`; that tag is commit `7dfde0473916501d45840719bf13f8749c5071eb`). `make` fetches and builds it into `build/copihue`. To use a local compiler: `make COPIHUE=/path/to/copihue`. The older `*.asm`, `*.inc` and `*.tempo` files under `src/kernel/` are not part of the current image (see `src/kernel/LEGACY.md`).
 
@@ -44,7 +45,7 @@ AtomicOS and Copihue grow together. Done in this tree means it is in the boot im
 | User mode and one syscall | done. Own GDT, `ltr` of a 104-byte TSS, `STAR`/`LSTAR`/`SFMASK`/`EFER.SCE`, `iretq` to ring 3, `syscall`/`sysret`. A ring-3 read of `0x10000` raises `#PF` and the shell resumes |
 | A PML4 per process, shared kernel half | done. `sched` builds two PML4s. PML4[256..511] store one shared kernel PDPT. `write_cr3` switches to each root; a load through `0xFFFF800000000000` matches the byte at `0x10000`. The lower-half root is private |
 | Round-robin and `write` / `getpid` / `yield` / `exit` | done. The PIT IRQ from ring 3 uses that process's `TSS.rsp0`. Two user programs print `a` and `b` on COM1. `exit` returns their pages to the physical allocator |
-| Bootloader stage 2 in Copihue | planned. The stub is still 512 bytes of NASM (8 bytes of padding before `0xAA55`) |
+| Bootloader stage 2 in Copihue | done. `boot.lap` (`--boot`) loads `stage2.lap` (`--flat 0x8200`, 8 sectors from LBA 1). The kernel sector count is `ceil(kernel.bin / 512)` from LBA 9, capped at 128 sectors. `asm()` remains where v0.23.0's 16-bit and 32-bit codegen is rejected by nasm; the exact errors are in the header of `stage2.lap` |
 | Separate compilation of kernel modules | planned. Needs modules and relocatable ELF objects. The kernel is still one concatenated `.lap` file |
 
 On QEMU 8.2.2 with the default 128MB, `make qemu-test` reported `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, and `pmm high ok 0x00201000`. The physical page behind the earlier `#PF` is whichever high page `alloc_high_page` returned first; the test does not print that address. A boot of this image on that QEMU printed this map (the automated test checks the summary line, not each entry):
@@ -63,7 +64,7 @@ e820[6] type=2 base=0x000000fd00000000 len=0x0000000300000000 acpi=1
 
 `user` copies a naked program to `0x400000` (present, user, not writable) and a stack page to `0x401000` (present, user, writable). PML4[0] and PDPT[0] gain the user bit so that walk can reach those pages; the 2MB identity page that covers the kernel does not, so a ring-3 `mov al, [0x10000]` prints `exception: vector 14 #PF page fault err=0x00000005 cr2=0x00010000`, then `user blocked`, then `user returned`. The syscall that printed `user ok` uses `set_syscall_stack(0x81000)`, not `TSS.rsp0`. `rsp0` is `0x86000` and is what the CPU loads for that `#PF`. There is no NX bit: user code is executable because EFER.NXE is left clear.
 
-`sched` then builds two more address spaces and does not reuse that bootloader PML4. Each process gets its own PML4, PDPT and PD in low RAM. PD[0] is the same supervisor 2MB identity page (`0x83`), because the kernel is linked at `0x10000` and the stub still jumps there. PML4[256] through PML4[511] all hold the physical address of one shared kernel PDPT (`present|write`, no user bit). That PDPT's first directory maps physical 0 as a 2MB page at `0xFFFF800000000000`. `write_cr3` of each process root is followed by `read_cr3`, which must match that root, and by a load of the high alias of `0x10000`, which must match the identity byte (`alias ok`, once per process). Process A has a user page at `0x500000` whose first byte is `0xA5` and prints `M` when it reads it. Process B does not map `0x500000`. Its `mov al, [0x500000]` prints `pf-cross R pid=2 cr2=0x00500000 err=0x00000004`. The following `mov byte [0x500000], 90` prints `pf-cross W pid=2 cr2=0x00500000 err=0x00000006`. The handler writes the saved RIP (`[rbp+136]` in the v0.23.0 `#PF` frame) and the same process continues.
+`sched` then builds two more address spaces and does not reuse that bootloader PML4. Each process gets its own PML4, PDPT and PD in low RAM. PD[0] is the same supervisor 2MB identity page (`0x83`), because the kernel is linked at `0x10000` and stage 2 still jumps there. PML4[256] through PML4[511] all hold the physical address of one shared kernel PDPT (`present|write`, no user bit). That PDPT's first directory maps physical 0 as a 2MB page at `0xFFFF800000000000`. `write_cr3` of each process root is followed by `read_cr3`, which must match that root, and by a load of the high alias of `0x10000`, which must match the identity byte (`alias ok`, once per process). Process A has a user page at `0x500000` whose first byte is `0xA5` and prints `M` when it reads it. Process B does not map `0x500000`. Its `mov al, [0x500000]` prints `pf-cross R pid=2 cr2=0x00500000 err=0x00000004`. The following `mov byte [0x500000], 90` prints `pf-cross W pid=2 cr2=0x00500000 err=0x00000006`. The handler writes the saved RIP (`[rbp+136]` in the v0.23.0 `#PF` frame) and the same process continues.
 
 The runnable state is pid, state, PML4, kernel stack, syscall stack and a saved `rbp`. Kernel stacks are `0x60000` and `0x68000`; syscall stacks are `0x70000` and `0x78000`. `SFMASK` is `0x200`, so a syscall runs with interrupts clear and the PIT does not preempt it. A timer IRQ from ring 3 (saved CS.RPL is 3, selector at `[rbp+128]`) is the preemption path: the CPU has already loaded `TSS.rsp0`. The handler stores that frame's `rbp`, points `TSS.rsp0`, the syscall stack and CR3 at the other process, and the `iretq` epilogue pops the other frame. `yield` reads the user RIP, RSP and RFLAGS the compiler saved at the top of the syscall stack, forges the same 160-byte frame, and jumps to that restore. `exit` switches CR3 away, then `free_page`s every page recorded for that process (its PML4, the private tables, the user frames). The shared kernel PDPT and PD stay allocated.
 
@@ -112,7 +113,8 @@ make debug
 ```
 AtomicOS/
 ├── src/
-│   ├── bootloader/boot64.asm   # 512-byte stub: long mode, E820, loads the kernel
+│   ├── bootloader/boot.lap     # stage 1: 512 bytes, loads stage 2
+│   ├── bootloader/stage2.lap   # stage 2 at 0x8200: E820, long mode, loads the kernel
 │   └── kernel/copihue/         # the boot image (Copihue)
 │       ├── kernel.lap          # _start, banner, tick samples, shell
 │       ├── pmm.lap             # E820 bitmap, alloc/free
@@ -124,7 +126,7 @@ AtomicOS/
 │       ├── keyboard.lap        # PS/2 on IRQ1
 │       ├── console.lap         # VGA text and COM1
 │       └── shell.lap           # line editor and commands
-├── build/                      # boot.bin, kernel.bin, atomicos.img (generated)
+├── build/                      # boot.bin, stage2.bin, kernel.bin, atomicos.img (generated)
 └── tests/qemu_shell_test.sh    # QEMU sendkey checks
 ```
 
@@ -150,7 +152,7 @@ Files under `src/kernel/` other than `copihue/` are not linked into the image.
 ### Prerequisites
 
 ```bash
-# Only nasm, make and QEMU are needed for `make all` / `make run`.
+# nasm, make and QEMU. nasm is what `copihue --boot` and `--flat` invoke.
 # Ubuntu/Debian
 sudo apt-get install build-essential nasm qemu-system-x86
 
