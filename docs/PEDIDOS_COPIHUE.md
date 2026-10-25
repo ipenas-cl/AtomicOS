@@ -1,7 +1,7 @@
 # Pedidos a Copihue
 
-Compilador fijado en el Makefile: v0.25.0, commit
-`b8b0d0740cd7b7bdbe4a2f6d5ba01baf9301f575`.
+Compilador fijado en el Makefile: v0.26.1, commit
+`54dc238f943968e676040e67bdac206ce201bc7f`.
 
 ## Arreglo dentro de una struct
 
@@ -32,16 +32,20 @@ fn fs_probe() -> i64 {
 ```
 
 Esa entrada debería medir 56 bytes: nombre en 0, tamaño en 16,
-cantidad de bloques en 20 y punteros en 24. Con v0.25.0 el ensamblado
-(`copihue --flat 0x10000 -S`) dice otra cosa:
+cantidad de bloques en 20 y punteros en 24. Con v0.26.1 el ensamblado
+(`copihue --flat 0x10000 -S`) dice lo mismo que v0.25.0:
 
 ```
 ; Struct local: e: FsEnt (13 bytes)
 ; Field assignment: e.size (offset 1)
+    mov dword [rbp-12], ecx
 ; Field assignment: e.nblocks (offset 5)
-    mov rax, 65
+    mov dword [rbp-8], ecx
+    mov rax, 4
     push rax
     mov rax, 0
+    mov rax, 65
+    push rax
     mov rax, 0
 ```
 

@@ -22,10 +22,19 @@
 # etapa 2 reescribe ese marcador, en una copia bajo build/, con
 # ceil(kernel.bin / 512).
 #
-# Un paquete INT 13h usa un offset de 16 bits. Desde 0x1000:0 caben
-# KERNEL_SEGMENT_SECTORS sectores (64 KiB) antes de envolver. El disquete
-# deja FLOPPY_SECTORS - KERNEL_LBA sectores libres. El tope es el menor de
-# los dos. `make` falla si el kernel no cabe.
+# Un paquete INT 13h, con offset 0, admite 128 sectores (64 KiB): el
+# offset es de 16 bits. stage2.lap repite la lectura y sube el segmento
+# 0x1000 cada vez. El conteo total sigue siendo el marcador
+# KERNEL_SECTORS, escrito por make.
+#
+# El tope no es el disquete (FLOPPY_SECTORS - KERNEL_LBA da 2871 y eso
+# pasaría de 1 MB). El kernel entra en 0x10000. La .bss no va en
+# kernel.bin: _start la limpia justo después del archivo. La primera
+# pila fija es proc_rsp0 del proceso 0, en 0x60000, y crece hacia abajo.
+# Entre topes de pila hay 32 KiB, así que imagen + .bss tienen que
+# terminar antes de 0x58000. KERNEL_BSS_RESERVE (32 KiB) queda para la
+# .bss; el archivo no puede pasar de ahí. make también suma los resb y
+# resq de la .bss y falla si 0x10000 + kernel.bin + .bss pasa de 0x58000.
 
 PROJECT_NAME = AtomicOS
 VERSION = 0.8
@@ -47,8 +56,12 @@ STAGE2_ORG = 0x8200
 STAGE2_SECTORS = 8
 KERNEL_LBA = 9
 FLOPPY_SECTORS = 2880
-KERNEL_SEGMENT_SECTORS = 128
-KERNEL_MAX_SECTORS := $(shell a=$$(($(FLOPPY_SECTORS)-$(KERNEL_LBA))); b=$(KERNEL_SEGMENT_SECTORS); if [ $$a -lt $$b ]; then echo $$a; else echo $$b; fi)
+# 0x58000 - 0x10000 - 32 KiB = 256 KiB = 512 sectores.
+KERNEL_LOAD_ADDR := $(shell echo $$((0x10000)))
+KERNEL_IMAGE_END := $(shell echo $$((0x58000)))
+KERNEL_BSS_RESERVE := $(shell echo $$((0x8000)))
+KERNEL_IMAGE_SECTORS := $(shell echo $$(( ($(KERNEL_IMAGE_END) - $(KERNEL_LOAD_ADDR) - $(KERNEL_BSS_RESERVE)) / 512 )))
+KERNEL_MAX_SECTORS := $(shell a=$$(($(FLOPPY_SECTORS)-$(KERNEL_LBA))); b=$(KERNEL_IMAGE_SECTORS); if [ $$a -lt $$b ]; then echo $$a; else echo $$b; fi)
 KERNEL_MAX_BYTES := $(shell echo $$(( $(KERNEL_MAX_SECTORS) * 512 )))
 
 # Disco de datos, aparte de la imagen de arranque. 2048 sectores de
@@ -63,7 +76,7 @@ QEMU_DRIVES = -drive format=raw,file=$(OS_IMAGE) -drive file=$(DATA_IMG),format=
 # existir antes de esas reglas: si no, la etapa 1 y la etapa 2 no esperan
 # al compilador (el CI de la etapa 2 falló así la primera vez).
 COPIHUE_REPO   ?= https://github.com/ipenas-cl/copihue.git
-COPIHUE_COMMIT ?= v0.25.0
+COPIHUE_COMMIT ?= v0.26.1
 COPIHUE_DIR     = $(BUILD_DIR)/copihue
 COPIHUE       ?= $(COPIHUE_DIR)/copihue
 
@@ -147,9 +160,15 @@ $(KERNEL): $(COPIHUE_KERNEL_SRC) $(COPIHUE) | $(BUILD_DIR)
 	    test "$$line" -gt "$$prev" || { echo "import $$base is out of order in $$root"; exit 1; }; \
 	    prev=$$line; \
 	  done
-	$(abspath $(COPIHUE)) --flat 0x10000 -o $@ $(KERNEL_SRC)/copihue/kernel.lap
-	@size=$$(stat -c %s $@); echo "kernel.bin: $$size bytes (max $(KERNEL_MAX_BYTES))"; \
-	  test $$size -le $(KERNEL_MAX_BYTES) || { echo "kernel too large for stage 2"; rm -f $@; exit 1; }
+	$(abspath $(COPIHUE)) --flat 0x10000 -S -o $(BUILD_DIR)/kernel.asm $(KERNEL_SRC)/copihue/kernel.lap
+	nasm -f bin -o $@ $(BUILD_DIR)/kernel.asm
+	@set -eu; \
+	  size=$$(stat -c %s $@); \
+	  bss=$$(awk '/^__bss_start:/{s=1; next} /^__bss_end:/{s=0} s && /resb /{b += $$NF} s && /resw /{b += $$NF * 2} s && /resd /{b += $$NF * 4} s && /resq /{b += $$NF * 8} END{print b + 0}' $(BUILD_DIR)/kernel.asm); \
+	  end=$$(( $(KERNEL_LOAD_ADDR) + size + bss )); \
+	  printf 'kernel.bin: %s bytes, bss %s, image end 0x%x (max 0x%x)\n' "$$size" "$$bss" "$$end" "$(KERNEL_IMAGE_END)"; \
+	  test "$$size" -le $(KERNEL_MAX_BYTES) || { echo "kernel too large for stage 2"; rm -f $@; exit 1; }; \
+	  test "$$end" -le $(KERNEL_IMAGE_END) || { echo "kernel image and bss reach 0x$$(printf '%x' $$end), past 0x58000"; rm -f $@; exit 1; }
 
 $(OS_IMAGE): $(BOOTLOADER) $(STAGE2) $(KERNEL) | $(BUILD_DIR)
 	@echo "Creating OS image..."

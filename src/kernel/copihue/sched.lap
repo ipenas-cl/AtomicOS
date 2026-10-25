@@ -8,6 +8,8 @@
 // The PIT IRQ from ring 3 lands on TSS.rsp0. yield and the timer share
 // one iretq frame: 15 saved GPRs, then RIP, CS, RFLAGS, RSP, SS.
 
+extern __syscall_rsp;
+
 let volatile sched_on: i64 = 0;
 let volatile cur_i: i64 = 0;
 let volatile saved_cs: i64 = 0;
@@ -159,15 +161,10 @@ fn timer_should_switch() -> i64 {
 }
 
 fn read_user_ctx() -> i64 {
-    // __syscall_rsp no es un nombre del programa.
-    // Pedido: let p: *i64 = __syscall_rsp → use of undeclared variable '__syscall_rsp'
-    asm("mov rax, [__syscall_rsp]"); // pedido: use of undeclared variable '__syscall_rsp'
-    asm("mov rbx, [rax-8]"); // pedido: rbx = 1 → assignment to undeclared variable 'rbx'
-    asm("mov [uctx_rsp], rbx"); // pedido: no hay store por un registro; *(p) = falla el parseo
-    asm("mov rbx, [rax-16]"); // pedido: rbx = 1 → assignment to undeclared variable 'rbx'
-    asm("mov [uctx_rip], rbx"); // pedido: store por registro, sin forma en el lenguaje
-    asm("mov rbx, [rax-24]"); // pedido: rbx = 1 → assignment to undeclared variable 'rbx'
-    asm("mov [uctx_rfl], rbx"); // pedido: store por registro, sin forma en el lenguaje
+    let p = __syscall_rsp;
+    uctx_rsp = *(p - 8);
+    uctx_rip = *(p - 16);
+    uctx_rfl = *(p - 24);
     return 0;
 }
 
@@ -260,25 +257,23 @@ fn note_user_fault(err: i64) -> i64 {
 }
 
 naked fn resume_frame() {
-    // rbp = / rsp = → assignment to undeclared variable 'rbp' / 'rsp'
-    // pop() → unknown function 'pop'. iretq() sí existe.
-    asm("mov rbp, [saved_ksp]"); // pedido: rbp = → assignment to undeclared variable 'rbp'
-    asm("mov rsp, rbp"); // pedido: rsp = 0 → assignment to undeclared variable 'rsp'
-    asm("pop r15"); // pedido: pop() → unknown function 'pop'
-    asm("pop r14"); // pedido: pop() → unknown function 'pop'
-    asm("pop r13"); // pedido: pop() → unknown function 'pop'
-    asm("pop r12"); // pedido: pop() → unknown function 'pop'
-    asm("pop r11"); // pedido: pop() → unknown function 'pop'
-    asm("pop r10"); // pedido: pop() → unknown function 'pop'
-    asm("pop r9"); // pedido: pop() → unknown function 'pop'
-    asm("pop r8"); // pedido: pop() → unknown function 'pop'
-    asm("pop rdi"); // pedido: pop() → unknown function 'pop'
-    asm("pop rsi"); // pedido: pop() → unknown function 'pop'
-    asm("pop rbp"); // pedido: pop() → unknown function 'pop'
-    asm("pop rbx"); // pedido: pop() → unknown function 'pop'
-    asm("pop rdx"); // pedido: pop() → unknown function 'pop'
-    asm("pop rcx"); // pedido: pop() → unknown function 'pop'
-    asm("pop rax"); // pedido: pop() → unknown function 'pop'
+    rbp = saved_ksp;
+    rsp = rbp;
+    pop(r15);
+    pop(r14);
+    pop(r13);
+    pop(r12);
+    pop(r11);
+    pop(r10);
+    pop(r9);
+    pop(r8);
+    pop(rdi);
+    pop(rsi);
+    pop(rbp);
+    pop(rbx);
+    pop(rdx);
+    pop(rcx);
+    pop(rax);
     iretq();
 }
 
@@ -421,12 +416,12 @@ fn dump_tables() -> i64 {
 
 fn sched_go() -> i64 {
     cli();
-    // rsp/rbp no son variables. & de una función es su entrada, no esta etiqueta.
-    // ljmp en bits 64: nasm «instruction not supported in 64-bit mode» (jmp 24:cs_reload).
-    asm("mov [resume_rsp], rsp"); // pedido: rsp = 0 → assignment to undeclared variable 'rsp'
-    asm("mov [resume_rbp], rbp"); // pedido: rbp = → assignment to undeclared variable 'rbp'
-    asm("lea rax, [.after_sched]"); // pedido: jmp other → expected ';' after this, found 'other'
-    asm("mov [resume_rip], rax"); // pedido: rax = 1 → assignment to undeclared variable 'rax'
+    // Esta función tiene marco. register 'rsp' is only available in a naked function.
+    // .after_sched no es un nombre del lenguaje; resume_shell salta ahí.
+    asm("mov [resume_rsp], rsp");
+    asm("mov [resume_rbp], rbp");
+    asm("lea rax, [.after_sched]");
+    asm("mov [resume_rip], rax");
     cur_i = 0;
     proc_state[0] = 2;
     tss.rsp0 = proc_rsp0[0];
@@ -436,7 +431,7 @@ fn sched_go() -> i64 {
     puts("run begin\n");
     sched_on = 1;
     resume_frame();
-    asm(".after_sched:"); // pedido: jmp other → expected ';' after this, found 'other'
+    asm(".after_sched:");
     sched_on = 0;
     write_cr3(0x1000);
     tss.rsp0 = 0x86000;
@@ -473,71 +468,55 @@ fn sched_summary() -> i64 {
 
 // Process A. Reads its private page, prints, yields, then spins in ring 3
 // so the PIT can preempt it. Copied to 0x400000; the trailing ret the
-// compiler adds is not executed.
-//
-// Pedido para cada asm() de prog_a, prog_b, prog_b_ar y prog_b_aw
-// (Copihue v0.24.1). El cuerpo es la imagen de anillo 3; un while
-// emitiría otra secuencia y cambiaría el tiempo del round-robin.
-//   syscall() → 'syscall' needs the hosted runtime (Linux syscalls) and is not available with --freestanding
-//   rax = 1 / al = 1 / ecx = 1 → assignment to undeclared variable 'rax' / 'al' / 'ecx'
-//   push() → unknown function 'push'; pop() → unknown function 'pop'
-//   jmp other → expected ';' after this, found 'other'
-//   a naked function cannot have local variables
-//   *(0x1000 as *u32) = 0x2003 → expected ';' after this, found '='
+// compiler adds is not executed. No naked local: that slot lives in the
+// kernel image and ring 3 cannot read it. The round counter is rbp.
+// while uses rbx as scratch, and forge() resumes a yield with every GPR
+// cleared, so rbp is set after the yields. syscall's leave restores rbp.
 naked fn prog_a() {
-    asm("mov al, [0x500000]"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("cmp al, 0xA5"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("jne .a_skipm"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 77"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 10"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm(".a_skipm:"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 65"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 10"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 3"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, rax"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("add rdi, 48"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 10"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 4"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 65"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 10"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 4"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 6"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("push rax"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm(".a_round:"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov ecx, 4000000"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm(".a_spin:"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("dec ecx"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("jnz .a_spin"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 97"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("pop rax"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("dec rax"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("jz .a_leave"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("push rax"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("jmp .a_round"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm(".a_leave:"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 5"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
+    al = *(0x500000 as *u8);
+    if (al == 0xA5) {
+        rax = 1;
+        rdi = 77;
+        syscall();
+        rax = 1;
+        rdi = 10;
+        syscall();
+    }
+    rax = 1;
+    rdi = 65;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    rax = 3;
+    syscall();
+    rdi = rax + 48;
+    rax = 1;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    rax = 4;
+    syscall();
+    rax = 1;
+    rdi = 65;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    rax = 4;
+    syscall();
+    rbp = 6;
+    while (rbp != 0) {
+        ecx = 4000000;
+        while (ecx != 0) { ecx = ecx - 1; }
+        rax = 1;
+        rdi = 97;
+        syscall();
+        rbp = rbp - 1;
+    }
+    rax = 5;
+    syscall();
     hlt();
 }
 
@@ -548,57 +527,49 @@ naked fn prog_a_end() {
 // Process B. The read and the write of 0x500000 are the last instruction
 // of their own naked functions; #PF resumes at the next one.
 naked fn prog_b() {
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 66"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 10"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 3"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, rax"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("add rdi, 48"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 10"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov al, [0x500000]"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
+    rax = 1;
+    rdi = 66;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    rax = 3;
+    syscall();
+    rdi = rax + 48;
+    rax = 1;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    al = *(0x500000 as *u8);
 }
 
 naked fn prog_b_ar() {
-    asm("mov byte [0x500000], 90"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
+    *(0x500000 as *u8) = 90;
 }
 
 naked fn prog_b_aw() {
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 66"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 4"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 66"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 4"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 6"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("push rax"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm(".b_round:"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov ecx, 4000000"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm(".b_spin:"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("dec ecx"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("jnz .b_spin"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 1"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rdi, 98"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("pop rax"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("dec rax"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("jz .b_leave"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("push rax"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("jmp .b_round"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm(".b_leave:"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("mov rax, 5"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
-    asm("syscall"); // pedido: syscall() de anfitrión, GPR no asignable, push()/pop(), o jmp other (bloque de prog_a / user_prog)
+    rax = 1;
+    rdi = 66;
+    syscall();
+    rax = 4;
+    syscall();
+    rax = 1;
+    rdi = 66;
+    syscall();
+    rax = 4;
+    syscall();
+    rbp = 6;
+    while (rbp != 0) {
+        ecx = 4000000;
+        while (ecx != 0) { ecx = ecx - 1; }
+        rax = 1;
+        rdi = 98;
+        syscall();
+        rbp = rbp - 1;
+    }
+    rax = 5;
+    syscall();
     hlt();
 }
 

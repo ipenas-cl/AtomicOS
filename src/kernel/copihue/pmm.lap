@@ -81,8 +81,12 @@ fn pmm_mark_range(base: i64, len: i64) -> i64 {
     return 0;
 }
 
-// The image is loaded at 0x10000. If .bss ever crosses 1MB, those pages
-// must not be handed out.
+// The image is loaded at 0x10000. .bss follows kernel.bin and is not in
+// the file. Both have to end before 0x58000: process 0's kernel stack
+// starts at 0x60000 and grows down through the 32 KiB under that top.
+// Pages below 1MB stay reserved, so a .bss that stays under 1MB is not
+// handed out. Overlapping that stack would still corrupt it. make
+// rejects a kernel.bin past 512 sectors and an image+bss past 0x58000.
 fn pmm_reserve_image() -> i64 {
     let a = 0x10000;
     let end = bss_end() as i64;

@@ -6,9 +6,12 @@ para ese commit es `legacy-tempo`.
 
 ## 0.8
 
-Kernel en Copihue v0.25.0. El arranque es `src/bootloader/boot.lap`
+Kernel en Copihue v0.26.1. El arranque es `src/bootloader/boot.lap`
 (512 bytes) y `src/bootloader/stage2.lap` (en `0x8200`). La etapa 2 pide
-los sectores que ocupa `kernel.bin`. Cada proceso tiene su PML4 y el PIT
+los sectores que ocupa `kernel.bin`, de a 128 por INT 13h. El archivo
+puede pasar de `0x20000`; imagen y `.bss` tienen que terminar antes de
+`0x58000` (la pila de `0x60000` crece hacia abajo). `make` rechaza un
+kernel de más de 512 sectores. Cada proceso tiene su PML4 y el PIT
 hace round-robin. La imagen la construyen `make all` y la comprueba
 `make qemu-test`. El árbol de trabajo ya no incluye el lenguaje Tempo
 ni sus salidas generadas.

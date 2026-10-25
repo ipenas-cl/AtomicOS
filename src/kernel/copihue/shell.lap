@@ -229,7 +229,7 @@ fn run_command() -> i64 {
     }
     if (cmd_is("clear")) { con_clear(); return 0; }
     if (cmd_is("version")) {
-        puts("AtomicOS 0.8 - kernel written in Copihue v0.24.1\n");
+        puts("AtomicOS 0.8 - kernel written in Copihue v0.26.1\n");
         return 0;
     }
     if (cmd_is("ticks")) {
@@ -276,7 +276,7 @@ fn run_command() -> i64 {
     if (cmd_is("fs")) { cmd_fs(); return 0; }
     if (cmd_is("ud2")) {
         puts("raising #UD\n");
-        asm("ud2"); // pedido: ud2() → unknown function 'ud2'
+        ud2();
         puts("ud2 returned\n");
         return 0;
     }

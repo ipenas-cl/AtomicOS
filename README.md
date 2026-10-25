@@ -20,20 +20,22 @@ Versión de kernel **0.8**. Experimental.
 
 La etapa 1 solo carga los 8 sectores de la etapa 2. La etapa 2 habilita A20, lee el kernel con INT 13h, guarda el mapa E820 en `0x8000` y entra en modo largo. La pila del kernel queda en `0x90000`. CR3 queda en `0x1000`, con PML4[0] `0x2003`, PDPT[0] `0x3003` y PD[0] `0x83`. El número de unidad del BIOS queda en `0x0500`.
 
-El número de sectores del kernel no está fijo en el fuente. `stage2.lap` tiene el marcador `dw 0; // KERNEL_SECTORS`. `make` copia el archivo a `build/stage2.lap` y escribe ahí `ceil(kernel.bin / 512)`. Un solo paquete INT 13h usa un offset de 16 bits desde `0x1000:0`, así que el tope es 128 sectores (65536 bytes). El disquete deja más sitio (2880 − 9). `make` falla si el kernel pasa de ese tope: con un `kernel.bin` de 65537 bytes la etapa 2 sale con `kernel too large for stage 2` y Make termina en 2.
+El número de sectores del kernel no está fijo en el fuente. `stage2.lap` tiene el marcador `dw 0; // KERNEL_SECTORS`. `make` copia el archivo a `build/stage2.lap` y escribe ahí `ceil(kernel.bin / 512)`. Ese número es el total. La etapa 2 lo parte en paquetes de 128 sectores: un INT 13h con offset 0 no puede pasar de 64 KiB, porque el offset es de 16 bits. Cada paquete usa el segmento `0x1000`, `0x2000`, … y el LBA que sigue. `>` en modo real ensambla `setg` (con signo); con un total de hasta 32767 el corte en 128 sigue valiendo. El tope de `make` es 512.
 
-En esta compilación (`copihue` v0.25.0, commit `b8b0d0740cd7b7bdbe4a2f6d5ba01baf9301f575`, `wc -l` y `stat`):
+El archivo puede pasar de `0x20000`. La `.bss` no va en `kernel.bin`; `_start` la limpia justo después. El tope real es la memoria, no el disquete (quedan 2880 − 9 sectores, y eso atravesaría las pilas y pasaría de 1 MB). La primera pila fija está en `0x60000` (`proc_rsp0` del proceso 0) y crece hacia abajo. Entre topes de pila hay 32 KiB (`0x60000`, `0x68000`, `0x70000`, `0x78000`, y más arriba `0x81000`, `0x86000` y `0x90000`), así que imagen y `.bss` tienen que terminar antes de `0x58000`. `make` reserva 32 KiB para la `.bss` y rechaza un `kernel.bin` de más de 512 sectores (256 KiB, el archivo termina a más tardar en `0x50000`). También suma los `resb` y `resq` de la `.bss` y falla si `0x10000 + kernel.bin + .bss` pasa de `0x58000`.
+
+En esta compilación (`copihue` v0.26.1, commit `54dc238f943968e676040e67bdac206ce201bc7f`, `wc -l` y `stat`):
 
 | Archivo | Tamaño |
 |---|---|
 | `build/boot.bin` | 512 bytes |
-| `build/stage2.bin` | 846 bytes (cabe en 8 × 512) |
-| `build/kernel.bin` | 62240 bytes → 122 sectores (LBA 9..130) |
-| `src/bootloader/boot.lap` | 75 líneas, 19 de ellas `asm("...")` |
-| `src/bootloader/stage2.lap` | 255 líneas, 86 de ellas `asm("...")` |
-| `src/kernel/copihue/*.lap` | 2969 líneas, 183 de ellas `asm("...")` |
+| `build/stage2.bin` | 1736 bytes (cabe en 8 × 512) |
+| `build/kernel.bin` | 62524 bytes → 123 sectores (LBA 9..131). La `.bss` mide 9968 bytes y `0x10000 + kernel.bin + .bss` termina en `0x21B2C` |
+| `src/bootloader/boot.lap` | 76 líneas, ninguna `asm("...")` |
+| `src/bootloader/stage2.lap` | 268 líneas, ninguna `asm("...")` |
+| `src/kernel/copihue/*.lap` | 2947 líneas, 17 de ellas `asm("...")` |
 
-`copihue --help` en v0.25.0 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 7a 00 00 00 00 10 09 00 00 00 00 00 00 00`: 122 sectores (`0x007A`) desde LBA 9 hacia `0x1000:0`.
+`copihue --help` en v0.26.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 7b 00 00 00 00 10 09 00 00 00 00 00 00 00`: 123 sectores (`0x007B`) desde LBA 9 hacia `0x1000:0`. Esta imagen entra en un solo paquete. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt: el segundo paquete no pisa el kernel.
 
 Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `atomicos>`.
 
@@ -60,7 +62,7 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - `fs`: formatea, escribe `a` como `v1`, saca el snapshot `s1`, reescribe `a` como `v2`, lee `v2` en vivo y `v1` desde `s1`, hace rollback de otro archivo y un archivo de 600 bytes. Apaga QEMU, abre el mismo `build/data.img` y vuelve a leer. Después pisa un bloque de `a`: tiene que salir `fs corrupt detected` y `s1` sigue en `v1`;
 - `ud2` imprime la excepción `#UD`.
 
-En QEMU 8.2.2, con el pin v0.25.0, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 1035 ms, ticks 200 → 416, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `babababababa`, `switch timer=13 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473, las líneas `ata ok`, `blk ok`, `blk corrupt detected`, y después del segundo arranque con el mismo `data.img` la línea `fs persist v2, snap v1, corrupt detected`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. El texto de `version` sigue diciendo Copihue v0.24.1. El `kernel.bin` de esta imagen ya no es el de ese pin: suma el driver ATA, los bloques y el sistema de archivos.
+En QEMU 8.2.2, con el pin v0.26.1, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 932 ms, ticks 200 → 416, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `babababababa`, `switch timer=21 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473, las líneas `ata ok`, `blk ok`, `blk corrupt detected`, y después del segundo arranque con el mismo `data.img` la línea `fs persist v2, snap v1, corrupt detected`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. `version` dice Copihue v0.26.1.
 
 El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -no-reboot`) salió con código 124: el proceso seguía vivo.
 
@@ -96,7 +98,7 @@ qemu-system-x86_64 -drive format=raw,file=build/atomicos.img \
     -display none -serial stdio
 ```
 
-El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.25.0`, commit `b8b0d0740cd7b7bdbe4a2f6d5ba01baf9301f575`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
+El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.26.1`, commit `54dc238f943968e676040e67bdac206ce201bc7f`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
 
 ```bash
 make COPIHUE=/ruta/al/copihue all
@@ -143,7 +145,7 @@ docs/copihue-shell.png
 docs/atomicos-copihue-demo.mp4
 ```
 
-`make` compila `src/kernel/copihue/kernel.lap`. Ese archivo importa el resto, en el orden de `COPIHUE_KERNEL_SRC`, y Copihue los junta en un solo espacio de nombres. `build/` no se versiona. El `kernel.bin` de ese árbol es idéntico al que salía de concatenar los mismos archivos con v0.24.1.
+`make` compila `src/kernel/copihue/kernel.lap`. Ese archivo importa el resto, en el orden de `COPIHUE_KERNEL_SRC`, y Copihue los junta en un solo espacio de nombres. `build/` no se versiona.
 
 ## Hoja de ruta
 
@@ -151,7 +153,7 @@ El estado de cada etapa es el de la imagen que arranca `make qemu-test`.
 
 ### 1. Arranque y consola — en la imagen
 
-Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. En v0.24.1, `lgdt`, `read_cr*` / `write_cr*`, `inb` / `outb`, `rdmsr` / `wrmsr`, `cpuid` / `cpuid_edx`, `if carry`, `int_carry` y `while (1) { hlt(); }` reemplazan el `asm()` de esas operaciones, también dentro de `bits 16 naked` y `bits 32 naked`. El `asm()` que queda está comentado en `boot.lap` y `stage2.lap` con el error de v0.24.1: no hay asignación a registros de segmento ni a `sp`/`esp`/`rsp`, una función `naked` no tiene locales ni parámetros, y no existen `lodsb`, `stosd`, `pushfd`, `push` ni `pop`. `dq page + 3` ensambla, pero las tablas tienen que quedar en la dirección física `0x1000`, fuera de esta imagen.
+Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. En v0.26.1, `boot.lap` y `stage2.lap` no tienen `asm()`: los segmentos, `jmp`, los stores con ancho, `lodsb`, `rep_stosd`, `pushfd` / `popfd` y `push` / `pop` están en el lenguaje. El lazo que parte el kernel en paquetes de 128 sectores también. `cld()` sigue siendo `unknown function 'cld'`; el arranque apaga DF con `pushfd` antes de `lodsb` y de `rep_stosd`. En el kernel quedan 17 `asm()`: el salto indirecto de `resume_shell` (`jmp resume_rip` es `unknown jump target 'resume_rip'`), el marco de `enter_user` y de `sched_go` (`register 'rsp' is only available in a naked function`) y el marco de las `interrupt fn` (`register 'rbp' is only available in a naked function`). El sistema de archivos no agrega `asm()`. `dq page + 3` ensambla, pero las tablas tienen que quedar en la dirección física `0x1000`, fuera de esta imagen.
 
 ### 2. Interrupciones y temporizador — en la imagen
 
@@ -175,7 +177,7 @@ IDT de 48 entradas. Las excepciones de CPU 0–31 imprimen su nombre; `#PF` tamb
 
 ### 5. Disco y sistema de archivos — parcial, en la imagen
 
-El arranque sigue leyendo la etapa 2 (8 sectores) y el kernel con INT 13h; el conteo lo calcula `make`. El kernel trae ATA PIO del esclavo primario (LBA28: identify, leer y escribir un sector, con timeout) y bloques de 512 B cuyo CRC-32 vive en el sector de al lado. Encima hay un directorio plano copy-on-write, con snapshots y rollback. El layout del disco está en [docs/disco.md](docs/disco.md) y el del sistema de archivos en [docs/fs.md](docs/fs.md). Sigue pendiente otro bus (AHCI, NVMe).
+El arranque sigue leyendo la etapa 2 (8 sectores) y el kernel con INT 13h, de a 128 sectores; el conteo total lo calcula `make`. Imagen y `.bss` tienen que terminar antes de `0x58000`. El kernel trae ATA PIO del esclavo primario (LBA28: identify, leer y escribir un sector, con timeout) y bloques de 512 B cuyo CRC-32 vive en el sector de al lado. Encima hay un directorio plano copy-on-write, con snapshots y rollback. El layout del disco está en [docs/disco.md](docs/disco.md) y el del sistema de archivos en [docs/fs.md](docs/fs.md). Sigue pendiente otro bus (AHCI, NVMe).
 
 ### 6. Red — pendiente
 
