@@ -28,9 +28,7 @@ packed struct DescPtr { limit: u16, base: u64 }
 let volatile ticks: i64 = 0;
 let idt: [IdtEntry; 48];
 
-// Returns the address of a string. `-> *u8` does not parse in Copihue v0.20.0
-// (the return type is a single token), so the address is an i64.
-fn exc_name(vec: i64) -> i64 {
+fn exc_name(vec: i64) -> *u8 {
     if (vec == 0) { return "#DE divide error"; }
     if (vec == 1) { return "#DB debug"; }
     if (vec == 2) { return "NMI"; }

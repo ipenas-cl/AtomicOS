@@ -5,7 +5,7 @@
 # that a later `ticks` read is larger, that IRQ1 delivered keystrokes, and
 # that a deliberate #UD prints its exception line, that read_cr3 matches
 # the bootloader page table, and that a read of unmapped 0x200000 prints
-# that address from CR2.
+# that address from CR2 and then the loaded byte 0x00000000.
 # Usage: tests/qemu_shell_test.sh [image] [--screenshot out.png]
 # Needs: qemu-system-x86_64, socat; ffmpeg only for --screenshot.
 set -u
@@ -111,7 +111,16 @@ if printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=0x
 else
     fail "page fault did not report cr2=0x200000"
 fi
-printf '%s\n' "$clean" | grep -qx "pf resumed" || fail "kernel did not resume after #PF"
+# `mul 6 -7` runs before `pf`. The byte at physical 0x200000 is 0, so the
+# resumed line is `pf resumed 0x00000000`. A second local also named `b`
+# used to print the mul operand -7 as 0xfffffff9.
+mul_at=$(printf '%s\n' "$clean" | grep -n "^-42$" | head -1 | cut -d: -f1)
+pf_line=$(printf '%s\n' "$clean" | grep -n "^pf resumed " | head -1)
+pf_at=$(printf '%s\n' "$pf_line" | cut -d: -f1)
+pf_byte=$(printf '%s\n' "$pf_line" | sed -n 's/^[0-9]*:pf resumed //p')
+[ -n "$mul_at" ] && [ -n "$pf_at" ] && [ "$pf_at" -gt "$mul_at" ] || fail "pf did not run after mul 6 -7"
+[ "$pf_byte" = "0x00000000" ] || fail "pf resumed printed '$pf_byte', want the byte 0 at 0x200000 (not 0xfffffff9)"
+echo "ok   pf resumed 0x00000000 after mul 6 -7"
 
 typeline ud2
 sleep 0.5

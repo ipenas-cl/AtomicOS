@@ -11,7 +11,7 @@
 
 AtomicOS is a hobby operating system. Its kernel is written in [Copihue](https://github.com/ipenas-cl/copihue); only the 512-byte bootloader is x86-64 assembly. The long-term idea is a deterministic, real-time kernel for security-critical use, where every operation has a known worst-case execution time (WCET) and isolation is enforced by hardware.
 
-> **Status: experimental hobby OS, kernel 0.8.** `make all` builds a bootable 64-bit image. A NASM bootloader switches to long mode and loads a kernel that is **written entirely in [Copihue](https://github.com/ipenas-cl/copihue) v0.20.1**: entry and .bss, VGA text and COM1, an IDT (CPU exceptions print a line on the console, which is mirrored to serial; `#PF` also prints `read_cr2()`), the PIC remapped to vectors 32-47, a PIT at 100 Hz (`let volatile ticks`), a PS/2 keyboard on IRQ1, and a shell. `make qemu-test` checks the tick counter, the keyboard IRQ, `read_cr3()` against the bootloader page tables, a read of unmapped `0x200000`, a deliberate `#UD`, and the shell replies for `echo`, `add`, `mul`, `version`, `help` and an unknown command. `clear` and `reboot` are still in the shell; the test does not type `reboot`, because that resets the machine. The features under "Design goals" are goals, not implemented features.
+> **Status: experimental hobby OS, kernel 0.8.** `make all` builds a bootable 64-bit image. A NASM bootloader switches to long mode and loads a kernel that is **written entirely in [Copihue](https://github.com/ipenas-cl/copihue) v0.22.1**: entry and .bss, VGA text and COM1, an IDT (CPU exceptions print a line on the console, which is mirrored to serial; `#PF` also prints `read_cr2()`; exception names are `-> *u8`), the PIC remapped to vectors 32-47, a PIT at 100 Hz (`let volatile ticks`), a PS/2 keyboard on IRQ1, and a shell. `make qemu-test` checks the tick counter, the keyboard IRQ, `read_cr3()` against the bootloader page tables, a read of unmapped `0x200000` (the handler resumes and `pf resumed` prints the byte `0x00000000`, which is the byte at that address), a deliberate `#UD`, and the shell replies for `echo`, `add`, `mul`, `version`, `help` and an unknown command. `clear` and `reboot` are still in the shell; the test does not type `reboot`, because that resets the machine. The features under "Design goals" are goals, not implemented features.
 
 ![AtomicOS shell running a Copihue kernel in QEMU](docs/copihue-shell.png)
 
@@ -25,10 +25,10 @@ Measured by source lines that end up in the boot image:
 |---|---|---|
 | Bootloader (NASM) | 231 | 233 (`boot64.asm`, reads the kernel with LBA; 64-bit code selector is 0x18) |
 | Kernel, assembly | 75 (`kernel_simple64.asm`) | 0 (no entry stub; `asm("ud2")` is the only inline instruction, used by the `ud2` shell command) |
-| Kernel, Copihue | 0 | 656 (`src/kernel/copihue/*.lap`, built with `copihue --flat 0x10000`) |
+| Kernel, Copihue | 0 | 659 (`src/kernel/copihue/*.lap`, built with `copihue --flat 0x10000`) |
 | **Share in Copihue** | **0%** | **100% of the kernel; ~74% of the image by source lines (the rest is the bootloader)** |
 
-The compiler is pinned to the tag `v0.20.1` (`COPIHUE_COMMIT` in the `Makefile`; that tag is commit `626e3e80d55eaf065b173ea545b6de14f98b6ad4`). `make` fetches and builds it into `build/copihue`. To use a local compiler: `make COPIHUE=/path/to/copihue`. The older `*.asm`, `*.inc` and `*.tempo` files under `src/kernel/` are not part of the current image (see `src/kernel/LEGACY.md`).
+The compiler is pinned to the tag `v0.22.1` (`COPIHUE_COMMIT` in the `Makefile`; that tag is commit `e630cd025f7d03bca89e94a068a47addf34194c2`). `make` fetches and builds it into `build/copihue`. To use a local compiler: `make COPIHUE=/path/to/copihue`. The older `*.asm`, `*.inc` and `*.tempo` files under `src/kernel/` are not part of the current image (see `src/kernel/LEGACY.md`).
 
 ## Co-evolution roadmap
 
@@ -37,13 +37,13 @@ AtomicOS and Copihue grow together. Done in this tree means it is in the boot im
 | OS milestone | State |
 |---|---|
 | IDT, CPU exceptions, PIC remapped to 32-47, PIT at 100 Hz, IRQ1 keyboard | done (`interrupt fn`, `packed struct`, `let volatile`, `lidt`). The long-mode code selector is 0x18 |
-| Page-fault address and the bootloader page tables | done on Copihue v0.20.1. `#PF` prints `read_cr2()`. `cr3` prints `read_cr3()` and the first PML4 and PDPT entries. A not-present fault in the bootloader's PD is filled with a 2MB identity page and `invlpg`, then the instruction retries. This kernel does not call `write_cr3` |
-| Physical page allocator and a new address space | planned. v0.20.1 has `write_cr3`, but there is no allocator and no second set of tables |
+| Page-fault address and the bootloader page tables | done. `#PF` prints `read_cr2()`. `cr3` prints `read_cr3()` and the first PML4 and PDPT entries. A not-present fault in the bootloader's PD is filled with a 2MB identity page and `invlpg`, then the instruction retries. After `mul 6 -7`, `pf resumed` prints the byte just read (`0x00000000` at `0x200000`). This kernel does not call `write_cr3` |
+| Physical page allocator and a new address space | planned. `write_cr3` has been in the compiler since v0.20.1, but there is no allocator and no second set of tables |
 | Bootloader stage 2 in Copihue | planned. Needs 16/32-bit codegen, or the 512-byte stub stays |
 | Separate compilation of kernel modules | planned. Needs modules and relocatable ELF objects. The kernel is still one concatenated `.lap` file |
-| User mode and syscalls | planned. v0.20.1 has `syscall fn`, but this kernel does not program `STAR` / `LSTAR` / `EFER` or a TSS |
+| User mode and syscalls | planned. The compiler has `syscall fn`, but this kernel does not program `STAR` / `LSTAR` / `EFER` or a TSS |
 
-Two requests still open for the language, both hit while building this kernel. `fn name() -> *u8` does not parse (`expected '{', found 'u8'`); the return type is one token, so exception names are returned as an `i64` address. In one function, a second `let b` is stored in a new stack slot but a use of `b` still reads the first `let b`. The `pf` command therefore does not read the loaded byte back. Neither is worked around in assembly.
+`fn exc_name(vec: i64) -> *u8` compiles on v0.22.1 (on v0.20.1 the same signature failed with `expected '{', found 'u8'`). One request is still open for the language: in one function, a second `let` of a name already bound is stored in a new stack slot, but a use of that name still reads the first binding. Copihue v0.22.2 is expected to fix that lexical scope; this tree does not patch the compiler. `run_command` therefore uses distinct names (`rhs` and `fault_byte`; `i` and `name_i`).
 
 ## Design goals
 
@@ -142,7 +142,7 @@ make clean      # Remove build output
 
 ## Testing
 
-CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) builds the image, boots it in QEMU for 10 seconds (the process must still be running), and runs `make qemu-test`. That test types the six original shell commands with `sendkey` and checks their replies, checks that `ticks` grows by 100 in about one second and again while the shell runs, checks that `irqs` reports keyboard interrupts, checks that `cr3` prints `0x1000` and the bootloader's PML4 and PDPT entries (with the CPU accessed bit set), checks that `pf` prints `cr2=0x00200000`, and checks that `ud2` prints `exception: vector 6 #UD invalid opcode`.
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) builds the image, boots it in QEMU for 10 seconds (the process must still be running), and runs `make qemu-test`. That test types the six original shell commands with `sendkey` and checks their replies, checks that `ticks` grows by 100 in about one second and again while the shell runs, checks that `irqs` reports keyboard interrupts, checks that `cr3` prints `0x1000` and the bootloader's PML4 and PDPT entries (with the CPU accessed bit set), checks that `pf` prints `cr2=0x00200000` and that `pf resumed` after `mul 6 -7` prints `0x00000000`, and checks that `ud2` prints `exception: vector 6 #UD invalid opcode`.
 The kernel unit tests under `src/tests/` depend on the old Tempo toolchain and are not wired into the Makefile yet.
 
 ## Documentation
