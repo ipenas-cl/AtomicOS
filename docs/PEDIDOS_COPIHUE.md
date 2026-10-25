@@ -57,3 +57,44 @@ El sistema de archivos anota el sector con offsets sobre un buffer
 Cuando un arreglo adentro de un `packed struct` mida `N` por el ancho
 del elemento, y `e.name[i] = c` guarde el byte, estas entradas pueden
 pasar a ser structs.
+
+## Cabecera Ethernet
+
+La misma falla, ahora con una trama. No hay mensaje: `copihue` termina
+en 0. Esto es lo que habría descrito la cabecera:
+
+```copihue
+packed struct EthHdr {
+    dst: [u8; 6],
+    src: [u8; 6],
+    etype: u16
+}
+
+fn probe() -> i64 {
+    let e: EthHdr;
+    e.etype = 0x0800;
+    e.dst[0] = 255;
+    return e.etype;
+}
+```
+
+Debería medir 14 bytes: destino en 0, origen en 6, ethertype en 12.
+Con v0.26.1 (`copihue --flat 0x10000 -S`) el ensamblado dice:
+
+```
+; Struct local: e: EthHdr (4 bytes)
+mov rax, 2048
+; Field assignment: e.etype (offset 2)
+mov word [rbp-2], cx
+mov rax, 255
+mov rax, 0
+```
+
+`etype` quedó en el offset 2, detrás de un byte por arreglo. `e.dst[0]
+= 255` carga 255 y lo tira: no hay store.
+
+ARP e IPv4 pisan el mismo clavo (direcciones de 6 y 4 bytes). La red
+las escribe con offsets sobre un buffer. Un `packed struct` de solo
+escalares sí mide bien: el descriptor del e1000 (`u64`, `u16`, `u8`,
+16 bytes, campo `volatile`) ensambla el ancho real y por eso el anillo
+sí es un struct.
