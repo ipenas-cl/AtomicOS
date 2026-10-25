@@ -142,6 +142,11 @@ $(COPIHUE_DIR)/copihue: | $(BUILD_DIR)
 	git -C $(COPIHUE_DIR) checkout -q FETCH_HEAD
 	$(MAKE) -C $(COPIHUE_DIR) copihue
 
+# The stage rules are parsed before this variable exists, so $(COPIHUE) in
+# their prerequisite lists was empty. This line is read afterwards and is
+# what actually makes stage 1 and stage 2 wait for the compiler.
+$(BOOTLOADER) $(STAGE2): $(COPIHUE)
+
 # Kernel: 100% Copihue. `copihue --flat` emits a flat binary that starts at fn _start.
 COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap $(KERNEL_SRC)/copihue/keyboard.lap \
                      $(KERNEL_SRC)/copihue/pmm.lap $(KERNEL_SRC)/copihue/paging.lap \
