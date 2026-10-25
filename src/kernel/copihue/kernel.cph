@@ -1,0 +1,14 @@
+// AtomicOS kernel entry (called from src/kernel/entry64.asm in 64-bit long mode).
+
+fn kmain() -> i64 {
+    serial_init();
+    set_color(0x0F);
+    con_clear();
+    set_color(0x0B);
+    puts("AtomicOS 0.8 (x86-64)\n");
+    set_color(0x07);
+    puts("Kernel console, PS/2 keyboard driver and shell are written in Copihue.\n");
+    puts("Type 'help' for commands.\n\n");
+    shell_run();
+    return 0;
+}

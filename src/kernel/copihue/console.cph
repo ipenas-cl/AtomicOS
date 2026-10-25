@@ -1,0 +1,122 @@
+// AtomicOS console: VGA text mode (80x25 at 0xB8000) mirrored to COM1.
+// Freestanding Copihue: no OS, no syscalls; hardware access via port I/O builtins.
+
+let con_row: i64 = 0;
+let con_col: i64 = 0;
+let con_attr: i64 = 0x0F;
+
+fn serial_init() -> i64 {
+    outb(0x3F9, 0x00);   // disable interrupts
+    outb(0x3FB, 0x80);   // DLAB on
+    outb(0x3F8, 0x01);   // divisor 1 = 115200 baud
+    outb(0x3F9, 0x00);
+    outb(0x3FB, 0x03);   // 8N1, DLAB off
+    outb(0x3FA, 0xC7);   // FIFO
+    outb(0x3FC, 0x03);   // DTR + RTS
+    return 0;
+}
+
+fn serial_putc(c: i64) -> i64 {
+    let tries = 0;
+    while ((inb(0x3FD) & 0x20) == 0 && tries < 100000) { tries++; }
+    outb(0x3F8, c);
+    return 0;
+}
+
+fn vga_set_cursor() -> i64 {
+    let pos = con_row * 80 + con_col;
+    outb(0x3D4, 0x0F);
+    outb(0x3D5, pos & 0xFF);
+    outb(0x3D4, 0x0E);
+    outb(0x3D5, (pos >> 8) & 0xFF);
+    return 0;
+}
+
+fn con_clear() -> i64 {
+    let vga: *u16 = 0xB8000;
+    let i = 0;
+    while (i < 80 * 25) {
+        vga[i] = (con_attr << 8) | ' ';
+        i++;
+    }
+    con_row = 0;
+    con_col = 0;
+    vga_set_cursor();
+    return 0;
+}
+
+fn con_scroll() -> i64 {
+    let vga: *u16 = 0xB8000;
+    let i = 0;
+    while (i < 80 * 24) {
+        vga[i] = vga[i + 80];
+        i++;
+    }
+    while (i < 80 * 25) {
+        vga[i] = (con_attr << 8) | ' ';
+        i++;
+    }
+    con_row = 24;
+    return 0;
+}
+
+fn con_newline() -> i64 {
+    con_col = 0;
+    con_row++;
+    if (con_row >= 25) { con_scroll(); }
+    return 0;
+}
+
+// Print one character to screen and serial. Handles '\n' and backspace (8).
+fn putc(c: i64) -> i64 {
+    let vga: *u16 = 0xB8000;
+    if (c == '\n') {
+        serial_putc('\r');
+        serial_putc('\n');
+        con_newline();
+    } else if (c == 8) {
+        if (con_col > 0) {
+            con_col--;
+            vga[con_row * 80 + con_col] = (con_attr << 8) | ' ';
+            serial_putc(8); serial_putc(' '); serial_putc(8);
+        }
+    } else {
+        vga[con_row * 80 + con_col] = (con_attr << 8) | c;
+        serial_putc(c);
+        con_col++;
+        if (con_col >= 80) { con_newline(); }
+    }
+    vga_set_cursor();
+    return 0;
+}
+
+fn puts(s: *u8) -> i64 {
+    let i = 0;
+    while (s[i] != 0) {
+        putc(s[i]);
+        i++;
+    }
+    return 0;
+}
+
+fn put_int(n: i64) -> i64 {
+    let digits: [u8; 24];
+    if (n < 0) { putc('-'); n = 0 - n; }
+    let count = 0;
+    if (n == 0) { digits[0] = '0'; count = 1; }
+    while (n > 0) {
+        digits[count] = '0' + n % 10;
+        n = n / 10;
+        count++;
+    }
+    while (count > 0) {
+        count--;
+        putc(digits[count]);
+    }
+    return 0;
+}
+
+fn set_color(attr: i64) -> i64 {
+    con_attr = attr;
+    return 0;
+}

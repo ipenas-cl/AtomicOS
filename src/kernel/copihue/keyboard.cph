@@ -1,0 +1,52 @@
+// AtomicOS PS/2 keyboard driver (polled, scancode set 1, US layout).
+
+let kbd_shift: i64 = 0;
+
+fn kbd_translate(sc: i64) -> i64 {
+    let lower: *u8 = "1234567890-=";
+    let upper: *u8 = "!@#$%^&*()_+";
+    let q_lower: *u8 = "qwertyuiop[]";
+    let q_upper: *u8 = "QWERTYUIOP{}";
+    let a_lower: *u8 = "asdfghjkl;'`";
+    let a_upper: *u8 = "ASDFGHJKL:\"~";
+    let z_lower: *u8 = "\\zxcvbnm,./";
+    let z_upper: *u8 = "|ZXCVBNM<>?";
+    if (sc >= 0x02 && sc <= 0x0D) {
+        if (kbd_shift) { return upper[sc - 0x02]; }
+        return lower[sc - 0x02];
+    }
+    if (sc >= 0x10 && sc <= 0x1B) {
+        if (kbd_shift) { return q_upper[sc - 0x10]; }
+        return q_lower[sc - 0x10];
+    }
+    if (sc >= 0x1E && sc <= 0x29) {
+        if (kbd_shift) { return a_upper[sc - 0x1E]; }
+        return a_lower[sc - 0x1E];
+    }
+    if (sc >= 0x2B && sc <= 0x35) {
+        if (kbd_shift) { return z_upper[sc - 0x2B]; }
+        return z_lower[sc - 0x2B];
+    }
+    if (sc == 0x39) { return ' '; }
+    if (sc == 0x1C) { return '\n'; }
+    if (sc == 0x0E) { return 8; }
+    return 0;
+}
+
+// Block until a key that produces a character is pressed; return it.
+fn kbd_getc() -> i64 {
+    while (1) {
+        if ((inb(0x64) & 1) != 0) {
+            let sc = inb(0x60);
+            if (sc == 0x2A || sc == 0x36) { kbd_shift = 1; continue; }
+            if (sc == 0xAA || sc == 0xB6) { kbd_shift = 0; continue; }
+            if ((sc & 0x80) == 0) {
+                let c = kbd_translate(sc);
+                if (c != 0) { return c; }
+            }
+        } else {
+            pause();
+        }
+    }
+    return 0;
+}

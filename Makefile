@@ -104,11 +104,41 @@ $(BOOTLOADER): $(BOOT_SRC)/boot64.asm | $(BUILD_DIR)
 # 	@echo "Compiling fs.c..."
 # 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Build 64-bit kernel (simplified for testing)
-$(KERNEL): $(KERNEL_SRC)/kernel_simple64.asm | $(BUILD_DIR)
-	@echo "Assembling 64-bit kernel (test version)..."
-	@mkdir -p $(BUILD_DIR)/kernel
-	cd $(BUILD_DIR) && $(AS) $(ASFLAGS) ../$(KERNEL_SRC)/kernel_simple64.asm -o ../$(KERNEL)
+# Copihue compiler, pinned to an exact commit so kernel builds are reproducible.
+# Override COPIHUEC=/path/to/copihuec to use a local build instead.
+COPIHUE_REPO   ?= https://github.com/ipenas-cl/copihue.git
+COPIHUE_COMMIT ?= 415e9089b7a6ab98297511d1625dad4613c70e8c
+COPIHUE_DIR     = $(BUILD_DIR)/copihue
+COPIHUEC       ?= $(COPIHUE_DIR)/copihuec
+
+$(COPIHUE_DIR)/copihuec: | $(BUILD_DIR)
+	@echo "Building Copihue compiler @ $(COPIHUE_COMMIT)..."
+	rm -rf $(COPIHUE_DIR)
+	git init -q $(COPIHUE_DIR)
+	git -C $(COPIHUE_DIR) fetch -q --depth 1 $(COPIHUE_REPO) $(COPIHUE_COMMIT)
+	git -C $(COPIHUE_DIR) checkout -q FETCH_HEAD
+	$(MAKE) -C $(COPIHUE_DIR) copihuec
+
+# Kernel: console, PS/2 keyboard driver and shell in Copihue, plus a small
+# assembly entry stub (stack, .bss clear, call kmain).
+COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.cph $(KERNEL_SRC)/copihue/keyboard.cph \
+                     $(KERNEL_SRC)/copihue/shell.cph $(KERNEL_SRC)/copihue/kernel.cph
+KERNEL_MAX_BYTES = 32768   # boot64.asm loads 64 sectors
+
+$(BUILD_DIR)/kernel_copihue.asm: $(COPIHUE_KERNEL_SRC) $(COPIHUEC) | $(BUILD_DIR)
+	@echo "Compiling kernel with Copihue (freestanding)..."
+	cat $(COPIHUE_KERNEL_SRC) > $(BUILD_DIR)/kernel_all.cph
+	$(COPIHUEC) --freestanding -o $@ $(BUILD_DIR)/kernel_all.cph
+
+$(KERNEL): $(KERNEL_SRC)/entry64.asm $(BUILD_DIR)/kernel_copihue.asm
+	$(AS) -f bin -I $(BUILD_DIR)/ $< -o $@
+	@size=$$(stat -c %s $@); echo "kernel.bin: $$size bytes (max $(KERNEL_MAX_BYTES))"; \
+	  test $$size -le $(KERNEL_MAX_BYTES) || { echo "kernel too large for bootloader"; rm -f $@; exit 1; }
+
+# Boot in QEMU, type commands via the monitor (sendkey), check serial output.
+.PHONY: qemu-test
+qemu-test: $(OS_IMAGE)
+	python3 $(TESTS_DIR)/qemu_shell_test.py $(OS_IMAGE)
 
 # Create OS image
 $(OS_IMAGE): $(BOOTLOADER) $(KERNEL) | $(BUILD_DIR)
@@ -140,13 +170,13 @@ version:
 .PHONY: run
 run: $(OS_IMAGE)
 	@echo "Starting AtomicOS v$(VERSION) in QEMU..."
-	qemu-system-$(ARCH) -fda $< -display curses
+	qemu-system-$(ARCH) -drive format=raw,file=$< -display curses
 
 # Run with debugging
 .PHONY: debug
 debug: $(OS_IMAGE)
 	@echo "Starting AtomicOS v$(VERSION) in debug mode..."
-	qemu-system-$(ARCH) -fda $< -display curses -s -S
+	qemu-system-$(ARCH) -drive format=raw,file=$< -display curses -s -S
 
 # Build test runner
 $(BUILD_DIR)/tempo_test_runner: $(TESTS_DIR)/tempo_test_runner.c | $(BUILD_DIR)
@@ -278,6 +308,7 @@ help:
 	@echo "  all           - Build complete OS image"
 	@echo "  run           - Run OS in QEMU"
 	@echo "  debug         - Run OS with debugging enabled"
+	@echo "  qemu-test     - Boot in QEMU and test the shell via sendkey"
 	@echo "  test          - Run test suite"
 	@echo "  test-llvm     - Test LLVM backend integration"
 	@echo "  test-demo     - Test demo compiler"
