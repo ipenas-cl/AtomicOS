@@ -1,7 +1,7 @@
-# AtomicOS — kernel y arranque en Copihue.
+# LapageriaOS — kernel y arranque en Copihue.
 #
 # Targets:
-#   all        Construye build/atomicos.img (etapa 1 + etapa 2 + kernel plano).
+#   all        Construye build/lapageriaos.img (etapa 1 + etapa 2 + kernel plano).
 #   qemu       Arranca esa imagen en QEMU con consola curses (teclado PS/2).
 #   qemu-test  Arranque sin pantalla: sendkey y comprobaciones por COM1.
 #   debug      Igual que qemu, y espera a gdb en tcp::1234 (-s -S).
@@ -36,7 +36,7 @@
 # .bss; el archivo no puede pasar de ahí. make también suma los resb y
 # resq de la .bss y falla si 0x10000 + kernel.bin + .bss pasa de 0x58000.
 
-PROJECT_NAME = AtomicOS
+PROJECT_NAME = LapageriaOS
 VERSION = 0.8
 ARCH = x86_64
 
@@ -50,7 +50,7 @@ BOOT_SRC = $(SRC_DIR)/bootloader
 BOOTLOADER = $(BUILD_DIR)/boot.bin
 STAGE2 = $(BUILD_DIR)/stage2.bin
 KERNEL = $(BUILD_DIR)/kernel.bin
-OS_IMAGE = $(BUILD_DIR)/atomicos.img
+OS_IMAGE = $(BUILD_DIR)/lapageriaos.img
 
 STAGE2_ORG = 0x8200
 STAGE2_SECTORS = 8
@@ -66,7 +66,7 @@ KERNEL_MAX_BYTES := $(shell echo $$(( $(KERNEL_MAX_SECTORS) * 512 )))
 
 # Disco de datos, aparte de la imagen de arranque. 2048 sectores de
 # 512 bytes (1 MiB). QEMU lo cuelga como esclavo del IDE primario
-# (index=1, ide0-hd1). El primer -drive sigue siendo atomicos.img
+# (index=1, ide0-hd1). El primer -drive sigue siendo lapageriaos.img
 # en el maestro (ide0-hd0). Ver docs/disco.md.
 DATA_IMG = $(BUILD_DIR)/data.img
 DATA_SECTORS = 2048
@@ -178,7 +178,7 @@ $(OS_IMAGE): $(BOOTLOADER) $(STAGE2) $(KERNEL) | $(BUILD_DIR)
 	dd if=$(BOOTLOADER) of=$@ conv=notrunc status=none
 	dd if=$(STAGE2) of=$@ bs=512 seek=1 conv=notrunc status=none
 	dd if=$(KERNEL) of=$@ bs=512 seek=$(KERNEL_LBA) conv=notrunc status=none
-	@echo "AtomicOS v$(VERSION) image created: $@"
+	@echo "LapageriaOS v$(VERSION) image created: $@"
 
 $(DATA_IMG): | $(BUILD_DIR)
 	dd if=/dev/zero of=$@ bs=512 count=$(DATA_SECTORS) status=none
@@ -215,9 +215,9 @@ clean:
 	rm -f $(KERNEL_SRC)/copihue/exec_img.lap
 
 help:
-	@echo "AtomicOS $(VERSION) — kernel y arranque en Copihue $(COPIHUE_COMMIT)"
+	@echo "LapageriaOS $(VERSION) — kernel y arranque en Copihue $(COPIHUE_COMMIT)"
 	@echo ""
-	@echo "  make all        Imagen de arranque en build/atomicos.img"
+	@echo "  make all        Imagen de arranque en build/lapageriaos.img"
 	@echo "                  (copihue --boot, --flat; la primera vez compila Copihue)."
 	@echo "  make qemu       Arranca la imagen en QEMU (curses, teclado PS/2)."
 	@echo "                  Agrega build/data.img como IDE esclavo (index=1)."

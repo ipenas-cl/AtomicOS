@@ -1,5 +1,7 @@
 # Pedidos a Copihue
 
+Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
+
 Compilador fijado en el Makefile: v0.26.1, commit
 `54dc238f943968e676040e67bdac206ce201bc7f`.
 

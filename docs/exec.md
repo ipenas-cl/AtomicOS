@@ -1,5 +1,7 @@
 # Ejecutable plano
 
+Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
+
 Un programa de anillo 3 es un archivo del disco de datos. La cabecera
 mide 16 bytes y el código va justo después. Little-endian.
 

@@ -1,6 +1,6 @@
-# AtomicOS
+# LapageriaOS
 
-Sistema operativo de Ignacio Peña Sepúlveda. El kernel y el arranque están escritos en [Copihue](https://github.com/ipenas-cl/copihue). El nombre del sistema puede cambiar; este repositorio sigue llamándose AtomicOS.
+Sistema operativo de Ignacio Peña Sepúlveda. Lapageria rosea es el nombre científico del copihue; antes AtomicOS. El kernel y el arranque están escritos en [Copihue](https://github.com/ipenas-cl/copihue). Las URL del repositorio siguen igual.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.8-green)](VERSION)
@@ -10,7 +10,7 @@ Versión de kernel **0.8**. Experimental.
 
 ## Qué arranca hoy
 
-`make all` escribe `build/atomicos.img`, una imagen cruda de 2880 sectores de 512 bytes (1474560 bytes). No queda ningún `.asm` en esa imagen.
+`make all` escribe `build/lapageriaos.img`, una imagen cruda de 2880 sectores de 512 bytes (1474560 bytes). No queda ningún `.asm` en esa imagen.
 
 | LBA | Qué es | Dónde queda en memoria |
 |---|---|---|
@@ -37,13 +37,13 @@ En esta compilación (`copihue` v0.26.1, commit `54dc238f943968e676040e67bdac206
 
 `copihue --help` en v0.26.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 86 00 00 00 00 10 09 00 00 00 00 00 00 00`: 134 sectores (`0x0086`) desde LBA 9 hacia `0x1000:0`. 134 pasa de 128, así que la etapa 2 manda 128 y después 6. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt: el segundo paquete no pisa el kernel.
 
-Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `atomicos>`.
+Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `lapageria>`.
 
 El shell responde a `help`, `echo`, `add`, `mul`, `clear`, `version`, `ticks`, `irqs`, `cr3`, `pf`, `pmm`, `user`, `sched`, `disk`, `fs`, `exec`, `ud2` y `reboot`. `disk` ejercita el disco de datos (ver [docs/disco.md](docs/disco.md)). `fs` es el sistema de archivos copy-on-write (ver [docs/fs.md](docs/fs.md)). `exec` carga un ejecutable plano del disco (ver [docs/exec.md](docs/exec.md)). `make qemu-test` escribe los comandos con el `sendkey` del monitor de QEMU y lee COM1. Esa prueba no escribe `reboot` (reinicia la máquina) ni `clear`.
 
-![Shell de AtomicOS en QEMU](docs/copihue-shell.png)
+![Shell de LapageriaOS en QEMU](docs/copihue-shell.png)
 
-Vídeo de unos 40 s: [docs/atomicos-copihue-demo.mp4](docs/atomicos-copihue-demo.mp4).
+Vídeo de unos 40 s: [docs/lapageriaos-copihue-demo.mp4](docs/lapageriaos-copihue-demo.mp4).
 
 `sched` construye dos espacios de direcciones y no reutiliza el PML4 del bootloader. Cada proceso tiene su PML4, su PDPT y su PD. PD[0] repite la página de identidad de 2 MB de supervisor (`0x83`), porque el kernel está enlazado en `0x10000` y la etapa 2 salta ahí. PML4[256..511] apuntan a un solo PDPT de kernel, sin bit de usuario. Ese PDPT mapea los primeros 2 MB en `0xFFFF800000000000`. El proceso A tiene una página de usuario en `0x500000`. El proceso B no. `exit` devuelve al asignador las páginas de cada proceso y no libera el PDPT compartido.
 
@@ -65,7 +65,7 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 
 En QEMU 8.2.2, con el pin v0.26.1, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 932 ms, ticks 200 → 416, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `babababababa`, `switch timer=21 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473, las líneas `ata ok`, `blk ok`, `blk corrupt detected`, y después del segundo arranque con el mismo `data.img` la línea `fs persist v2, snap v1, corrupt detected`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. `version` dice Copihue v0.26.1.
 
-El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -no-reboot`) salió con código 124: el proceso seguía vivo.
+El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img -display none -no-reboot`) salió con código 124: el proceso seguía vivo.
 
 ## Cómo compilar y probar
 
@@ -75,7 +75,7 @@ Hacen falta `make`, `gcc`, `git`, `nasm`, `qemu-system-x86_64` y `socat`. `nasm`
 # Debian/Ubuntu
 sudo apt-get install build-essential nasm qemu-system-x86 socat git
 
-make all          # build/atomicos.img; la primera vez clona y compila Copihue
+make all          # build/lapageriaos.img; la primera vez clona y compila Copihue
 make qemu         # QEMU en curses. El shell lee el teclado PS/2
 make qemu-test    # arranque mudo y comprobaciones por serie
 make debug        # igual que qemu, esperando gdb en tcp::1234
@@ -83,18 +83,18 @@ make clean        # borra build/
 make help
 ```
 
-`scripts/run_atomicos.sh` es un atajo de `make qemu`.
+`scripts/run_lapageriaos.sh` es un atajo de `make qemu`.
 
 La consola serie repite el texto de VGA. Con `-display none -serial stdio` se ve el registro de arranque. Las teclas de esa terminal no llegan al shell: el shell lee el controlador PS/2. Para escribir comandos a mano hace falta la pantalla de QEMU (`make qemu`). `make qemu-test` inyecta las teclas con `sendkey`.
 
 ```bash
-qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -serial stdio
+qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img -display none -serial stdio
 ```
 
 `make qemu`, `make debug` y `make qemu-test` agregan el disco de datos. El arranque solo, como el humo de CI, no lo necesita: sin ese drive el comando `disk` imprime `ata fail 1` y vuelve al prompt.
 
 ```bash
-qemu-system-x86_64 -drive format=raw,file=build/atomicos.img \
+qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img \
     -drive file=build/data.img,format=raw,if=ide,index=1 \
     -display none -serial stdio
 ```
@@ -142,12 +142,12 @@ docs/disco.md                 layout del disco de datos
 docs/fs.md                    sistema de archivos copy-on-write
 docs/exec.md                  ejecutable plano AXE1 y el comando exec
 docs/PEDIDOS_COPIHUE.md       arreglos que el compilador todavía no tiene
-scripts/run_atomicos.sh
+scripts/run_lapageriaos.sh
 scripts/pre-commit.sh
 scripts/release.sh
 scripts/mkaxe.sh              cabecera AXE1 y bytes embebidos, sin Python
 docs/copihue-shell.png
-docs/atomicos-copihue-demo.mp4
+docs/lapageriaos-copihue-demo.mp4
 ```
 
 `make` compila `src/kernel/copihue/kernel.lap`. Ese archivo importa el resto, en el orden de `COPIHUE_KERNEL_SRC`, y Copihue los junta en un solo espacio de nombres. `build/` no se versiona.

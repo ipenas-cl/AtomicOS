@@ -1,4 +1,4 @@
-// AtomicOS PS/2 keyboard (scancode set 1, US layout).
+// LapageriaOS PS/2 keyboard (scancode set 1, US layout).
 // IRQ1 (vector 33) reads port 0x60. The shell never polls the controller.
 
 let kbd_buf: [u8; 128];

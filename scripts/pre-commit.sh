@@ -10,7 +10,7 @@ make all
 
 code=0
 timeout 10 qemu-system-x86_64 \
-    -drive format=raw,file=build/atomicos.img \
+    -drive format=raw,file=build/lapageriaos.img \
     -display none -no-reboot || code=$?
 test "${code}" = "124"
 
