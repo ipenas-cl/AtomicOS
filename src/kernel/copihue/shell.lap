@@ -62,6 +62,8 @@ fn cmd_help() -> i64 {
     puts("  irqs            keyboard IRQ count\n");
     puts("  cr3             CR3 and the bootloader page table\n");
     puts("  pf              read unmapped 0x200000\n");
+    puts("  pmm             allocate and free physical pages\n");
+    puts("  user            enter ring 3 and syscall\n");
     puts("  ud2             raise #UD and halt\n");
     puts("  reboot          reset the machine\n");
     return 0;
@@ -87,7 +89,7 @@ fn run_command() -> i64 {
     }
     if (cmd_is("clear")) { con_clear(); return 0; }
     if (cmd_is("version")) {
-        puts("AtomicOS 0.8 - kernel written in Copihue v0.22.2\n");
+        puts("AtomicOS 0.8 - kernel written in Copihue v0.23.0\n");
         return 0;
     }
     if (cmd_is("ticks")) {
@@ -126,6 +128,8 @@ fn run_command() -> i64 {
         puts("\n");
         return 0;
     }
+    if (cmd_is("pmm")) { pmm_test(); return 0; }
+    if (cmd_is("user")) { enter_user(); return 0; }
     if (cmd_is("ud2")) {
         puts("raising #UD\n");
         asm("ud2");

@@ -1,5 +1,7 @@
 # AtomicOS Kernel Architecture Design
 
+This is a design target. The kernel that `make qemu-test` boots is the one in the [README](../../README.md).
+
 ## Overview
 
 AtomicOS implements a **Deterministic Hybrid Microkernel** architecture optimized for:

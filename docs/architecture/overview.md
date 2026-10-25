@@ -1,5 +1,7 @@
 # AtomicOS Architecture Overview
 
+The running image is the Copihue kernel described in the [README](../../README.md): long mode, E820 physical pages, an IDT, and one ring-3 program. The diagrams below are the long-term design, not a map of what `make qemu-test` boots.
+
 ## System Architecture
 
 AtomicOS is a deterministic real-time operating system designed with security as the primary concern. It implements a unique architecture that guarantees predictable timing behavior while maintaining strong security properties.

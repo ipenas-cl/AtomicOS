@@ -106,10 +106,10 @@ $(BOOTLOADER): $(BOOT_SRC)/boot64.asm | $(BUILD_DIR)
 
 # Copihue compiler, pinned so kernel builds are reproducible.
 # Override COPIHUE=/path/to/copihue to use a local build instead.
-# v0.22.2 is the tag (commit 587f94d8716a73e85535e986c5dfc92076e20240).
+# v0.23.0 is the tag (commit 7dfde0473916501d45840719bf13f8749c5071eb).
 # `git fetch` accepts the tag name.
 COPIHUE_REPO   ?= https://github.com/ipenas-cl/copihue.git
-COPIHUE_COMMIT ?= v0.22.2
+COPIHUE_COMMIT ?= v0.23.0
 COPIHUE_DIR     = $(BUILD_DIR)/copihue
 COPIHUE       ?= $(COPIHUE_DIR)/copihue
 
@@ -123,6 +123,8 @@ $(COPIHUE_DIR)/copihue: | $(BUILD_DIR)
 
 # Kernel: 100% Copihue. `copihue --flat` emits a flat binary that starts at fn _start.
 COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap $(KERNEL_SRC)/copihue/keyboard.lap \
+                     $(KERNEL_SRC)/copihue/pmm.lap $(KERNEL_SRC)/copihue/paging.lap \
+                     $(KERNEL_SRC)/copihue/gdt.lap $(KERNEL_SRC)/copihue/usermode.lap \
                      $(KERNEL_SRC)/copihue/idt.lap $(KERNEL_SRC)/copihue/shell.lap \
                      $(KERNEL_SRC)/copihue/kernel.lap
 # boot64.asm loads 64 sectors

@@ -1,0 +1,113 @@
+// Kernel GDT. Selector 0x18 stays 64-bit kernel code, which is what every
+// IDT gate already names and what the bootloader left in CS.
+//
+//   0x00 null
+//   0x08 32-bit code     0x10 32-bit data
+//   0x18 64-bit kernel code   0x20 64-bit kernel data
+//   0x28 null (STAR[63:48]; SYSRET adds 8 and 16, it does not load 0x28)
+//   0x30 user data DPL3       0x38 user code 64 DPL3
+//   0x40 16-byte TSS
+//
+// STAR 0x0028001800000000: SYSCALL uses CS 0x18 / SS 0x20.
+// SYSRET uses SS 0x30 and CS 0x38, and the CPU forces RPL 3
+// (0x33 and 0x3B). rsp0 is the stack for an interrupt from ring 3.
+// syscall itself does not read the TSS; that stack is set_syscall_stack.
+
+packed struct Tss {
+    reserved0: u32,
+    rsp0: u64,
+    rsp1: u64,
+    rsp2: u64,
+    reserved1: u64,
+    ist1: u64,
+    ist2: u64,
+    ist3: u64,
+    ist4: u64,
+    ist5: u64,
+    ist6: u64,
+    ist7: u64,
+    reserved2: u64,
+    reserved3: u16,
+    iomap: u16
+}
+
+let tss: Tss;
+let gdt: [u8; 80];
+let resume_rsp: i64 = 0;
+let resume_rbp: i64 = 0;
+let resume_rip: i64 = 0;
+
+fn gdt_seg(off: i64, limit_lo: i64, access: i64, flags: i64) -> i64 {
+    gdt[off] = limit_lo & 255;
+    gdt[off + 1] = (limit_lo >> 8) & 255;
+    gdt[off + 2] = 0;
+    gdt[off + 3] = 0;
+    gdt[off + 4] = 0;
+    gdt[off + 5] = access;
+    gdt[off + 6] = flags;
+    gdt[off + 7] = 0;
+    return 0;
+}
+
+fn gdt_tss(off: i64, base: i64) -> i64 {
+    gdt[off] = 103;
+    gdt[off + 1] = 0;
+    gdt[off + 2] = base & 255;
+    gdt[off + 3] = (base >> 8) & 255;
+    gdt[off + 4] = (base >> 16) & 255;
+    gdt[off + 5] = 0x89;
+    gdt[off + 6] = 0;
+    gdt[off + 7] = (base >> 24) & 255;
+    gdt[off + 8] = (base >> 32) & 255;
+    gdt[off + 9] = (base >> 40) & 255;
+    gdt[off + 10] = (base >> 48) & 255;
+    gdt[off + 11] = (base >> 56) & 255;
+    gdt[off + 12] = 0;
+    gdt[off + 13] = 0;
+    gdt[off + 14] = 0;
+    gdt[off + 15] = 0;
+    return 0;
+}
+
+fn gdt_load() -> i64 {
+    let p: *u8 = &tss;
+    let i = 0;
+    while (i < 104) {
+        p[i] = 0;
+        i = i + 1;
+    }
+    tss.rsp0 = 0x86000;
+    tss.iomap = 104;
+    gdt_seg(0x08, 0xFFFF, 0x9A, 0xCF);
+    gdt_seg(0x10, 0xFFFF, 0x92, 0xCF);
+    gdt_seg(0x18, 0, 0x9A, 0xAF);
+    gdt_seg(0x20, 0, 0x92, 0x00);
+    gdt_seg(0x30, 0xFFFF, 0xF2, 0xCF);
+    gdt_seg(0x38, 0, 0xFA, 0x20);
+    gdt_tss(0x40, &tss);
+    let gdtr: DescPtr;
+    gdtr.limit = 79;
+    gdtr.base = gdt;
+    puts("gdt load\n");
+    lgdt(&gdtr);
+    asm("push 0x18");
+    asm("lea rax, [.cs_reload]");
+    asm("push rax");
+    asm("retfq");
+    asm(".cs_reload:");
+    asm("mov ax, 0x20");
+    asm("mov ds, ax");
+    asm("mov es, ax");
+    asm("mov ss, ax");
+    return 0;
+}
+
+// #PF from ring 3 lands here. rsp/rbp/rip were saved in enter_user
+// immediately before iretq, on the shell's stack.
+fn resume_shell() -> i64 {
+    if (resume_rip == 0) { return 0; }
+    asm("mov rsp, [resume_rsp]");
+    asm("mov rbp, [resume_rbp]");
+    asm("jmp qword [resume_rip]");
+    return 0;
+}

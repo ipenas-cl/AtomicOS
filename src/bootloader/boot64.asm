@@ -33,6 +33,10 @@ start:
     mov si, disk_packet
     int 0x13
     jc disk_error
+
+    ; INT 15h E820h while still in real mode. The kernel reads the
+    ; result at 0x8000 (word count, then up to 16 entries of 24 bytes).
+    call get_e820
     
     ; Check for long mode support
     call check_long_mode
@@ -122,6 +126,32 @@ setup_page_tables:
     mov dword [edi], 0x83       ; PD[0] -> 0-2MB (2MB page)
     ret
 
+; BIOS memory map. ES must be 0. Entries land at 0x8004 so the
+; kernel (loaded at 0x10000) does not overwrite them.
+get_e820:
+    xor ebx, ebx
+    mov di, 0x8004
+    mov word [0x8000], 0
+    push ds
+    pop es
+.loop:
+    mov eax, 0xE820
+    mov ecx, 24
+    mov edx, 0x534D4150
+    mov dword [di + 20], 1
+    int 0x15
+    jc .done
+    cmp eax, 0x534D4150
+    jne .done
+    inc word [0x8000]
+    add di, 24
+    cmp di, 0x8184
+    jae .done
+    test ebx, ebx
+    jnz .loop
+.done:
+    ret
+
 disk_error:
     mov si, disk_err_msg
     call print_string_16
@@ -185,7 +215,7 @@ disk_packet:
 
 boot_msg:       db 'AtomicOS 0.8 64-bit', 13, 10, 0
 disk_err_msg:   db 'Disk error!', 13, 10, 0
-no_lm_msg:      db 'CPU does not support 64-bit mode!', 13, 10, 0
+no_lm_msg:      db 'No64', 13, 10, 0
 
 ; GDT
 gdt_start:

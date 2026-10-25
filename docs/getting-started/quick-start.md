@@ -1,5 +1,7 @@
 # AtomicOS Quick Start Guide
 
+The image that boots today is built with `make all` and checked with `make qemu-test`. What that run actually executes is in the [README](../../README.md). The Tempo module later in this file is older material and is not linked into the boot image.
+
 Welcome to AtomicOS! This guide will get you up and running in minutes.
 
 ## Prerequisites

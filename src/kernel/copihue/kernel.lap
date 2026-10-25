@@ -28,6 +28,7 @@ fn kmain() -> i64 {
     set_color(0x07);
     puts("Kernel in Copihue: VGA/COM1, IDT, PIT 100 Hz, PS/2 by IRQ.\n");
     puts("Type 'help' for commands.\n\n");
+    pmm_init();
     idt_init();
     while (ticks < 100) { hlt(); }
     puts("timer: ticks=");

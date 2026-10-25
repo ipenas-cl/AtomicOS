@@ -6,6 +6,8 @@
 # that a deliberate #UD prints its exception line, that read_cr3 matches
 # the bootloader page table, and that a read of unmapped 0x200000 prints
 # that address from CR2 and then the loaded byte 0x00000000.
+# Also checks the E820 map, alloc/free, a mapped page at or above 2MB,
+# and a ring-3 program that syscalls "user ok" and then #PF on a kernel read.
 # Usage: tests/qemu_shell_test.sh [image] [--screenshot out.png]
 # Needs: qemu-system-x86_64, socat; ffmpeg only for --screenshot.
 set -u
@@ -111,9 +113,9 @@ if printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=0x
 else
     fail "page fault did not report cr2=0x200000"
 fi
-# `mul 6 -7` runs before `pf`. Both blocks bind `b`. The byte at physical
-# 0x200000 is 0, so the resumed line is `pf resumed 0x00000000`. Before
-# block scope, the second `b` printed the mul operand -7 as 0xfffffff9.
+# `mul 6 -7` runs before `pf`. Both blocks bind `b`. The fault allocates
+# a frame and zeros it, so the resumed line is `pf resumed 0x00000000`.
+# Before block scope, the second `b` printed the mul operand -7 as 0xfffffff9.
 mul_at=$(printf '%s\n' "$clean" | grep -n "^-42$" | head -1 | cut -d: -f1)
 pf_line=$(printf '%s\n' "$clean" | grep -n "^pf resumed " | head -1)
 pf_at=$(printf '%s\n' "$pf_line" | cut -d: -f1)
@@ -121,6 +123,51 @@ pf_byte=$(printf '%s\n' "$pf_line" | sed -n 's/^[0-9]*:pf resumed //p')
 [ -n "$mul_at" ] && [ -n "$pf_at" ] && [ "$pf_at" -gt "$mul_at" ] || fail "pf did not run after mul 6 -7"
 [ "$pf_byte" = "0x00000000" ] || fail "pf resumed printed '$pf_byte', want the byte 0 at 0x200000 (not 0xfffffff9)"
 echo "ok   pf resumed 0x00000000 after mul 6 -7"
+
+# E820 and the page allocator. The exact entry count depends on the
+# firmware; QEMU's default 128MB map has usable RAM above 1MB, which is
+# more than the 256-page identity window.
+en=$(tr -d '\r' < "$SERIAL" | sed -n 's/^e820 n=\([0-9][0-9]*\)$/\1/p' | head -1)
+[ -n "${en:-}" ] || fail "no e820 count"
+[ "$en" -ge 1 ] || fail "e820 n=$en"
+echo "ok   e820 n=$en"
+pfree=$(tr -d '\r' < "$SERIAL" | sed -n 's/^pmm free=\([0-9][0-9]*\) base=\(0x[0-9a-f]*\) end=\(0x[0-9a-f]*\)$/\1/p' | head -1)
+pbase=$(tr -d '\r' < "$SERIAL" | sed -n 's/^pmm free=\([0-9][0-9]*\) base=\(0x[0-9a-f]*\) end=\(0x[0-9a-f]*\)$/\2/p' | head -1)
+pend=$(tr -d '\r' < "$SERIAL" | sed -n 's/^pmm free=\([0-9][0-9]*\) base=\(0x[0-9a-f]*\) end=\(0x[0-9a-f]*\)$/\3/p' | head -1)
+[ -n "${pfree:-}" ] && [ -n "${pbase:-}" ] && [ -n "${pend:-}" ] || fail "no pmm free line"
+[ "$pfree" -gt 256 ] || fail "pmm free=$pfree, want > 256 (E820 did not add RAM above 1MB)"
+[ "$pbase" = "0x0000000000100000" ] || fail "pmm base=$pbase, want 0x0000000000100000"
+[ $((pend)) -gt $((0x200000)) ] || fail "pmm end=$pend, want above 2MB"
+echo "ok   pmm free=$pfree base=$pbase end=$pend"
+tr -d '\r' < "$SERIAL" | grep -qx "gdt load" || fail "gdt was not loaded"
+tr -d '\r' < "$SERIAL" | grep -qx "gdt ok" || fail "ltr/syscall setup did not finish"
+echo "ok   gdt ok"
+
+typeline pmm
+sleep 0.4
+typeline user
+sleep 0.4
+clean=$(tr -d '\r' < "$SERIAL")
+printf '%s\n' "$clean" | grep -qx "pmm ok" || fail "pmm alloc/free test did not pass"
+high=$(printf '%s\n' "$clean" | sed -n 's/^pmm high ok \(0x[0-9a-f]*\)$/\1/p' | head -1)
+[ -n "${high:-}" ] || fail "no pmm high ok line"
+[ $((high)) -ge $((0x200000)) ] || fail "pmm high page $high is below 2MB"
+echo "ok   pmm ok, high page $high"
+printf '%s\n' "$clean" | grep -qx "user ok" || fail "ring 3 syscall did not print user ok"
+printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=0x00000005 cr2=0x00010000" || fail "ring 3 kernel read did not #PF"
+printf '%s\n' "$clean" | grep -qx "user blocked" || fail "user #PF was not reported"
+printf '%s\n' "$clean" | grep -qx "user returned" || fail "shell did not resume after user #PF"
+printf '%s\n' "$clean" | grep -qx "user leak" && fail "ring 3 read of kernel memory succeeded"
+if ! printf '%s\n' "$clean" | awk '
+    /^user ok$/ { if (!a) a=NR }
+    /^exception: vector 14 #PF page fault err=0x00000005 cr2=0x00010000$/ { if (a && !b) b=NR }
+    /^user blocked$/ { if (b && !c) c=NR }
+    /^user returned$/ { if (c && !d) d=NR }
+    END { exit !(a && b && c && d && a<b && b<c && c<d) }
+'; then
+    fail "user ok / #PF / user blocked / user returned were out of order"
+fi
+echo "ok   user syscall, #PF on kernel read, returned to shell"
 
 typeline ud2
 sleep 0.5

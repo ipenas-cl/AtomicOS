@@ -1,5 +1,7 @@
 # AtomicOS Installation Guide
 
+`make all` needs `nasm`, `make`, `gcc`, `git` (it fetches the pinned Copihue compiler), and `qemu-system-x86_64`. `make qemu-test` also needs `socat`. The image is x86-64. The package lists below are enough for that; `gcc-multilib` is not required for the current kernel.
+
 ## System Requirements
 
 ### Minimum Requirements
