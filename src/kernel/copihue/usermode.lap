@@ -8,12 +8,17 @@
 let user_ran: i64 = 0;
 
 syscall fn sys_user(nr: i64, ch: i64) -> i64 {
+    // sys-enter: número y argumento. sys-exit: número y resultado.
+    // yield y exit no vuelven, así que no hay sys-exit de esas dos.
+    if (tr_en[0] != 0) { trace_hit(0, proc_pid[cur_i], nr, ch); }
     if (nr == 1) {
         putc(ch);
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
         return 0;
     }
     if (nr == 2) {
         puts("user leak\n");
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
         return 0;
     }
     if (nr == 3) {
@@ -21,10 +26,13 @@ syscall fn sys_user(nr: i64, ch: i64) -> i64 {
         puts("getpid ");
         put_int(proc_pid[cur_i]);
         puts("\n");
-        return proc_pid[cur_i];
+        let r = proc_pid[cur_i];
+        if (tr_en[1] != 0) { trace_hit(1, r, nr, r); }
+        return r;
     }
     if (nr == 4) { return yield_current(); }
     if (nr == 5) { return exit_current(); }
+    if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
     return 0;
 }
 

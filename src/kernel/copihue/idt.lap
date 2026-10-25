@@ -120,6 +120,11 @@ interrupt fn exc13(err: i64) { cpu_fault(13, err, 1); }
 interrupt fn exc14(frame: *PfFrame) {
     // Fallo de anillo 3 con el planificador prendido: se reescribe rip
     // y el epílogo hace iretq. El de `user` (sin sched) vuelve al shell.
+    // pf: CR2 y código de error. Apagada, un solo chequeo.
+    if (tr_en[3] != 0) {
+        let addr = read_cr2();
+        trace_hit(3, proc_pid[cur_i], addr, frame.error_code);
+    }
     if (sched_on != 0 && (frame.error_code & 4) != 0) {
         note_user_fault(frame.error_code);
         frame.rip = patch_rip;
@@ -150,6 +155,8 @@ interrupt fn irq_timer(frame: *InterruptFrame) {
     outb(0x20, 0x20);
     // IRQ0 no trae error code. El epílogo relee `frame`: apuntarlo al
     // otro saved_ksp + 120 reanuda ese proceso. No se nombra rbp.
+    // pit: una muestra por tick mientras está prendida.
+    if (tr_en[4] != 0) { trace_hit(4, proc_pid[cur_i], ticks, 0); }
     if (sched_on != 0) {
         saved_cs = frame.cs;
         saved_ksp = frame as i64 - 120;
