@@ -149,8 +149,10 @@ naked fn _start() {
     syscall();
     if (rax == 0 - 1) { say_sys(); }
 
-    // v0.26.1 reemplaza rax por 0 o 1 al evaluar while/if. El resultado
-    // se guarda en 0x401720 antes de mirarlo. 0x401718 recuerda el -1.
+    // v0.27.3 sigue dejando rax en 0 o 1 al evaluar while/if, y un
+    // store de constante también es `mov rax, 0`. El resultado se
+    // guarda en 0x401720 antes de mirarlo. 0x401718 recuerda el -1.
+    // El ensamblado está en docs/PEDIDOS_COPIHUE.md.
     *(0x401710 as *u8) = 0;
     *(0x401718 as *u8) = 0;
     *(0x401728 as *u8) = 1;

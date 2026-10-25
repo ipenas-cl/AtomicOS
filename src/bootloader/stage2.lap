@@ -29,12 +29,12 @@
 // calculation of an empty image only when it is empty; a global would
 // move _start off the first byte. Constants live in `data`.
 //
-// Copihue v0.27.1. `cld()` es unknown function 'cld'. lodsb y rep_stosd
-// usan el índice tal como está DF, así que clear_df lo deja en claro.
-// ebx no es un registro asignable (assignment to undeclared variable
-// 'ebx'); el token de continuación de INT 15h entra y sale con push/pop.
-// Una llamada con argumentos en bits 16 no ensambla (push rax / pop rdi,
-// instruction not supported in 16-bit mode). Las de aquí no tienen.
+// Copihue v0.27.3. lodsb y rep_stosd usan el índice tal como está DF,
+// así que clear_df lo deja en claro con cld(). El token de INT 15h
+// vive en ebx; un `if (ebx == 0)` lo pisa (el comparando pasa por ebx),
+// por eso se copia a ebx_save antes de mirarlo y se restaura al volver
+// al lazo. check_long_mode sigue usando pushfd/popfd: ahí se prueba el
+// bit ID, no se limpia DF. Las llamadas de aquí no tienen argumentos.
 
 data kern_packet {
     db 0x10, 0;
@@ -89,11 +89,7 @@ data gdtr {
 }
 
 bits 16 naked fn clear_df() {
-    pushfd();
-    pop(eax);
-    eax = eax & ~0x400;
-    push(eax);
-    popfd();
+    cld();
 }
 
 bits 16 naked fn _start() {
@@ -167,9 +163,9 @@ bits 16 naked fn get_e820() {
     let sig: u32 = 0;
     let ebx_save: u32 = 0;
     while (cont != 0) {
-        eax = ebx_save;
-        push(eax);
-        pop(ebx);
+        // El `while` compara contra 0 usando ebx y lo deja en 0.
+        // El token de la BIOS se repone desde la copia.
+        ebx = ebx_save;
         ecx = 24;
         edx = 0x534D4150;
         *((di + 20) as *u32) = 1;
@@ -179,9 +175,7 @@ bits 16 naked fn get_e820() {
             cont = 0;
         } else {
             sig = eax;
-            push(ebx);
-            pop(eax);
-            ebx_save = eax;
+            ebx_save = ebx;
             if (sig != 0x534D4150) {
                 cont = 0;
             } else {

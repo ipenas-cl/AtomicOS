@@ -4,9 +4,10 @@
 // No hay TCP ni UDP. Lo único que se contesta es ARP who-has de
 // 10.0.2.15 e ICMP echo a esa misma IP.
 //
-// El arreglo dentro de un packed struct no mide N elementos (ver
-// docs/PEDIDOS_COPIHUE.md). Por eso la trama es un buffer de bytes.
-// El descriptor legacy sí es solo escalares: 16 bytes, little-endian.
+// La trama sigue siendo el buffer de bytes que entrega el DMA. Encima
+// se lee con structs packed de a un byte: el ethertype y el resto van
+// en orden de red, y un u16 nativo los daría vuelta. net_layout exige
+// los anchos. El descriptor legacy es 16 bytes, little-endian.
 
 packed struct RxD {
     addr: u64,
@@ -27,6 +28,65 @@ packed struct TxD {
     special: u16
 }
 
+packed struct EthHdr {
+    dst: [u8; 6],
+    src: [u8; 6],
+    et_hi: u8,
+    et_lo: u8
+}
+
+packed struct ArpPkt {
+    dst: [u8; 6],
+    src: [u8; 6],
+    et_hi: u8,
+    et_lo: u8,
+    ht_hi: u8,
+    ht_lo: u8,
+    pt_hi: u8,
+    pt_lo: u8,
+    hlen: u8,
+    plen: u8,
+    op_hi: u8,
+    op_lo: u8,
+    sha: [u8; 6],
+    spa: [u8; 4],
+    tha: [u8; 6],
+    tpa: [u8; 4]
+}
+
+packed struct IpPkt {
+    dst: [u8; 6],
+    src: [u8; 6],
+    et_hi: u8,
+    et_lo: u8,
+    vihl: u8,
+    tos: u8,
+    len_hi: u8,
+    len_lo: u8,
+    id_hi: u8,
+    id_lo: u8,
+    frag_hi: u8,
+    frag_lo: u8,
+    ttl: u8,
+    proto: u8,
+    sum_hi: u8,
+    sum_lo: u8,
+    sip: [u8; 4],
+    dip: [u8; 4]
+}
+
+packed struct IcmpEcho {
+    typ: u8,
+    code: u8,
+    sum_hi: u8,
+    sum_lo: u8,
+    id_hi: u8,
+    id_lo: u8,
+    seq_hi: u8,
+    seq_lo: u8,
+    data: [u8; 4]
+}
+
 let net_mmio: i64 = 0;
 let net_dev: i64 = 0;
 let net_fun: i64 = 0;
@@ -43,6 +103,41 @@ let net_rx_n: i64 = 0;
 let net_mac: [u8; 6];
 let net_gw: [u8; 6];
 let net_probe: [u8; 64];
+
+fn net_layout() -> i64 {
+    if (sizeof(RxD) != 16) { return 0; }
+    if (offsetof(RxD, len) != 8) { return 0; }
+    if (offsetof(RxD, status) != 12) { return 0; }
+    if (offsetof(RxD, err) != 13) { return 0; }
+    if (sizeof(TxD) != 16) { return 0; }
+    if (offsetof(TxD, len) != 8) { return 0; }
+    if (offsetof(TxD, cmd) != 11) { return 0; }
+    if (offsetof(TxD, status) != 12) { return 0; }
+    if (sizeof(EthHdr) != 14) { return 0; }
+    if (offsetof(EthHdr, src) != 6) { return 0; }
+    if (offsetof(EthHdr, et_hi) != 12) { return 0; }
+    if (offsetof(EthHdr, et_lo) != 13) { return 0; }
+    if (sizeof(ArpPkt) != 42) { return 0; }
+    if (offsetof(ArpPkt, op_lo) != 21) { return 0; }
+    if (offsetof(ArpPkt, sha) != 22) { return 0; }
+    if (offsetof(ArpPkt, spa) != 28) { return 0; }
+    if (offsetof(ArpPkt, tha) != 32) { return 0; }
+    if (offsetof(ArpPkt, tpa) != 38) { return 0; }
+    if (sizeof(IpPkt) != 34) { return 0; }
+    if (offsetof(IpPkt, vihl) != 14) { return 0; }
+    if (offsetof(IpPkt, len_lo) != 17) { return 0; }
+    if (offsetof(IpPkt, id_lo) != 19) { return 0; }
+    if (offsetof(IpPkt, ttl) != 22) { return 0; }
+    if (offsetof(IpPkt, proto) != 23) { return 0; }
+    if (offsetof(IpPkt, sum_hi) != 24) { return 0; }
+    if (offsetof(IpPkt, sip) != 26) { return 0; }
+    if (offsetof(IpPkt, dip) != 30) { return 0; }
+    if (sizeof(IcmpEcho) != 12) { return 0; }
+    if (offsetof(IcmpEcho, id_hi) != 4) { return 0; }
+    if (offsetof(IcmpEcho, seq_lo) != 7) { return 0; }
+    if (offsetof(IcmpEcho, data) != 8) { return 0; }
+    return 1;
+}
 
 fn net_fail(msg: *u8) -> i64 {
     puts(msg);
@@ -257,14 +352,14 @@ fn net_read_mac() -> i64 {
 fn net_rings() -> i64 {
     let i = 0;
     while (i < 8) {
-        let rx: *RxD = (net_rx_ring + i * 16) as *RxD;
+        let rx: *RxD = (net_rx_ring + i * sizeof(RxD)) as *RxD;
         rx->addr = net_rx_pa[i];
         rx->len = 0;
         rx->csum = 0;
         rx->status = 0;
         rx->err = 0;
         rx->special = 0;
-        let tx: *TxD = (net_tx_ring + i * 16) as *TxD;
+        let tx: *TxD = (net_tx_ring + i * sizeof(TxD)) as *TxD;
         tx->addr = net_tx_pa;
         tx->len = 0;
         tx->cso = 0;
@@ -346,7 +441,7 @@ fn net_tx(len: i64) -> i64 {
     if (len < 60) { len = 60; }
     if (len > 2048) { net_tx_rc = 1; return 1; }
     let i = net_tx_i;
-    let d: *TxD = (net_tx_ring + i * 16) as *TxD;
+    let d: *TxD = (net_tx_ring + i * sizeof(TxD)) as *TxD;
     d->addr = net_tx_pa;
     d->len = len;
     d->cso = 0;
@@ -373,47 +468,12 @@ fn net_zero(p: *u8, n: i64) -> i64 {
     return 0;
 }
 
-fn net_copy6(dst: *u8, doff: i64, src: *u8, soff: i64) -> i64 {
-    let i = 0;
-    while (i < 6) {
-        dst[doff + i] = src[soff + i];
-        i = i + 1;
-    }
-    return 0;
-}
-
-fn net_mac_eq(p: *u8, off: i64, m: *u8) -> i64 {
-    let i = 0;
-    while (i < 6) {
-        if ((p[off + i] & 255) != (m[i] & 255)) { return 0; }
-        i = i + 1;
-    }
+fn net_b4(b0: i64, b1: i64, b2: i64, b3: i64, a: i64, b: i64, c: i64, d: i64) -> i64 {
+    if ((b0 & 255) != a) { return 0; }
+    if ((b1 & 255) != b) { return 0; }
+    if ((b2 & 255) != c) { return 0; }
+    if ((b3 & 255) != d) { return 0; }
     return 1;
-}
-
-fn net_is_bcast(p: *u8, off: i64) -> i64 {
-    let i = 0;
-    while (i < 6) {
-        if ((p[off + i] & 255) != 255) { return 0; }
-        i = i + 1;
-    }
-    return 1;
-}
-
-fn net_ip_eq(p: *u8, off: i64, a: i64, b: i64, c: i64, d: i64) -> i64 {
-    if ((p[off] & 255) != a) { return 0; }
-    if ((p[off + 1] & 255) != b) { return 0; }
-    if ((p[off + 2] & 255) != c) { return 0; }
-    if ((p[off + 3] & 255) != d) { return 0; }
-    return 1;
-}
-
-fn net_put_ip(p: *u8, off: i64, a: i64, b: i64, c: i64, d: i64) -> i64 {
-    p[off] = a;
-    p[off + 1] = b;
-    p[off + 2] = c;
-    p[off + 3] = d;
-    return 0;
 }
 
 // Suma en complemento a uno, bytes en orden de red. Devuelve el
@@ -439,124 +499,152 @@ fn net_txb() -> *u8 {
     return p;
 }
 
-fn net_eth(p: *u8, dst: *u8, doff: i64, et_hi: i64, et_lo: i64) -> i64 {
-    if (doff < 0) {
-        let i = 0;
-        while (i < 6) { p[i] = 255; i = i + 1; }
-    } else {
-        net_copy6(p, 0, dst, doff);
-    }
-    net_copy6(p, 6, net_mac, 0);
-    p[12] = et_hi;
-    p[13] = et_lo;
-    return 0;
-}
-
 fn net_send_arp_reply(req: *u8) -> i64 {
     let p = net_txb();
     net_zero(p, 60);
-    net_copy6(p, 0, req, 6);
-    net_copy6(p, 6, net_mac, 0);
-    p[12] = 0x08;
-    p[13] = 0x06;
-    p[15] = 1;
-    p[16] = 0x08;
-    p[18] = 6;
-    p[19] = 4;
-    p[21] = 2;
-    net_copy6(p, 22, net_mac, 0);
-    net_put_ip(p, 28, 10, 0, 2, 15);
-    net_copy6(p, 32, req, 6);
-    p[38] = req[28];
-    p[39] = req[29];
-    p[40] = req[30];
-    p[41] = req[31];
+    let a: *ArpPkt = p as *ArpPkt;
+    let q: *ArpPkt = req as *ArpPkt;
+    let i = 0;
+    while (i < 6) {
+        a.dst[i] = q.src[i];
+        a.src[i] = net_mac[i];
+        a.sha[i] = net_mac[i];
+        a.tha[i] = q.src[i];
+        i = i + 1;
+    }
+    a.et_hi = 0x08;
+    a.et_lo = 0x06;
+    a.ht_lo = 1;
+    a.pt_hi = 0x08;
+    a.hlen = 6;
+    a.plen = 4;
+    a.op_lo = 2;
+    a.spa[0] = 10;
+    a.spa[1] = 0;
+    a.spa[2] = 2;
+    a.spa[3] = 15;
+    a.tpa[0] = q.spa[0];
+    a.tpa[1] = q.spa[1];
+    a.tpa[2] = q.spa[2];
+    a.tpa[3] = q.spa[3];
     return net_tx(60);
 }
 
 fn net_send_arp_request() -> i64 {
     let p = net_txb();
     net_zero(p, 60);
-    net_eth(p, net_mac, 0 - 1, 0x08, 0x06);
-    p[15] = 1;
-    p[16] = 0x08;
-    p[18] = 6;
-    p[19] = 4;
-    p[21] = 1;
-    net_copy6(p, 22, net_mac, 0);
-    net_put_ip(p, 28, 10, 0, 2, 15);
-    net_put_ip(p, 38, 10, 0, 2, 2);
+    let a: *ArpPkt = p as *ArpPkt;
+    let i = 0;
+    while (i < 6) {
+        a.dst[i] = 255;
+        a.src[i] = net_mac[i];
+        a.sha[i] = net_mac[i];
+        i = i + 1;
+    }
+    a.et_hi = 0x08;
+    a.et_lo = 0x06;
+    a.ht_lo = 1;
+    a.pt_hi = 0x08;
+    a.hlen = 6;
+    a.plen = 4;
+    a.op_lo = 1;
+    a.spa[0] = 10;
+    a.spa[1] = 0;
+    a.spa[2] = 2;
+    a.spa[3] = 15;
+    a.tpa[0] = 10;
+    a.tpa[1] = 0;
+    a.tpa[2] = 2;
+    a.tpa[3] = 2;
     return net_tx(60);
 }
 
 fn net_send_ping() -> i64 {
     let p = net_txb();
     net_zero(p, 60);
-    net_eth(p, net_gw, 0, 0x08, 0x00);
-    p[14] = 0x45;
-    p[17] = 32;
-    p[19] = 1;
-    p[22] = 64;
-    p[23] = 1;
-    net_put_ip(p, 26, 10, 0, 2, 15);
-    net_put_ip(p, 30, 10, 0, 2, 2);
-    let c = net_csum(p, 14, 20);
-    p[24] = (c >> 8) & 255;
-    p[25] = c & 255;
-    if ((p[24] & 255) != 0x62 || (p[25] & 255) != 0xCC) { return 2; }
-    p[34] = 8;
-    p[38] = 0x42;
-    p[39] = 0x42;
-    p[41] = 1;
-    p[42] = 0x41;
-    p[43] = 0x54;
-    p[44] = 0x4F;
-    p[45] = 0x4D;
-    c = net_csum(p, 34, 12);
-    p[36] = (c >> 8) & 255;
-    p[37] = c & 255;
-    if ((p[36] & 255) != 0x25 || (p[37] & 255) != 0x1B) { return 2; }
+    let ip: *IpPkt = p as *IpPkt;
+    let i = 0;
+    while (i < 6) {
+        ip.dst[i] = net_gw[i];
+        ip.src[i] = net_mac[i];
+        i = i + 1;
+    }
+    ip.et_hi = 0x08;
+    ip.et_lo = 0x00;
+    ip.vihl = 0x45;
+    ip.len_lo = 32;
+    ip.id_lo = 1;
+    ip.ttl = 64;
+    ip.proto = 1;
+    ip.sip[0] = 10;
+    ip.sip[1] = 0;
+    ip.sip[2] = 2;
+    ip.sip[3] = 15;
+    ip.dip[0] = 10;
+    ip.dip[1] = 0;
+    ip.dip[2] = 2;
+    ip.dip[3] = 2;
+    let c = net_csum(p, offsetof(IpPkt, vihl), 20);
+    ip.sum_hi = (c >> 8) & 255;
+    ip.sum_lo = c & 255;
+    if ((ip.sum_hi & 255) != 0x62 || (ip.sum_lo & 255) != 0xCC) { return 2; }
+    let ic: *IcmpEcho = (p as i64 + sizeof(IpPkt)) as *IcmpEcho;
+    ic.typ = 8;
+    ic.id_hi = 0x42;
+    ic.id_lo = 0x42;
+    ic.seq_lo = 1;
+    ic.data[0] = 0x41;
+    ic.data[1] = 0x54;
+    ic.data[2] = 0x4F;
+    ic.data[3] = 0x4D;
+    c = net_csum(p, sizeof(IpPkt), 12);
+    ic.sum_hi = (c >> 8) & 255;
+    ic.sum_lo = c & 255;
+    if ((ic.sum_hi & 255) != 0x25 || (ic.sum_lo & 255) != 0x1B) { return 2; }
     return net_tx(60);
 }
 
 fn net_send_echo_reply(src: *u8, hw: i64, ihl: i64, total: i64) -> i64 {
     if (total < ihl + 8 || total > 1500) { return 1; }
-    if (14 + total > hw || 14 + total > 2048) { return 1; }
-    let n = 14 + total;
+    if (sizeof(EthHdr) + total > hw || sizeof(EthHdr) + total > 2048) { return 1; }
+    let n = sizeof(EthHdr) + total;
     if (n < 60) { n = 60; }
     let p = net_txb();
     net_zero(p, n);
     let i = 0;
-    let copy = 14 + total;
+    let copy = sizeof(EthHdr) + total;
     while (i < copy) {
         p[i] = src[i];
         i = i + 1;
     }
+    let ip: *IpPkt = p as *IpPkt;
+    let s: *IpPkt = src as *IpPkt;
     i = 0;
     while (i < 6) {
-        p[i] = src[6 + i];
-        p[6 + i] = src[i];
+        ip.dst[i] = s.src[i];
+        ip.src[i] = s.dst[i];
         i = i + 1;
     }
     i = 0;
     while (i < 4) {
-        p[26 + i] = src[30 + i];
-        p[30 + i] = src[26 + i];
+        ip.sip[i] = s.dip[i];
+        ip.dip[i] = s.sip[i];
         i = i + 1;
     }
-    p[22] = 64;
-    let icmp = 14 + ihl;
-    p[icmp] = 0;
-    p[icmp + 2] = 0;
-    p[icmp + 3] = 0;
+    ip.ttl = 64;
+    let icmp = sizeof(EthHdr) + ihl;
+    let ic: *IcmpEcho = (p as i64 + icmp) as *IcmpEcho;
+    ic.typ = 0;
+    ic.sum_hi = 0;
+    ic.sum_lo = 0;
     let c = net_csum(p, icmp, total - ihl);
-    p[icmp + 2] = (c >> 8) & 255;
-    p[icmp + 3] = c & 255;
-    p[24] = 0;
-    p[25] = 0;
-    c = net_csum(p, 14, ihl);
-    p[24] = (c >> 8) & 255;
-    p[25] = c & 255;
+    ic.sum_hi = (c >> 8) & 255;
+    ic.sum_lo = c & 255;
+    ip.sum_hi = 0;
+    ip.sum_lo = 0;
+    c = net_csum(p, offsetof(IpPkt, vihl), ihl);
+    ip.sum_hi = (c >> 8) & 255;
+    ip.sum_lo = c & 255;
     return net_tx(n);
 }
 
@@ -565,23 +653,33 @@ fn net_send_echo_reply(src: *u8, hw: i64, ihl: i64, total: i64) -> i64 {
 // el tope es hw, el largo que pasó quien llama (el descriptor, o la
 // prueba).
 fn net_arp(p: *u8, hw: i64) -> i64 {
-    if (hw < 42) { return 1; }
-    if ((p[14] & 255) != 0 || (p[15] & 255) != 1) { return 1; }
-    if ((p[16] & 255) != 0x08 || (p[17] & 255) != 0) { return 1; }
-    if ((p[18] & 255) != 6 || (p[19] & 255) != 4) { return 1; }
-    let oper = ((p[20] & 255) << 8) | (p[21] & 255);
+    if (hw < sizeof(ArpPkt)) { return 1; }
+    let a: *ArpPkt = p as *ArpPkt;
+    if ((a.ht_hi & 255) != 0 || (a.ht_lo & 255) != 1) { return 1; }
+    if ((a.pt_hi & 255) != 0x08 || (a.pt_lo & 255) != 0) { return 1; }
+    if ((a.hlen & 255) != 6 || (a.plen & 255) != 4) { return 1; }
+    let oper = ((a.op_hi & 255) << 8) | (a.op_lo & 255);
     if (oper != 1 && oper != 2) { return 1; }
     let for_us = 0;
-    if (net_is_bcast(p, 0) != 0) { for_us = 1; }
-    if (net_mac_eq(p, 0, net_mac) != 0) { for_us = 1; }
+    let i = 0;
+    let bcast = 1;
+    let mine = 1;
+    while (i < 6) {
+        if ((a.dst[i] & 255) != 255) { bcast = 0; }
+        if ((a.dst[i] & 255) != (net_mac[i] & 255)) { mine = 0; }
+        i = i + 1;
+    }
+    if (bcast != 0) { for_us = 1; }
+    if (mine != 0) { for_us = 1; }
     if (for_us == 0) { return 0; }
-    if (oper == 1 && net_ip_eq(p, 38, 10, 0, 2, 15) != 0) {
+    if (oper == 1 && net_b4(a.tpa[0], a.tpa[1], a.tpa[2], a.tpa[3], 10, 0, 2, 15) != 0) {
         net_send_arp_reply(p);
         return 0;
     }
-    if (oper == 2 && net_ip_eq(p, 28, 10, 0, 2, 2) != 0 && net_ip_eq(p, 38, 10, 0, 2, 15) != 0) {
-        if (net_mac_eq(p, 0, net_mac) != 0) {
-            net_copy6(net_gw, 0, p, 22);
+    if (oper == 2 && net_b4(a.spa[0], a.spa[1], a.spa[2], a.spa[3], 10, 0, 2, 2) != 0 && net_b4(a.tpa[0], a.tpa[1], a.tpa[2], a.tpa[3], 10, 0, 2, 15) != 0) {
+        if (mine != 0) {
+            i = 0;
+            while (i < 6) { net_gw[i] = a.sha[i]; i = i + 1; }
             net_arp_seen = 1;
         }
     }
@@ -589,35 +687,43 @@ fn net_arp(p: *u8, hw: i64) -> i64 {
 }
 
 fn net_ip(p: *u8, hw: i64) -> i64 {
-    if (hw < 34) { return 1; }
-    let vi = p[14] & 255;
+    if (hw < sizeof(IpPkt)) { return 1; }
+    let ip: *IpPkt = p as *IpPkt;
+    let vi = ip.vihl & 255;
     if ((vi >> 4) != 4) { return 1; }
     let ihl = (vi & 15) * 4;
     if (ihl < 20 || ihl > 60) { return 1; }
-    if (hw < 14 + ihl) { return 1; }
-    let total = ((p[16] & 255) << 8) | (p[17] & 255);
+    if (hw < sizeof(EthHdr) + ihl) { return 1; }
+    let total = ((ip.len_hi & 255) << 8) | (ip.len_lo & 255);
     if (total < ihl || total > 1500) { return 1; }
-    if (14 + total > hw) { return 1; }
-    let frag = ((p[20] & 255) << 8) | (p[21] & 255);
+    if (sizeof(EthHdr) + total > hw) { return 1; }
+    let frag = ((ip.frag_hi & 255) << 8) | (ip.frag_lo & 255);
     if ((frag & 0x3FFF) != 0) { return 0; }
-    if (net_csum(p, 14, ihl) != 0) { return 1; }
-    if ((p[23] & 255) != 1) { return 0; }
-    if (net_ip_eq(p, 30, 10, 0, 2, 15) == 0) { return 0; }
-    if (net_mac_eq(p, 0, net_mac) == 0) { return 0; }
+    if (net_csum(p, offsetof(IpPkt, vihl), ihl) != 0) { return 1; }
+    if ((ip.proto & 255) != 1) { return 0; }
+    if (net_b4(ip.dip[0], ip.dip[1], ip.dip[2], ip.dip[3], 10, 0, 2, 15) == 0) { return 0; }
+    let i = 0;
+    while (i < 6) {
+        if ((ip.dst[i] & 255) != (net_mac[i] & 255)) { return 0; }
+        i = i + 1;
+    }
     if (total < ihl + 8) { return 1; }
-    let icmp = 14 + ihl;
+    let icmp = sizeof(EthHdr) + ihl;
     if (net_csum(p, icmp, total - ihl) != 0) { return 1; }
-    let typ = p[icmp] & 255;
-    let code = p[icmp + 1] & 255;
+    let ic: *IcmpEcho = (p as i64 + icmp) as *IcmpEcho;
+    let typ = ic.typ & 255;
+    let code = ic.code & 255;
     if (typ == 8 && code == 0) {
-        if (net_ip_eq(p, 26, 10, 0, 2, 15) == 0) { net_send_echo_reply(p, hw, ihl, total); }
+        if (net_b4(ip.sip[0], ip.sip[1], ip.sip[2], ip.sip[3], 10, 0, 2, 15) == 0) {
+            net_send_echo_reply(p, hw, ihl, total);
+        }
         return 0;
     }
-    if (typ == 0 && code == 0 && net_ip_eq(p, 26, 10, 0, 2, 2) != 0) {
-        let id = ((p[icmp + 4] & 255) << 8) | (p[icmp + 5] & 255);
-        let seq = ((p[icmp + 6] & 255) << 8) | (p[icmp + 7] & 255);
-        if (id == 0x4242 && seq == 1 && total - ihl >= 12) {
-            if ((p[icmp + 8] & 255) == 0x41 && (p[icmp + 9] & 255) == 0x54 && (p[icmp + 10] & 255) == 0x4F && (p[icmp + 11] & 255) == 0x4D) {
+    if (typ == 0 && code == 0 && net_b4(ip.sip[0], ip.sip[1], ip.sip[2], ip.sip[3], 10, 0, 2, 2) != 0) {
+        let id = ((ic.id_hi & 255) << 8) | (ic.id_lo & 255);
+        let seq = ((ic.seq_hi & 255) << 8) | (ic.seq_lo & 255);
+        if (id == 0x4242 && seq == 1 && total - ihl >= sizeof(IcmpEcho)) {
+            if ((ic.data[0] & 255) == 0x41 && (ic.data[1] & 255) == 0x54 && (ic.data[2] & 255) == 0x4F && (ic.data[3] & 255) == 0x4D) {
                 net_ping_seen = 1;
             }
         }
@@ -626,15 +732,16 @@ fn net_ip(p: *u8, hw: i64) -> i64 {
 }
 
 fn net_frame(p: *u8, hw: i64) -> i64 {
-    if (hw < 14 || hw > 2048) { return 1; }
-    let et = ((p[12] & 255) << 8) | (p[13] & 255);
+    if (hw < sizeof(EthHdr) || hw > 2048) { return 1; }
+    let e: *EthHdr = p as *EthHdr;
+    let et = ((e.et_hi & 255) << 8) | (e.et_lo & 255);
     if (et == 0x0806) { return net_arp(p, hw); }
     if (et == 0x0800) { return net_ip(p, hw); }
     return 0;
 }
 
 fn net_rx_once() -> i64 {
-    let d: *RxD = (net_rx_ring + net_rx_i * 16) as *RxD;
+    let d: *RxD = (net_rx_ring + net_rx_i * sizeof(RxD)) as *RxD;
     let st = d->status;
     if ((st & 1) == 0) { return 0; }
     let len = d->len;
@@ -679,41 +786,54 @@ fn net_wait_flag(which: i64) -> i64 {
 
 fn net_self_reply() -> i64 {
     net_zero(net_probe, 64);
+    let q: *ArpPkt = net_probe as *ArpPkt;
     let i = 0;
-    while (i < 6) { net_probe[i] = 255; i = i + 1; }
-    net_probe[6] = 2;
-    net_probe[11] = 0x11;
-    net_probe[12] = 0x08;
-    net_probe[13] = 0x06;
-    net_probe[15] = 1;
-    net_probe[16] = 0x08;
-    net_probe[18] = 6;
-    net_probe[19] = 4;
-    net_probe[21] = 1;
-    net_probe[22] = 2;
-    net_probe[27] = 0x11;
-    net_put_ip(net_probe, 28, 10, 0, 2, 4);
-    net_put_ip(net_probe, 38, 10, 0, 2, 15);
+    while (i < 6) { q.dst[i] = 255; i = i + 1; }
+    q.src[0] = 2;
+    q.src[5] = 0x11;
+    q.et_hi = 0x08;
+    q.et_lo = 0x06;
+    q.ht_lo = 1;
+    q.pt_hi = 0x08;
+    q.hlen = 6;
+    q.plen = 4;
+    q.op_lo = 1;
+    q.sha[0] = 2;
+    q.sha[5] = 0x11;
+    q.spa[0] = 10;
+    q.spa[1] = 0;
+    q.spa[2] = 2;
+    q.spa[3] = 4;
+    q.tpa[0] = 10;
+    q.tpa[1] = 0;
+    q.tpa[2] = 2;
+    q.tpa[3] = 15;
     net_tx_rc = 0;
     if (net_frame(net_probe, 60) != 0) { return 1; }
     if (net_tx_rc != 0) { return 1; }
     let t = net_txb();
-    if ((t[12] & 255) != 0x08 || (t[13] & 255) != 0x06) { return 1; }
-    if ((t[20] & 255) != 0 || (t[21] & 255) != 2) { return 1; }
-    if (net_ip_eq(t, 28, 10, 0, 2, 15) == 0) { return 1; }
-    if (net_ip_eq(t, 38, 10, 0, 2, 4) == 0) { return 1; }
-    if (net_mac_eq(t, 6, net_mac) == 0) { return 1; }
+    let a: *ArpPkt = t as *ArpPkt;
+    if ((a.et_hi & 255) != 0x08 || (a.et_lo & 255) != 0x06) { return 1; }
+    if ((a.op_hi & 255) != 0 || (a.op_lo & 255) != 2) { return 1; }
+    if (net_b4(a.spa[0], a.spa[1], a.spa[2], a.spa[3], 10, 0, 2, 15) == 0) { return 1; }
+    if (net_b4(a.tpa[0], a.tpa[1], a.tpa[2], a.tpa[3], 10, 0, 2, 4) == 0) { return 1; }
+    i = 0;
+    while (i < 6) {
+        if ((a.src[i] & 255) != (net_mac[i] & 255)) { return 1; }
+        i = i + 1;
+    }
     return 0;
 }
 
 fn net_drop_test() -> i64 {
     net_zero(net_probe, 64);
-    net_probe[12] = 0x08;
-    net_probe[14] = 0x45;
-    net_probe[17] = 200;
+    let ip: *IpPkt = net_probe as *IpPkt;
+    ip.et_hi = 0x08;
+    ip.vihl = 0x45;
+    ip.len_lo = 200;
     // El IP dice 200 bytes y el buffer que se entrega mide 48.
     if (net_frame(net_probe, 48) != 1) { return 0; }
-    net_probe[17] = 10;
+    ip.len_lo = 10;
     // Cabecera de 20 y largo total 10: tampoco se acepta.
     if (net_frame(net_probe, 60) != 1) { return 0; }
     return 1;
@@ -727,6 +847,10 @@ fn net_show_rx() -> i64 {
 }
 
 fn cmd_net() -> i64 {
+    if (net_layout() == 0) {
+        puts("net layout\n");
+        return 0;
+    }
     net_arp_seen = 0;
     net_ping_seen = 0;
     net_rx_n = 0;

@@ -24,18 +24,20 @@ El número de sectores del kernel no está fijo en el fuente. `stage2.lap` tiene
 
 El archivo puede pasar de `0x20000`. La `.bss` no va en `kernel.bin`; `_start` la limpia justo después. El tope real es la memoria, no el disquete (quedan 2880 − 9 sectores, y eso atravesaría las pilas y pasaría de 1 MB). La primera pila fija está en `0x60000` (`proc_rsp0` del proceso 0) y crece hacia abajo. Entre topes de pila hay 32 KiB (`0x60000`, `0x68000`, `0x70000`, `0x78000`, y más arriba `0x81000`, `0x86000` y `0x90000`), así que imagen y `.bss` tienen que terminar antes de `0x58000`. `make` reserva 32 KiB para la `.bss` y rechaza un `kernel.bin` de más de 512 sectores (256 KiB, el archivo termina a más tardar en `0x50000`). También suma los `resb` y `resq` de la `.bss` y falla si `0x10000 + kernel.bin + .bss` pasa de `0x58000`.
 
-En esta compilación (`copihue` v0.27.1, commit `e7564b3782ab2cbabf966311c2e42147d4c19d1c`, `wc -l` y `stat`):
+En esta compilación (`copihue` v0.27.3, commit `333f74ae8c82fd679232d754920e335e012483c7`, `wc -l` y `stat`):
 
 | Archivo | Tamaño |
 |---|---|
 | `build/boot.bin` | 512 bytes |
-| `build/stage2.bin` | 1739 bytes con el cartel `LapageriaOS` (cabe en 8 × 512). Con el cartel `AtomicOS` medía 1736 |
-| `build/kernel.bin` | se vuelve a medir al juntar el nombre, v0.27.1, la red, las trazas y las zonas. Sin red, v0.27.1 medía 68513 bytes → 134 sectores (LBA 9..142); la `.bss` era de 18224 bytes y `0x10000 + kernel.bin + .bss` terminaba en `0x252D1`. El renombre sobre v0.26.1, sin red, medía 68615 bytes → 135 sectores (LBA 9..143); la `.bss` era de 18160 bytes y terminaba en `0x252F7`. Con red y el pin v0.26.1, todavía como AtomicOS, medía 88008 bytes → 172 sectores (LBA 9..180); la `.bss` era de 18300 bytes y terminaba en `0x29F44`. Con red y trazas, sobre v0.26.1 y todavía como AtomicOS, medía 96170 bytes → 188 sectores (LBA 9..196); la `.bss` era de 21084 bytes y terminaba en `0x2CA06`. Con red y zonas, sobre v0.26.1 y todavía como AtomicOS, medía 145702 bytes → 285 sectores (LBA 9..293); la `.bss` era de 19212 bytes y terminaba en `0x38432` |
-| `src/bootloader/boot.lap` | 76 líneas, ninguna `asm("...")` |
-| `src/bootloader/stage2.lap` | 268 líneas, ninguna `asm("...")` |
-| `src/kernel/copihue/*.lap` | el kernel de v0.27.1 no tiene `asm("...")` (3222 líneas antes de la red). `net.lap`, `trace.lap` y `zone.lap` entran ahora y tampoco agregan `asm()`. En el árbol de la red sobre v0.26.1 el total era 3832 líneas, 17 de ellas `asm("...")`, todas fuera de `net.lap`. Con trazas, sobre esa misma base, eran 4353 líneas y las mismas 17 `asm("...")`. Con zonas, sobre la red y todavía como AtomicOS, eran 4551 líneas y las mismas 17 `asm("...")`. `exec_img.lap` y `zone_img.lap` los genera `mkaxe.sh` y no entran en ese conteo |
+| `build/stage2.bin` | 1707 bytes (cabe en 8 × 512) |
+| `build/kernel.bin` | 157143 bytes → 307 sectores (LBA 9..315). La `.bss` mide 22060 bytes y `0x10000 + kernel.bin + .bss` termina en `0x3BC03` |
+| `src/bootloader/boot.lap` | 70 líneas, ninguna `asm("...")` |
+| `src/bootloader/stage2.lap` | 262 líneas, ninguna `asm("...")` |
+| `src/kernel/copihue/*.lap` | 7372 líneas, ninguna `asm("...")`. `exec_img.lap` y `zone_img.lap` los genera `mkaxe.sh` y no entran en ese conteo |
 
-`copihue --help` en v0.27.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. Sin red, el binario de la etapa 2 llevaba el paquete `10 00 86 00 00 00 00 10 09 00 00 00 00 00 00 00`: 134 sectores (`0x0086`) desde LBA 9 hacia `0x1000:0`, partido en 128 y 6. El renombre sobre v0.26.1, sin red, llevaba `10 00 87 00 00 00 00 10 09 00 00 00 00 00 00 00`: 135 sectores (`0x0087`), partido en 128 y 7. Con red y v0.26.1 el paquete era `10 00 ac 00 00 00 00 10 09 00 00 00 00 00 00 00`: 172 sectores (`0x00ac`), partido en 128 y 44. Con red y trazas, sobre v0.26.1, el paquete era `10 00 bc 00 00 00 00 10 09 00 00 00 00 00 00 00`: 188 sectores (`0x00bc`), partido en 128 y 60. Con red y zonas, sobre v0.26.1, el paquete era `10 00 1D 01 00 00 00 10 09 00 00 00 00 00 00 00`: 285 sectores (`0x011D`), partido en 128, 128 y 29. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt: el segundo paquete no pisa el kernel.
+`copihue --help` en v0.27.3 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 33 01 00 00 00 10 09 00 00 00 00 00 00 00`: 307 sectores (`0x0133`) desde LBA 9 hacia `0x1000:0`. 307 pasa de 128 dos veces, así que la etapa 2 manda 128, después 128 y al final 51. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt en el pin anterior: el segundo paquete no pisa el kernel.
+
+El tope que aplica `make` es 512 sectores de `kernel.bin`. Sale de la memoria, no del disquete. La imagen tiene 2880 sectores; después del LBA 8 quedan 2871, y 512 caben (el kernel máximo terminaría en el LBA 520, y sobran 2359 sectores). 512 × 512 bytes terminan en `0x50000`. La reserva de 32 KiB para la `.bss` llega justo a `0x58000`, antes de la pila de `0x60000`. Esta imagen usa 307 de esos 512. La `.bss` real mide 22060 bytes, así que `0x10000 + kernel.bin + .bss` queda en `0x3BC03`, con 115709 bytes libres hasta `0x58000`. Si el archivo creciera hasta el tope de 512 y la `.bss` se quedara en 22060, el final sería `0x5560C`, todavía antes de `0x58000`. El otro freno es ese final: `make` falla si la suma pasa de `0x58000`, aunque el archivo quepa en 512 sectores.
 
 Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `lapageria>`.
 
@@ -102,7 +104,7 @@ qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img \
     -display none -serial stdio
 ```
 
-El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.27.1`, commit `e7564b3782ab2cbabf966311c2e42147d4c19d1c`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
+El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.27.3`, commit `333f74ae8c82fd679232d754920e335e012483c7`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
 
 ```bash
 make COPIHUE=/ruta/al/copihue all
@@ -167,7 +169,7 @@ El estado de cada etapa es el de la imagen que arranca `make qemu-test`.
 
 ### 1. Arranque y consola — en la imagen
 
-Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. En v0.27.1, `boot.lap` y `stage2.lap` no tienen `asm()`: los segmentos, `jmp`, los stores con ancho, `lodsb`, `rep_stosd`, `pushfd` / `popfd` y `push` / `pop` están en el lenguaje. El lazo que parte el kernel en paquetes de 128 sectores también. `cld()` sigue siendo `unknown function 'cld'`; el arranque apaga DF con `pushfd` antes de `lodsb` y de `rep_stosd`. En el kernel no queda `asm()`: `save_context` guarda el marco de `sched_go` y de `enter_user`, `restore_context` vuelve al shell, y el PIT y el `#PF` usan el puntero al marco. El sistema de archivos y `exec` tampoco agregan `asm()`. `dq page + 3` ensambla, pero las tablas tienen que quedar en la dirección física `0x1000`, fuera de esta imagen.
+Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. En v0.27.3, `boot.lap` y `stage2.lap` no tienen `asm()`: los segmentos, `jmp`, los stores con ancho, `lodsb`, `rep_stosd`, `cld()`, `pushfd` / `popfd` y `push` / `pop` están en el lenguaje. El lazo que parte el kernel en paquetes de 128 sectores también. `clear_df` es `cld()` antes de `lodsb` y de `rep_stosd`. `check_long_mode` sigue con `pushfd` / `popfd` para probar el bit ID. En el kernel no queda `asm()`: `save_context` guarda el marco de `sched_go` y de `enter_user`, `restore_context` vuelve al shell, y el PIT y el `#PF` usan el puntero al marco. La red, las trazas, las zonas, el sistema de archivos y `exec` tampoco agregan `asm()`. `dq page + 3` ensambla, pero las tablas tienen que quedar en la dirección física `0x1000`, fuera de esta imagen.
 
 ### 2. Interrupciones y temporizador — en la imagen
 

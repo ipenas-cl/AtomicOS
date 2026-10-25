@@ -35,9 +35,11 @@ no cae en la identidad de 2 MiB (ahí la CPU puede escribirla). El alto
 del descriptor de 64 bits queda en 0. `RDLEN` y `TDLEN` son 128, que es
 múltiplo de 128.
 
-El descriptor es un `packed struct` de escalares (16 bytes). La trama
-no: un arreglo adentro del struct no tiene ancho real. Ver
-`docs/PEDIDOS_COPIHUE.md`.
+El descriptor es un `packed struct` de 16 bytes (`sizeof(RxD)` y
+`sizeof(TxD)`). La trama también: `EthHdr` mide 14, `ArpPkt` 42 e
+`IpPkt` 34. Los campos de más de un byte van en dos `u8`, en orden
+de red: un `u16` nativo los guardaría al revés. `net_layout` exige
+esos `sizeof` y `offsetof`. El buffer DMA sigue siendo el mismo.
 
 ## Protocolos
 

@@ -2,9 +2,8 @@
 
 Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
 
-Compilador fijado en el Makefile: v0.27.1, commit
-`e7564b3782ab2cbabf966311c2e42147d4c19d1c`. El renombre se midió sobre
-v0.26.1, commit `54dc238f943968e676040e67bdac206ce201bc7f`.
+Compilador fijado en el Makefile: v0.27.3, commit
+`333f74ae8c82fd679232d754920e335e012483c7`.
 
 ## Cerrado en v0.27.0 y v0.27.1
 
@@ -20,64 +19,37 @@ bytes, no en 13. `sizeof` y `offsetof` lo comprueban en `fs_layout`,
 `error_code`) reemplaza el `rbp` del PIT y del `#PF`. El kernel no
 tiene `asm()`.
 
-## Sigue abierto: `cld()`
+En v0.26.1 esta sonda de Ethernet salía en 0 sin mensaje. `EthHdr`
+medía 4 bytes, `etype` quedaba en el offset 2 y `e.dst[0] = 255` no
+almacenaba. v0.27.0 lo cierra. En v0.27.3, `copihue --flat 0x10000 -S`
+mide `EthHdr` 14, `ArpPkt` 42, `IpPkt` 34, `IcmpEcho` 12, `ZoneStr`
+16, `TrEv` 40 y `RxD` 16, con los `offsetof` del fuente. El store
+`e.dst[0] = 255` escribe el byte. La red, las trazas y las zonas
+leen esos structs. La trama y el disco no cambian: los campos de más
+de un byte de la trama van en dos `u8`, en orden de red.
 
-El arranque lo necesita antes de `lodsb` y de `rep_stosd`. No hay
-`asm()` ahí: `clear_df` lo apaga con `pushfd` / `popfd`.
+## Cerrado en v0.27.3
 
-```
-error: unknown function 'cld'
-```
+`cld()` y `std()` ensamblan, también en `bits 16`. `clear_df` es
+`cld()` antes de `lodsb` y de `rep_stosd`. `pushfd` / `popfd` queda
+en `check_long_mode`, porque ahí se prueba el bit ID, y en
+`trace_save_if`, porque ahí se guardan los flags (en 64 bits
+`pushfd()` emite `pushfq`).
 
-`std()` tampoco está. No hace falta para este kernel.
+`jmp rax` y `jmp [resume_rip]` existen dentro de `naked`. El
+planificador no los usa: `restore_context` salta solo y el PIT
+cambia de proceso con `frame = (saved_ksp + 120) as *InterruptFrame`.
 
-## No hizo falta dejar `asm()`
+`ebx` se puede asignar en `bits 16`. El token de INT 15h vive ahí.
+Un `if (ebx == 0)` igual lo pisa (`mov ebx, eax` con el cero del
+comparando), así que `get_e820` copia el token a memoria antes de
+mirarlo y lo restaura al volver al lazo.
 
-`jmp resume_rip` sigue siendo `unknown jump target 'resume_rip'`.
-`jmp rax` es `unknown jump target 'rax'`. `restore_context` salta
-solo. El PIT cambia de proceso con `frame = (saved_ksp + 120) as
-*InterruptFrame`. No quedó un caso del planificador fuera de ese
-diseño.
+`syscall(n, a, ...)` existe en `--flat`. El programa de la zona
+sigue con `syscall()` sin argumentos: el resultado queda en `rax` y
+el caso de abajo lo pisa igual.
 
-## Cabecera Ethernet: el arreglo ya mide
-
-En v0.26.1 esta sonda salía en 0 sin mensaje. `EthHdr` medía 4 bytes,
-`etype` quedaba en el offset 2 y `e.dst[0] = 255` no almacenaba:
-
-```copihue
-packed struct EthHdr {
-    dst: [u8; 6],
-    src: [u8; 6],
-    etype: u16
-}
-
-fn probe() -> i64 {
-    let e: EthHdr;
-    e.etype = 0x0800;
-    e.dst[0] = 255;
-    return e.etype;
-}
-```
-
-```
-; Struct local: e: EthHdr (4 bytes)
-mov rax, 2048
-; Field assignment: e.etype (offset 2)
-mov word [rbp-2], cx
-mov rax, 255
-mov rax, 0
-```
-
-Debería medir 14 bytes: destino en 0, origen en 6, ethertype en 12.
-v0.27.0 cierra ese caso (`[T; N]` ocupa `N * sizeof(T)` y el store
-escribe el byte). En v0.26.1 `etype` quedaba en el offset 2 y
-`e.dst[0] = 255` no almacenaba. ARP e IPv4 eran el mismo clavo.
-`net.lap` todavía escribe esas cabeceras con offsets sobre un buffer;
-el descriptor del e1000 ya es un `packed struct` de escalares (16
-bytes, campo `volatile`). El formato de la trama no cambia al pasar
-los offsets a structs.
-
-## `rax` no sobrevive a un `if` ni a un `while`
+## Sigue abierto: `rax` no sobrevive a un `if` ni a un `while`
 
 No hay error: `copihue` termina en 0. La condición deja `rax` en 0 o
 en 1 (`sete` / `movzx`). Un `while (rax == 0)` que sale porque `rax`
@@ -96,22 +68,33 @@ while (rax == 0) {
 if (rax == 0 - 1) { emit(33); }
 ```
 
-Con v0.26.1 (`copihue --flat 0x400000 -S`) la salida del `while` es:
+Con v0.27.3 (`copihue --flat 0x400000 -S`, commit
+`333f74ae8c82fd679232d754920e335e012483c7`) la salida del `while` es:
 
 ```
-push rax
-mov rax, 0
-mov rbx, rax
-pop rax
-cmp rax, rbx
-sete al
-movzx rax, al
-test rax, rax
-jz .L17
+syscall
+.L0:
+    push rax
+    mov rax, 0
+    mov rbx, rax
+    pop rax
+    cmp rax, rbx
+    sete al
+    movzx rax, al
+    test rax, rax
+    jz .L1
 ```
 
 Cuando la syscall devuelve -1, el salto sale con `rax == 0` y el
-`if` de abajo no ve el -1. Lo mismo pasa si entre la syscall y el
-`if` hay `*(0x401708 as *u8) = 0`. El programa de la zona guarda el
-resultado en memoria antes de comparar. Hay que volver a mirarlo con
-v0.27.3: si el -1 sobrevive, se puede quitar el rodeo.
+`if` de abajo no ve el -1. El store de constante, en la misma
+corrida, es:
+
+```
+syscall
+mov rax, 0
+mov byte [4200200], al
+```
+
+`0x401708` queda en cero y `rax` también, antes del `if`. El programa
+de la zona guarda el resultado en `0x401720` antes de comparar.
+`src/user/zona.lap` no puede soltar ese rodeo.

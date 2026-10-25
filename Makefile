@@ -76,7 +76,7 @@ QEMU_DRIVES = -drive format=raw,file=$(OS_IMAGE) -drive file=$(DATA_IMG),format=
 # existir antes de esas reglas: si no, la etapa 1 y la etapa 2 no esperan
 # al compilador (el CI de la etapa 2 falló así la primera vez).
 COPIHUE_REPO   ?= https://github.com/ipenas-cl/copihue.git
-COPIHUE_COMMIT ?= v0.27.1
+COPIHUE_COMMIT ?= v0.27.3
 COPIHUE_DIR     = $(BUILD_DIR)/copihue
 COPIHUE       ?= $(COPIHUE_DIR)/copihue
 

@@ -632,39 +632,43 @@ fn fs_rollback(name: *u8) -> i64 {
 
 fn fs_slide(d: i64, s: i64) -> i64 {
     let i = 0;
-    let dd = 8 + d * 64;
-    let ss = 8 + s * 64;
-    while (i < 64) {
-        fs_dir[dd + i] = fs_dir[ss + i];
+    let dd = fs_dir as i64 + offsetof(FsDir, slots) + d * sizeof(FsSlot);
+    let ss = fs_dir as i64 + offsetof(FsDir, slots) + s * sizeof(FsSlot);
+    let dst: *u8 = dd as *u8;
+    let src: *u8 = ss as *u8;
+    while (i < sizeof(FsSlot)) {
+        dst[i] = src[i];
         i = i + 1;
     }
     return 0;
 }
 
 // Saca la entrada del directorio vivo. Los bloques que sigue un
-// snapshot no se marcan libres.
+// snapshot no se marcan libres. El hueco sigue siendo FsSlot (64):
+// la parte útil es FsEnt.
 fn fs_remove(name: *u8) -> i64 {
     if (fs_name_ok(name, 15) == 0) { return 11; }
     let r = fs_open();
     if (r != 0) { return r; }
     let idx = fs_find(name);
     if (idx < 0) { return 7; }
-    let ent = 8 + idx * 64;
-    let oldn = fs_u32(fs_dir, ent + 20);
+    let e: *FsEnt = fs_ent(fs_dir, idx);
+    let oldn = e.nblocks;
     let k = 0;
     while (k < oldn && k < 8) {
-        fs_oldb[k] = fs_u32(fs_dir, ent + 24 + k * 4);
+        fs_oldb[k] = e.blocks[k];
         k = k + 1;
     }
-    let n = fs_u32(fs_dir, 4);
+    let d: *FsDir = fs_db(fs_dir);
+    let n = d.count;
     let j = idx;
     while (j < n - 1) {
         fs_slide(j, j + 1);
         j = j + 1;
     }
     let last = n - 1;
-    fs_zero_at(fs_dir, 8 + last * 64, 64);
-    fs_p32(fs_dir, 4, last);
+    fs_zero_at(fs_dir, offsetof(FsDir, slots) + last * sizeof(FsSlot), sizeof(FsSlot));
+    d.count = last;
     return fs_publish(oldn);
 }
 

@@ -16,11 +16,9 @@
 //
 // `dw 8`, `dw 0x8200` and `jmp 0x8200` are checked against the Makefile.
 //
-// Copihue v0.27.1. `cld()` sigue siendo unknown function 'cld'. lodsb
-// avanza si solo con DF en claro, así que clear_df lo apaga con
-// pushfd/popfd antes de leer el disco. Una llamada con argumentos desde
-// bits 16 emite `push rax` / `pop rdi` y nasm dice instruction not
-// supported in 16-bit mode; las llamadas de aquí no llevan argumentos.
+// Copihue v0.27.3. lodsb avanza si solo con DF en claro. clear_df
+// lo apaga con cld() antes de leer el disco. Las llamadas de aquí
+// no llevan argumentos.
 
 data packet {
     db 0x10, 0;
@@ -34,11 +32,7 @@ data fail_msg {
 }
 
 bits 16 naked fn clear_df() {
-    pushfd();
-    pop(eax);
-    eax = eax & ~0x400;
-    push(eax);
-    popfd();
+    cld();
 }
 
 bits 16 naked fn load_fail() {
