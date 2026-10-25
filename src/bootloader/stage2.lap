@@ -224,6 +224,8 @@ bits 16 naked fn setup_page_tables() {
     rep_stosd();
     *(0x1000 as *u32) = 0x2003;
     *(0x2000 as *u32) = 0x3003;
+    // PD[0] = 0x83 es la página de 2MB. El kernel la parte en 4KB
+    // cuando prende NX. Esta etapa no tiene el tamaño de .text.
     *(0x3000 as *u32) = 0x83;
 }
 

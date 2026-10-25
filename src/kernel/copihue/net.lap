@@ -257,7 +257,7 @@ fn net_map_bar() -> i64 {
     if (back != 0x10000000) { return net_fail("net fail bar\n"); }
     let off = 0;
     while (off < size) {
-        if (map_page(0x10000000 + off, 0x10000000 + off, 0x1B) == 0) {
+        if (map_page(0x10000000 + off, 0x10000000 + off, 0x1B | pte_nx_bit()) == 0) {
             return net_fail("net fail map\n");
         }
         off = off + 4096;

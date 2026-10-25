@@ -28,6 +28,11 @@
 # pings that gateway (`net ping ok`) and drops a frame whose IP length
 # does not fit the buffer (`net drop ok`). If this QEMU has no user
 # netdev, the script fails immediately instead of waiting.
+# Then NX: `nx` checks EFER.NXE, a data fetch #PF with the instruction
+# bit, a write to kernel code #PF, a user process that dies executing
+# its stack and another that dies executing data while the scheduler
+# continues, and an audit with zero W+X leaves. QEMU is started with
+# -cpu qemu64 so CPUID leaf 0x80000001 EDX bit 20 is set.
 # Then trace: sched's #PF and context-switch counters, `exec hola`
 # syscalls in order, a disabled probe that records nothing, and a PIT
 # flood that counts lost events and leaves the shell alive. The script
@@ -49,7 +54,8 @@ start_qemu() {
     : > "$SERIAL"
     rm -f "$MON"
     # -nic none evita la NIC por defecto. La única es este e1000.
-    qemu-system-x86_64 -drive format=raw,file="$IMAGE" \
+    # qemu64 expone NX (CPUID 0x80000001 EDX bit 20). El Makefile usa el mismo -cpu.
+    qemu-system-x86_64 -cpu qemu64 -drive format=raw,file="$IMAGE" \
         -drive file="$DATA",format=raw,if=ide,index=1 \
         -display none -no-reboot \
         -nic none -netdev user,id=n0 -device e1000,netdev=n0 \
@@ -247,6 +253,69 @@ echo "ok   pmm free=$pfree base=$pbase end=$pend"
 tr -d '\r' < "$SERIAL" | grep -qx "gdt load" || fail "gdt was not loaded"
 tr -d '\r' < "$SERIAL" | grep -qx "gdt ok" || fail "ltr/syscall setup did not finish"
 echo "ok   gdt ok"
+
+# Bit NX. `pf` ya dejó la página 0x200000 (NX). El comando tiene que
+# volver al prompt e imprimir solo líneas `nx ok`.
+typefs "nx"
+clean=$(tr -d '\r' < "$SERIAL")
+if printf '%s\n' "$clean" | grep -q '^nx fail'; then
+    fail "nx reported a failure"
+fi
+printf '%s\n' "$clean" | grep -qx "nx efer on" || fail "boot did not enable EFER.NXE"
+printf '%s\n' "$clean" | grep -qx "nx wp on" || fail "boot did not set CR0.WP"
+map=$(printf '%s\n' "$clean" | sed -n 's/^nx map text \(0x[0-9a-f]*\) \(0x[0-9a-f]*\) data \(0x[0-9a-f]*\) \(0x[0-9a-f]*\) bss \(0x[0-9a-f]*\) \(0x[0-9a-f]*\)$/\1 \2 \3 \4 \5 \6/p' | head -1)
+[ -n "${map:-}" ] || fail "no nx map line"
+set -- $map
+text_lo=$(($1)); text_hi=$(($2)); data_lo=$(($3)); data_hi=$(($4)); bss_lo=$(($5)); bss_hi=$(($6))
+[ $((text_lo & 4095)) -eq 0 ] && [ $((text_hi & 4095)) -eq 0 ] || fail "nx text is not page aligned"
+[ "$text_hi" -gt "$text_lo" ] && [ "$text_hi" -le "$data_lo" ] || fail "nx text overlaps data"
+[ "$data_hi" -le "$bss_lo" ] && [ "$bss_hi" -gt "$bss_lo" ] || fail "nx data/bss range is wrong"
+[ "$bss_hi" -le $((0x200000)) ] || fail "nx bss extends past 2MB"
+fetch=$(printf '%s\n' "$clean" | sed -n 's/^nx ok fetch err=\(0x[0-9a-f]*\) cr2=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+write=$(printf '%s\n' "$clean" | sed -n 's/^nx ok write err=\(0x[0-9a-f]*\) cr2=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+ustack=$(printf '%s\n' "$clean" | sed -n 's/^nx ok user stack err=\(0x[0-9a-f]*\) cr2=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+udata=$(printf '%s\n' "$clean" | sed -n 's/^nx ok user data err=\(0x[0-9a-f]*\) cr2=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+audit=$(printf '%s\n' "$clean" | sed -n 's/^nx ok audit wx=\([0-9][0-9]*\) leaves=\([0-9][0-9]*\) code=\([0-9][0-9]*\) nx=\([0-9][0-9]*\) huge=\([0-9][0-9]*\)$/\1 \2 \3 \4 \5/p' | head -1)
+[ -n "${fetch:-}" ] && [ -n "${write:-}" ] && [ -n "${ustack:-}" ] && [ -n "${udata:-}" ] && [ -n "${audit:-}" ] || fail "nx ok lines missing"
+set -- $fetch; fe=$(($1)); fc=$(($2))
+set -- $write; we=$(($1)); wc=$(($2))
+set -- $ustack; ue=$(($1)); uc=$(($2))
+set -- $udata; de=$(($1)); dc=$(($2))
+set -- $audit; awx=$1; aleaves=$2; acode=$3; anx=$4; ahuge=$5
+[ $((fe & 1)) -ne 0 ] && [ $((fe & 16)) -ne 0 ] && [ $((fe & 14)) -eq 0 ] || fail "fetch err is not a present instruction fetch"
+[ $((fc & 4095)) -eq 0 ] && [ "$fc" -ge "$text_hi" ] && [ "$fc" -lt "$bss_hi" ] || fail "fetch cr2 is not a data or bss page"
+[ $((we & 3)) -eq 3 ] && [ $((we & 28)) -eq 0 ] || fail "write err is not a present data write"
+[ "$wc" -eq "$text_lo" ] || fail "write cr2 is not the start of .text"
+[ $((ue & 21)) -eq 21 ] && [ $((ue & 10)) -eq 0 ] || fail "user stack err is not a present user instruction fetch"
+[ "$uc" -eq $((0x401000)) ] || fail "user stack cr2 is not 0x401000"
+[ $((de & 21)) -eq 21 ] && [ $((de & 10)) -eq 0 ] || fail "user data err is not a present user instruction fetch"
+[ "$dc" -eq $((0x500000)) ] || fail "user data cr2 is not 0x500000"
+[ "$awx" -eq 0 ] && [ "$ahuge" -eq 0 ] || fail "nx audit has W+X or a huge page"
+[ "$acode" -ge 1 ] && [ "$anx" -ge 1 ] && [ "$aleaves" -ge 512 ] || fail "nx audit counts are empty"
+[ "$aleaves" -eq $((acode + anx)) ] || fail "nx audit leaves are not code+nx"
+fex=$(printf '0x%08x' "$fe"); fcx=$(printf '0x%08x' "$fc")
+wex=$(printf '0x%08x' "$we"); wcx=$(printf '0x%08x' "$wc")
+uex=$(printf '0x%08x' "$ue"); ucx=$(printf '0x%08x' "$uc")
+dex=$(printf '0x%08x' "$de"); dcx=$(printf '0x%08x' "$dc")
+printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=${fex} cr2=${fcx}" || fail "fetch exception line does not match nx ok fetch"
+printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=${wex} cr2=${wcx}" || fail "write exception line does not match nx ok write"
+printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=${uex} cr2=${ucx}" || fail "user stack exception line does not match"
+printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=${dex} cr2=${dcx}" || fail "user data exception line does not match"
+if ! printf '%s\n' "$clean" | awk '
+    /^nx map text / { if (!a) a=NR }
+    /^nx ok efer$/ { if (a && !b) b=NR }
+    /^nx ok wp$/ { if (b && !c) c=NR }
+    /^nx ok fetch err=/ { if (c && !d) d=NR }
+    /^nx ok write err=/ { if (d && !e) e=NR }
+    /^nx ok sched$/ { if (e && !f) f=NR }
+    /^nx ok user stack err=/ { if (f && !g) g=NR }
+    /^nx ok user data err=/ { if (g && !h) h=NR }
+    /^nx ok audit / { if (h && !i) i=NR }
+    END { exit !(a && b && c && d && e && f && g && h && i && a<b && b<c && c<d && d<e && e<f && f<g && g<h && h<i) }
+'; then
+    fail "nx ok lines were out of order"
+fi
+echo "ok   nx fetch=${fex} write=${wex} user=${uex} audit wx=0 leaves=${aleaves} code=${acode} nx=${anx}"
 
 typeline pmm
 sleep 0.4
