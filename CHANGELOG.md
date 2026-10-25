@@ -47,6 +47,14 @@ en 0 o en 1. `src/user/zona.lap` guarda el resultado de la syscall en
 `0x401720` antes de compararlo. El ensamblado exacto está en
 `docs/PEDIDOS_COPIHUE.md`.
 
+En QEMU 8.2.2, `make qemu-test` de esta imagen terminó en 0: PIT a
+~100 Hz, `#PF`, anillo 3, planificador, disco, sistema de archivos,
+`exec`, zonas, ARP/ICMP del e1000, trazas (contadores, syscalls,
+sonda apagada y anillo lleno) y un segundo arranque con el mismo
+`data.img`. El humo de 10 s, sin disco de datos, salió 124. No se
+probó `reboot`, `clear`, el teclado a mano, TCP, UDP, AHCI, NVMe, el
+bit NX ni un kernel en la mitad alta.
+
 El esclavo IDE (`build/data.img`, QEMU index=1) tiene driver ATA PIO
 LBA28 y bloques de 512 B con CRC-32 en un sector de metadatos. `disk`
 escribe un patrón, lo relee y comprueba que un byte pisado con el
