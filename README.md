@@ -22,7 +22,7 @@ La etapa 1 solo carga los 8 sectores de la etapa 2. La etapa 2 habilita A20, lee
 
 El número de sectores del kernel no está fijo en el fuente. `stage2.lap` tiene el marcador `dw 0; // KERNEL_SECTORS`. `make` copia el archivo a `build/stage2.lap` y escribe ahí `ceil(kernel.bin / 512)`. Un solo paquete INT 13h usa un offset de 16 bits desde `0x1000:0`, así que el tope es 128 sectores (65536 bytes). El disquete deja más sitio (2880 − 9). `make` falla si el kernel pasa de ese tope: con un `kernel.bin` de 65537 bytes la etapa 2 sale con `kernel too large for stage 2` y Make termina en 2.
 
-En esta compilación (`copihue` v0.24.1, commit `f2f9f386d8f18dcb81e1ded637a0ffd7a67f1036`, `wc -l` y `stat`):
+En esta compilación (`copihue` v0.25.0, commit `b8b0d0740cd7b7bdbe4a2f6d5ba01baf9301f575`, `wc -l` y `stat`):
 
 | Archivo | Tamaño |
 |---|---|
@@ -31,9 +31,9 @@ En esta compilación (`copihue` v0.24.1, commit `f2f9f386d8f18dcb81e1ded637a0ffd
 | `build/kernel.bin` | 38319 bytes → 75 sectores (LBA 9..83) |
 | `src/bootloader/boot.lap` | 75 líneas, 19 de ellas `asm("...")` |
 | `src/bootloader/stage2.lap` | 255 líneas, 86 de ellas `asm("...")` |
-| `src/kernel/copihue/*.lap` | 1901 líneas, 183 de ellas `asm("...")` |
+| `src/kernel/copihue/*.lap` | 1915 líneas, 183 de ellas `asm("...")` |
 
-`copihue --help` en v0.24.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 4b 00 00 00 00 10 09 00 00 00 00 00 00 00`: 75 sectores (`0x004b`) desde LBA 9 hacia `0x1000:0`.
+`copihue --help` en v0.25.0 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 4b 00 00 00 00 10 09 00 00 00 00 00 00 00`: 75 sectores (`0x004b`) desde LBA 9 hacia `0x1000:0`.
 
 Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `atomicos>`.
 
@@ -58,7 +58,7 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - `sched`: dos PML4 distintos, la mitad alta compartida, `alias ok` dos veces, `pf-cross` de lectura y de escritura, `getpid 1` y `getpid 2`, letras `a`/`b` intercaladas, al menos un cambio por el PIT y uno por `yield`, y `exit` devolviendo todas las páginas contadas;
 - `ud2` imprime la excepción `#UD`.
 
-En QEMU 8.2.2, con el pin v0.24.1, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 1037 ms, ticks 200 → 420, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `bababababbaa`, `switch timer=13 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba.
+En QEMU 8.2.2, con el pin v0.25.0, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 934 ms, ticks 200 → 417, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `aabababababb`, `switch timer=14 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. El texto de `version` sigue diciendo Copihue v0.24.1: cambiar esa cadena modificaría `kernel.bin`, y este pin deja ese binario idéntico al de v0.24.1.
 
 El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -no-reboot`) salió con código 124: el proceso seguía vivo.
 
@@ -86,7 +86,7 @@ La consola serie repite el texto de VGA. Con `-display none -serial stdio` se ve
 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -serial stdio
 ```
 
-El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.24.1`, commit `f2f9f386d8f18dcb81e1ded637a0ffd7a67f1036`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
+El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.25.0`, commit `b8b0d0740cd7b7bdbe4a2f6d5ba01baf9301f575`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
 
 ```bash
 make COPIHUE=/ruta/al/copihue all
@@ -109,7 +109,7 @@ CHANGELOG.md
 src/bootloader/boot.lap       etapa 1, 512 bytes, carga la etapa 2
 src/bootloader/stage2.lap     etapa 2 en 0x8200: A20, E820, modo largo, lectura del kernel
 src/kernel/copihue/
-  kernel.lap                  _start, banner, muestras del PIT, llamada al shell
+  kernel.lap                  raíz: import de los módulos, _start, banner, PIT, shell
   console.lap                 texto VGA y COM1
   keyboard.lap                PS/2 en IRQ1
   idt.lap                     IDT, PIC, PIT, excepciones
@@ -127,7 +127,7 @@ docs/copihue-shell.png
 docs/atomicos-copihue-demo.mp4
 ```
 
-`make` concatena los `.lap` del kernel en `build/kernel_all.lap` y compila ese archivo. `build/` no se versiona. El orden de concatenación es `COPIHUE_KERNEL_SRC` en el Makefile.
+`make` compila `src/kernel/copihue/kernel.lap`. Ese archivo importa el resto, en el orden de `COPIHUE_KERNEL_SRC`, y Copihue los junta en un solo espacio de nombres. `build/` no se versiona. El `kernel.bin` de ese árbol es idéntico al que salía de concatenar los mismos archivos con v0.24.1.
 
 ## Hoja de ruta
 

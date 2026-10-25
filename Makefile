@@ -55,11 +55,12 @@ KERNEL_MAX_BYTES := $(shell echo $$(( $(KERNEL_MAX_SECTORS) * 512 )))
 # existir antes de esas reglas: si no, la etapa 1 y la etapa 2 no esperan
 # al compilador (el CI de la etapa 2 falló así la primera vez).
 COPIHUE_REPO   ?= https://github.com/ipenas-cl/copihue.git
-COPIHUE_COMMIT ?= v0.24.1
+COPIHUE_COMMIT ?= v0.25.0
 COPIHUE_DIR     = $(BUILD_DIR)/copihue
 COPIHUE       ?= $(COPIHUE_DIR)/copihue
 
-# Orden de concatenación. `copihue --flat` coloca fn _start al inicio del binario.
+# kernel.lap importa estos archivos, en este orden, y es el que se compila.
+# `copihue --flat` coloca fn _start al inicio del binario.
 COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap \
                      $(KERNEL_SRC)/copihue/keyboard.lap \
                      $(KERNEL_SRC)/copihue/pmm.lap \
@@ -120,11 +121,22 @@ $(STAGE2): $(BOOT_SRC)/stage2.lap $(KERNEL) $(COPIHUE) | $(BUILD_DIR)
 	  hex=$$(od -An -tx1 -v $@ | tr -d ' \n'); \
 	  printf '%s\n' "$$hex" | grep -q "1000$${lo}$${hi}000000100900000000000000" || { echo "stage2 DAP does not load $$sectors sectors from LBA $(KERNEL_LBA) to 0x10000"; rm -f $@; exit 1; }
 
-# kernel_all.lap se genera en build/ y no se versiona.
+# Un solo archivo raíz. Los import de kernel.lap tienen que seguir el orden
+# de COPIHUE_KERNEL_SRC (sin contar el propio kernel.lap).
 $(KERNEL): $(COPIHUE_KERNEL_SRC) $(COPIHUE) | $(BUILD_DIR)
 	@echo "Compiling kernel with Copihue..."
-	cat $(COPIHUE_KERNEL_SRC) > $(BUILD_DIR)/kernel_all.lap
-	cd $(BUILD_DIR) && $(abspath $(COPIHUE)) --flat 0x10000 -o kernel.bin kernel_all.lap
+	@set -eu; \
+	  root=$(KERNEL_SRC)/copihue/kernel.lap; \
+	  prev=0; \
+	  for src in $(COPIHUE_KERNEL_SRC); do \
+	    base=$$(basename $$src); \
+	    if [ "$$base" = kernel.lap ]; then continue; fi; \
+	    line=$$(grep -n "^import \"$$base\";" $$root | head -1 | cut -d: -f1); \
+	    test -n "$$line" || { echo "$$root does not import $$base"; exit 1; }; \
+	    test "$$line" -gt "$$prev" || { echo "import $$base is out of order in $$root"; exit 1; }; \
+	    prev=$$line; \
+	  done
+	$(abspath $(COPIHUE)) --flat 0x10000 -o $@ $(KERNEL_SRC)/copihue/kernel.lap
 	@size=$$(stat -c %s $@); echo "kernel.bin: $$size bytes (max $(KERNEL_MAX_BYTES))"; \
 	  test $$size -le $(KERNEL_MAX_BYTES) || { echo "kernel too large for stage 2"; rm -f $@; exit 1; }
 

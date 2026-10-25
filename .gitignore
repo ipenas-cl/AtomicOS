@@ -1,5 +1,5 @@
 # Salida de `make all`: boot.bin, stage2.bin, stage2.lap, kernel.bin,
-# kernel_all.lap, atomicos.img y el compilador Copihue clonado en build/copihue.
+# atomicos.img y el compilador Copihue clonado en build/copihue.
 build/
 
 *.o

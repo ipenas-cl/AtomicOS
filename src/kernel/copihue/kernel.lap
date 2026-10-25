@@ -1,6 +1,20 @@
 // AtomicOS kernel entry. stage2.lap loads this flat image at 0x10000 and
 // jumps to its first byte in 64-bit long mode (stack at 0x90000).
 // Built with `copihue --flat 0x10000`, which places _start first.
+//
+// The imports are the rest of the kernel, in the order `cat` used to
+// concatenate. The path is relative to this file. One namespace, one
+// assembly unit. _start below is still emitted first.
+
+import "console.lap";
+import "keyboard.lap";
+import "pmm.lap";
+import "paging.lap";
+import "gdt.lap";
+import "sched.lap";
+import "usermode.lap";
+import "idt.lap";
+import "shell.lap";
 
 fn _start() -> i64 {
     // Zero .bss (globals declared without an initializer).
