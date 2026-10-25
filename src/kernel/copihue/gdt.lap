@@ -69,6 +69,13 @@ fn gdt_tss(off: i64, base: i64) -> i64 {
     return 0;
 }
 
+naked fn gdt_data_segs() {
+    ax = 0x20;
+    ds = ax;
+    es = ax;
+    ss = ax;
+}
+
 fn gdt_load() -> i64 {
     let p: *u8 = &tss as *u8;
     let i = 0;
@@ -90,26 +97,20 @@ fn gdt_load() -> i64 {
     gdtr.base = gdt as u64;
     puts("gdt load\n");
     lgdt(&gdtr);
-    // ljmp(0x18, cs_reload) emite `jmp 24:cs_reload`. nasm, en bits 64:
-    // instruction not supported in 64-bit mode. retfq() → unknown function 'retfq'.
-    asm("push 0x18"); // pedido: push() → unknown function 'push'
-    asm("lea rax, [.cs_reload]"); // pedido: jmp other → expected ';' after this, found 'other'
-    asm("push rax"); // pedido: push() → unknown function 'push'
-    asm("retfq"); // pedido: retfq() → unknown function 'retfq'
-    asm(".cs_reload:"); // pedido: una naked no tiene etiquetas; a naked function cannot have local variables
-    asm("mov ax, 0x20"); // pedido: ax = 0 → assignment to undeclared variable 'ax'
-    asm("mov ds, ax"); // pedido 0.24.2: ds = 0x20 → assignment to undeclared variable 'ds'
-    asm("mov es, ax"); // pedido 0.24.2: es = 0 → assignment to undeclared variable 'es'
-    asm("mov ss, ax"); // pedido 0.24.2: ss = 0 → assignment to undeclared variable 'ss'
+    far_jump(0x18);
+    gdt_data_segs();
     return 0;
 }
 
 // #PF from ring 3 lands here. rsp/rbp/rip were saved in enter_user
 // immediately before iretq, on the shell's stack.
-fn resume_shell() -> i64 {
-    if (resume_rip == 0) { return 0; }
-    asm("mov rsp, [resume_rsp]"); // pedido: rsp = 0 → assignment to undeclared variable 'rsp'
-    asm("mov rbp, [resume_rbp]"); // pedido: rbp = → assignment to undeclared variable 'rbp'
-    asm("jmp qword [resume_rip]"); // pedido: jmp other → expected ';' after this, found 'other'
-    return 0;
+naked fn resume_shell() -> i64 {
+    if (resume_rip == 0) {
+        rax = 0;
+        return;
+    }
+    rsp = resume_rsp;
+    rbp = resume_rbp;
+    // No hay salto indirecto. jmp resume_rip → unknown jump target 'resume_rip'.
+    asm("jmp qword [resume_rip]");
 }
