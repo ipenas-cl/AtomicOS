@@ -29,11 +29,13 @@
 // calculation of an empty image only when it is empty; a global would
 // move _start off the first byte. Constants live in `data`.
 //
-// Copihue v0.28.1. lodsb y rep_stosd usan el índice tal como está DF,
+// Copihue v0.29.2. lodsb y rep_stosd usan el índice tal como está DF,
 // así que clear_df lo deja en claro con cld(). El token de INT 15h
-// vive en ebx; un `while` y un `if (ebx == 0)` lo pisan (el comparando
-// pasa por ebx). Se copia a ebx_save antes de mirarlo y se restaura al
-// volver al lazo. En v0.28.1, sin esa copia, QEMU imprimió `e820 n=16`.
+// vive en ebx. Un while y un if de bits 16 lo restauran (push/pop
+// alrededor de cmp). Un `+` fuera de la condición no: deja el sumando
+// en ebx. `di = di + 24` y el conteo lo pisan después de int 0x15, así
+// que el token se copia a ebx_save antes de esas sumas y se restaura
+// al volver al lazo. Sin esa copia, QEMU 8.2.2 imprimió `e820 n=1`.
 // check_long_mode sigue usando pushfd/popfd: ahí se prueba el
 // bit ID, no se limpia DF. Las llamadas de aquí no tienen argumentos.
 
@@ -164,8 +166,8 @@ bits 16 naked fn get_e820() {
     let sig: u32 = 0;
     let ebx_save: u32 = 0;
     while (cont != 0) {
-        // El `while` compara contra 0 usando ebx y lo deja en 0.
-        // El token de la BIOS se repone desde la copia.
+        // El while restaura ebx. El `+` de abajo lo deja en el sumando,
+        // así que el token de la BIOS se repone desde la copia.
         ebx = ebx_save;
         ecx = 24;
         edx = 0x534D4150;

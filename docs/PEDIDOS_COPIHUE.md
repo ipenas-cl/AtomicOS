@@ -2,10 +2,11 @@
 
 Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
 
-Compilador fijado en el Makefile: v0.28.1, commit
-`4f12ea1ea940d307eca2d2d2c5a914d650b88d00`. El tag es ligero: `git
-ls-remote` y `gh` devuelven ese commit, y `git -C build/copihue
-rev-parse HEAD` después del `make` también.
+Compilador fijado en el Makefile: v0.29.2, commit
+`584f731121744c3683ad610a9dab0b021e702ca5`. El tag es ligero: `git
+ls-remote` devuelve ese commit para `refs/tags/v0.29.2` y para
+`HEAD`. `git -C build/copihue rev-parse HEAD` después del `make`
+también, y `copihue --version` imprime `Copihue 0.29.2`.
 
 ## Cerrado en v0.27.0 y v0.27.1
 
@@ -97,33 +98,132 @@ jne .L23
 call say_quota
 ```
 
-En QEMU 8.2.2, `make qemu-test` de esta imagen terminó en 0. La línea
-de la zona fue `zone fs, denied, syscall, quota mem 32473, escape`:
-la syscall 2 denegada devolvió -1 (`zone syscall denied`) y la cuota
-también (`zone quota ok`). El resultado no se perdió.
+En QEMU 8.2.2, `make qemu-test` de la imagen con el pin v0.28.1
+terminó en 0. La línea de la zona fue `zone fs, denied, syscall,
+quota mem 32473, escape`: la syscall 2 denegada devolvió -1 (`zone
+syscall denied`) y la cuota también (`zone quota ok`). El resultado
+no se perdió. El `make qemu-test` de v0.29.2 también imprimió esa
+línea de resumen y terminó en 0.
 
-## Sigue abierto: el comparando de `bits 16` pasa por `ebx`
+## Cerrado en v0.29.2: el `while` y el `if` restauran `ebx`
 
-v0.28.1 no escribe el booleano en `eax`, pero el otro lado de la
-comparación sigue siendo `mov ebx, <valor>`. El token de INT 15h vive
-en `ebx`. Este `while` lo pone a cero antes de `int 0x15`:
+En `bits 16` la comparación sigue siendo `cmp eax, ebx`. Alrededor
+hay `push ebx` y `pop ebx`. `pop` no toca los flags, así que un
+`while (c != 0)` ya no deja el cero del comparando en `ebx`.
+
+Esta función se compiló con `copihue --freestanding` de este pin. No
+se ensambló y no se arrancó:
+
+```copihue
+bits 16 naked fn while_keeps() {
+    ebx = 7;
+    let c: u16 = 1;
+    while (c != 0) { c = 0; }
+}
+```
 
 ```
+mov ebx, 7
+mov eax, 1
+mov [__loc_while_keeps_0], eax
+.L0:
+mov eax, [__loc_while_keeps_0]
+push ebx
+push eax
+push edx
 mov eax, 0
 mov ebx, eax
 pop edx
 pop eax
 cmp eax, ebx
-je .L11
-mov ecx, 24
-mov edx, 1397571920
-mov dword [di+20], 1
-mov eax, 59424
-int 21
+pop ebx
+je .L1
+mov eax, 0
+mov [__loc_while_keeps_0], eax
 ```
 
-Eso es `get_e820` sin `ebx_save`, compilado con este pin
-(`copihue --flat 0x8200 -S`). La copia que está en `stage2.lap`
-repone el token al entrar al cuerpo. Sin ella, el mismo kernel y
-QEMU 8.2.2 imprimieron `e820 n=16`. Con la copia, el arranque corto y
-`make qemu-test` imprimieron `e820 n=7`. El rodeo se queda.
+El cuerpo escribe el cero en memoria y no en `ebx`. El `pop ebx`
+devuelve el 7. El fallo de v0.28.1 (el `while` dejaba `ebx` en 0, el
+siguiente `int 0x15` reiniciaba el mapa y QEMU imprimía `e820 n=16`)
+queda cerrado por ese `push` / `pop`.
+
+## Sigue abierto: un `+` fuera de la condición deja el sumando en `ebx`
+
+El mismo operador, fuera del `if` o del `while`, sigue usando `ebx`
+de borrador y no lo restaura. Caso mínimo, misma corrida de
+`--freestanding`, sin ensamblar y sin arrancar:
+
+```copihue
+bits 16 naked fn add_clobber() {
+    ebx = 7;
+    di = di + 24;
+}
+```
+
+```
+add_clobber:
+mov ebx, 7
+movzx eax, di
+push eax
+push edx
+mov eax, 24
+mov ebx, eax
+pop edx
+pop eax
+add eax, ebx
+mov di, ax
+ret
+```
+
+`ebx` sale en 24. `get_e820` hace esa suma, y otra de 1 para el
+conteo, después de `int 0x15` y antes de la vuelta al lazo. Sin
+`ebx_save`, `copihue --flat 0x8200 -S` de este pin escribe:
+
+```
+mov eax, 59424
+int 21
+jnc .L13
+```
+
+```
+.L15:
+movzx eax, word [32768]
+push eax
+push edx
+mov eax, 1
+mov ebx, eax
+pop edx
+pop eax
+add eax, ebx
+mov word [32768], ax
+movzx eax, di
+push eax
+push edx
+mov eax, 24
+mov ebx, eax
+pop edx
+pop eax
+add eax, ebx
+mov di, ax
+```
+
+El `if (ebx == 0)` que sigue compara ese 24, no el token de la BIOS.
+La próxima `int 0x15` también lo recibe en 24.
+
+Esa imagen, sin la copia y con el resto del kernel igual, se arrancó
+en QEMU 8.2.2 (`timeout 6`, `-display none -no-reboot`, serie a
+archivo, código 124). Imprimió una sola entrada y el fallback:
+
+```
+e820 n=1
+e820[0] type=1 base=0x0000000000000000 len=0x000000000009fc00 acpi=1
+e820 fallback 0x00100000-0x00200000
+pmm free=256 base=0x0000000000100000 end=0x0000000000200000
+```
+
+No fue `e820 n=7` y tampoco el `e820 n=16` del pin anterior: el
+`while` ya no pone el token a cero, pero el `+` lo reemplaza por el
+sumando y el mapa se corta. Con `ebx_save` en `stage2.lap`, el mismo
+QEMU y un arranque de 6 s imprimieron `e820 n=7`, las siete entradas
+(la usable de 1 MB termina en `0x7fe0000`) y `pmm free=32480
+base=0x0000000000100000 end=0x0000000007fe0000`. El rodeo se queda.
