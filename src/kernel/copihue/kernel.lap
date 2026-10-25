@@ -20,6 +20,7 @@ import "fs.lap";
 import "exec_img.lap";
 import "exec.lap";
 import "net.lap";
+import "trace.lap";
 import "shell.lap";
 
 fn _start() -> i64 {

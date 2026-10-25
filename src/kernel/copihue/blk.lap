@@ -73,26 +73,32 @@ fn blk_meta_u32(off: i64) -> i64 {
 
 fn blk_write(n: i64) -> i64 {
     let r = blk_range(n);
-    if (r != 0) { return r; }
-    let sum = crc32(blk_data, 512);
-    blk_put_meta(n, sum);
-    r = ata_write(n * 2, blk_data);
-    if (r != 0) { return r; }
-    return ata_write(n * 2 + 1, blk_meta);
+    if (r == 0) {
+        let sum = crc32(blk_data, 512);
+        blk_put_meta(n, sum);
+        r = ata_write(n * 2, blk_data);
+        if (r == 0) { r = ata_write(n * 2 + 1, blk_meta); }
+    }
+    if (tr_en[8] != 0) { trace_hit(8, proc_pid[cur_i], n, r); }
+    return r;
 }
 
 fn blk_read(n: i64) -> i64 {
     let r = blk_range(n);
-    if (r != 0) { return r; }
-    r = ata_read(n * 2, blk_data);
-    if (r != 0) { return r; }
-    r = ata_read(n * 2 + 1, blk_meta);
-    if (r != 0) { return r; }
-    if (blk_meta[0] != 0x41 || blk_meta[1] != 0x42) { return 5; }
-    if (blk_meta[2] != 0x4C || blk_meta[3] != 0x4B) { return 5; }
-    if (blk_meta_u32(4) != n) { return 5; }
-    if (blk_meta_u32(8) != crc32(blk_data, 512)) { return 5; }
-    return 0;
+    if (r == 0) {
+        r = ata_read(n * 2, blk_data);
+        if (r == 0) {
+            r = ata_read(n * 2 + 1, blk_meta);
+            if (r == 0) {
+                if (blk_meta[0] != 0x41 || blk_meta[1] != 0x42) { r = 5; }
+                else if (blk_meta[2] != 0x4C || blk_meta[3] != 0x4B) { r = 5; }
+                else if (blk_meta_u32(4) != n) { r = 5; }
+                else if (blk_meta_u32(8) != crc32(blk_data, 512)) { r = 5; }
+            }
+        }
+    }
+    if (tr_en[7] != 0) { trace_hit(7, proc_pid[cur_i], n, r); }
+    return r;
 }
 
 fn disk_say(msg: *u8, code: i64) -> i64 {

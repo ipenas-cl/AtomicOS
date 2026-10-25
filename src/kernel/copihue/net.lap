@@ -360,6 +360,7 @@ fn net_tx(len: i64) -> i64 {
     e_wr(0x3818, next);
     let rc = net_wait_dd(d);
     net_tx_rc = rc;
+    if (tr_en[10] != 0) { trace_hit(10, proc_pid[cur_i], len, rc); }
     return rc;
 }
 
@@ -638,6 +639,7 @@ fn net_rx_once() -> i64 {
     if ((st & 1) == 0) { return 0; }
     let len = d->len;
     let err = d->err;
+    if (tr_en[9] != 0) { trace_hit(9, proc_pid[cur_i], len, err); }
     let buf = net_rx_pa[net_rx_i];
     net_rx_n = net_rx_n + 1;
     if ((st & 2) != 0 && err == 0 && len >= 14 && len <= 2048) {

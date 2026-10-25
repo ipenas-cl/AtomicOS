@@ -101,6 +101,11 @@ interrupt fn exc14(err: i64) {
     // A scheduled ring-3 fault is an isolation check, not the one-shot
     // `user` command. Copihue v0.23.0 pushes 15 GPRs and one alignment
     // qword, so the CPU error code is at [rbp+128] and RIP at [rbp+136].
+    // pf: CR2 y código de error. Apagada, un solo chequeo.
+    if (tr_en[3] != 0) {
+        let addr = read_cr2();
+        trace_hit(3, proc_pid[cur_i], addr, err);
+    }
     if (sched_on != 0 && (err & 4) != 0) {
         note_user_fault(err);
         // Una interrupt fn no es naked. *(rbp + 136) = patch_rip →
@@ -132,6 +137,8 @@ interrupt fn exc31() { cpu_fault(31, 0, 0); }
 interrupt fn irq_timer() {
     ticks = ticks + 1;
     outb(0x20, 0x20);
+    // pit: una muestra por tick mientras está prendida.
+    if (tr_en[4] != 0) { trace_hit(4, proc_pid[cur_i], ticks, 0); }
     // No error code on IRQ0: saved CS is at [rbp+128]. RPL 3 means the
     // CPU loaded this frame from TSS.rsp0. The epilogue pops that frame,
     // so replacing rbp resumes the next process.

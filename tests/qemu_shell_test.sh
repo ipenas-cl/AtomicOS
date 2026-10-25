@@ -23,6 +23,11 @@
 # pings that gateway (`net ping ok`) and drops a frame whose IP length
 # does not fit the buffer (`net drop ok`). If this QEMU has no user
 # netdev, the script fails immediately instead of waiting.
+# Then trace: sched's #PF and context-switch counters, `exec hola`
+# syscalls in order, a disabled probe that records nothing, and a PIT
+# flood that counts lost events and leaves the shell alive. The script
+# prints `trace counters ok`, `trace syscall ok`, `trace off ok` and
+# `trace overflow ok`, and fails if any of those checks miss.
 # Usage: tests/qemu_shell_test.sh [image] [--screenshot out.png]
 # Needs: qemu-system-x86_64, socat; ffmpeg only for --screenshot.
 set -u
@@ -266,6 +271,10 @@ echo "ok   user syscall, #PF on kernel read, returned to shell"
 
 # Two address spaces and the PIT round-robin. `sched` returns to the
 # prompt; the spins are user-mode, so this waits longer than a shell command.
+# pf y switch quedan prendidas para cotejar los contadores al volver.
+typefs "trace clear"
+typefs "trace on pf"
+typefs "trace on switch"
 typeline sched
 sched_ok=0
 for _ in $(seq 200); do
@@ -338,6 +347,24 @@ echo "ok   exit freed $ex1+$ex2 pages, pmm back to $base"
 
 printf '%s\n' "$clean" | grep -qx "user leak" && fail "ring 3 read of kernel memory succeeded"
 echo "ok   sched ok"
+
+typefs "trace count"
+pf_ev=$(tr -d '\r' < "$SERIAL" | awk '
+    $0=="trace on switch" { go=1; n=0; next }
+    go && /^trace count lost / { exit }
+    go && /^exception: vector 14 / { n++ }
+    go && /^pf-cross / { n++ }
+    END { print n+0 }
+')
+pf_ct=$(tr -d '\r' < "$SERIAL" | sed -n 's/^probe pf \([0-9][0-9]*\)$/\1/p' | tail -1)
+sw_ct=$(tr -d '\r' < "$SERIAL" | sed -n 's/^probe switch \([0-9][0-9]*\)$/\1/p' | tail -1)
+[ -n "${pf_ct:-}" ] && [ -n "${sw_ct:-}" ] || fail "trace count did not print pf/switch"
+[ "$pf_ev" -ge 2 ] || fail "pf events in sched window=$pf_ev, want >= 2"
+[ "$pf_ct" -eq "$pf_ev" ] || fail "pf counter=$pf_ct, printed events=$pf_ev"
+[ "$sw_ct" -eq $((st + sy)) ] || fail "switch counter=$sw_ct, timer+yield=$((st + sy))"
+typefs "trace off pf"
+typefs "trace off switch"
+echo "trace counters ok"
 
 # `ud2` deja la CPU en hlt. El disco tiene que correr antes.
 typeline disk
@@ -415,6 +442,68 @@ echo "ok   fs format, snap v1, live v2, rollback, two blocks"
 # y gordo. exec lee con fs_read: no salta a la copia del kernel.
 typefs "exec plant"
 typefs "exec hola"
+typefs "trace clear"
+typefs "trace on sys-enter"
+typefs "trace on sys-exit"
+typefs "exec hola"
+typefs "trace dump 40"
+tr -d '\r' < "$SERIAL" | awk '
+function bad(msg) { print msg > "/dev/stderr"; exit 1 }
+$0=="trace begin" { n=0; cap=1; next }
+cap && /^t / { ev[n++] = $0; next }
+cap && /^trace end n / {
+    endline = $0
+    cnt = n
+    for (i = 0; i < n; i++) last[i] = ev[i]
+    cap = 0
+}
+END {
+    if (endline != "trace end n 25 lost 0") bad("syscall dump end: [" endline "]")
+    if (cnt != 25) bad("syscall dump count " cnt)
+    split("100 101 115 100 101 32 100 105 115 99 111 10", ch, " ")
+    prev = -1
+    for (i = 0; i < 12; i++) {
+        split(last[i * 2], f, " ")
+        split(last[i * 2 + 1], g, " ")
+        if (f[3] != "sys-enter" || f[5] != "1" || f[7] != "1" || f[9] != ch[i + 1])
+            bad("enter " i ": " last[i * 2])
+        if (g[3] != "sys-exit" || g[5] != "1" || g[7] != "1" || g[9] != "0")
+            bad("exit " i ": " last[i * 2 + 1])
+        if (f[2] + 0 < prev) bad("tick back " last[i * 2])
+        prev = f[2] + 0
+        if (g[2] + 0 < prev) bad("tick back " last[i * 2 + 1])
+        prev = g[2] + 0
+    }
+    split(last[24], h, " ")
+    if (h[3] != "sys-enter" || h[5] != "1" || h[7] != "5") bad("exit syscall: " last[24])
+    if (h[2] + 0 < prev) bad("tick back " last[24])
+}
+' || fail "trace syscall dump mismatch"
+echo "trace syscall ok"
+typefs "trace off sys-enter"
+typefs "trace off sys-exit"
+typefs "trace clear"
+typefs "exec hola"
+typefs "trace dump"
+tr -d '\r' < "$SERIAL" | awk '
+function bad(msg) { print msg > "/dev/stderr"; exit 1 }
+$0=="trace begin" { n=0; cap=1; next }
+cap && /^t / { ev[n++] = $0; next }
+cap && /^trace end n / {
+    endline = $0
+    cnt = n
+    cap = 0
+}
+END {
+    if (endline != "trace end n 0 lost 0") bad("off dump end: [" endline "]")
+    if (cnt != 0) bad("off dump recorded " cnt)
+}
+' || fail "disabled probes recorded events"
+typefs "trace count"
+se=$(tr -d '\r' < "$SERIAL" | sed -n 's/^probe sys-enter \([0-9][0-9]*\)$/\1/p' | tail -1)
+sx=$(tr -d '\r' < "$SERIAL" | sed -n 's/^probe sys-exit \([0-9][0-9]*\)$/\1/p' | tail -1)
+[ "$se" = "0" ] && [ "$sx" = "0" ] || fail "disabled syscall counters sys-enter=$se sys-exit=$sx"
+echo "trace off ok"
 typefs "exec noesta"
 typefs "exec malo"
 typefs "exec gordo"
@@ -460,6 +549,37 @@ END {
 }
 ' || fail "net story missing a line"
 echo "ok   net arp, ping, drop"
+
+typefs "trace clear"
+typefs "trace on pit"
+overflow=0
+for _ in $(seq 20); do
+    sleep 0.25
+    typefs "trace count"
+    lost=$(tr -d '\r' < "$SERIAL" | sed -n 's/^trace count lost \([0-9][0-9]*\)$/\1/p' | tail -1)
+    pit=$(tr -d '\r' < "$SERIAL" | sed -n 's/^probe pit \([0-9][0-9]*\)$/\1/p' | tail -1)
+    if [ -n "${lost:-}" ] && [ -n "${pit:-}" ] && [ "$lost" -gt 0 ] && [ "$pit" -gt 32 ]; then
+        overflow=1
+        break
+    fi
+done
+[ "$overflow" = 1 ] || fail "pit probe did not overflow the ring (lost=${lost:-} pit=${pit:-})"
+typefs "trace off pit"
+typefs "trace dump 1"
+tr -d '\r' < "$SERIAL" | awk '
+function bad(msg) { print msg > "/dev/stderr"; exit 1 }
+$0=="trace begin" { n=0; cap=1; next }
+cap && /^t / { ev[n++] = $0; next }
+cap && /^trace end n / { endline=$0; cnt=n; if (n>0) ev0=ev[0]; cap=0 }
+END {
+    if (cnt != 1) bad("overflow dump count " cnt " [" endline "]")
+    if (endline !~ /^trace end n 1 lost [1-9][0-9]*$/) bad("overflow dump end: [" endline "]")
+    if (ev0 !~ /^t [0-9]+ pit pid [0-9]+ a [0-9]+ b 0$/) bad("overflow event: " ev0)
+}
+' || fail "ring not readable after overflow"
+typefs "echo vivo"
+tr -d '\r' < "$SERIAL" | grep -qx "vivo" || fail "shell did not answer after the ring overflow"
+echo "trace overflow ok"
 
 typeline ud2
 sleep 0.5

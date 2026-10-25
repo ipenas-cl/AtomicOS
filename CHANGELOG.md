@@ -38,3 +38,8 @@ contra la puerta `10.0.2.2`, IPv4 con checksum e ICMP echo. No hay
 TCP ni UDP, y el chip no queda prendido en el arranque. El layout y
 la prueba están en `docs/red.md`. Una trama cuyo largo IP no cabe en
 el buffer se descarta.
+
+`trace` deja once sondas estáticas y un anillo fijo de 32 eventos
+(`docs/trace.md`). Apagada, la sonda es un chequeo. `trace dump`
+muestra los últimos eventos; si el anillo se llena, pisa lo viejo y
+cuenta los perdidos. No se agregó `asm()`.
