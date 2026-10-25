@@ -3,7 +3,7 @@
 **Deterministic Real-Time Security Operating System**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-5.2.2-green)](VERSION) [![CI](https://github.com/ipenas-cl/AtomicOS/actions/workflows/ci.yml/badge.svg)](https://github.com/ipenas-cl/AtomicOS/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-0.8-green)](VERSION) [![CI](https://github.com/ipenas-cl/AtomicOS/actions/workflows/ci.yml/badge.svg)](https://github.com/ipenas-cl/AtomicOS/actions/workflows/ci.yml)
 
 **Written in [Copihue](https://github.com/ipenas-cl/copihue).**
 
@@ -11,7 +11,7 @@
 
 AtomicOS is a hobby operating system. Its kernel is written in [Copihue](https://github.com/ipenas-cl/copihue); only the 512-byte bootloader is x86-64 assembly. The long-term idea is a deterministic, real-time kernel for security-critical use, where every operation has a known worst-case execution time (WCET) and isolation is enforced by hardware.
 
-> **Status: experimental hobby OS.** `make all` builds a bootable 64-bit image: a NASM bootloader switches to long mode and loads a kernel that is **written entirely in [Copihue](https://github.com/ipenas-cl/copihue)**: entry point and .bss setup, VGA/serial console, PS/2 keyboard driver and shell (the language formerly called Chronos, which grew out of Tempo). In QEMU you can type commands (`help`, `echo`, `add`, `mul`, `clear`, `version`, `reboot`); CI boots the image, types commands with QEMU's `sendkey` and checks the replies. The features under "Design goals" are goals, not implemented features.
+> **Status: experimental hobby OS, kernel 0.8.** `make all` builds a bootable 64-bit image. A NASM bootloader switches to long mode and loads a kernel that is **written entirely in [Copihue](https://github.com/ipenas-cl/copihue) v0.20.0**: entry and .bss, VGA text and COM1, an IDT (CPU exceptions print a line on the console, which is mirrored to serial), the PIC remapped to vectors 32-47, a PIT at 100 Hz (`let volatile ticks`), a PS/2 keyboard on IRQ1, and a shell. `make qemu-test` checks the tick counter, the keyboard IRQ, a deliberate `#UD`, and the shell replies for `echo`, `add`, `mul`, `version`, `help` and an unknown command. `clear` and `reboot` are still in the shell; the test does not type `reboot`, because that resets the machine. A page fault does not print CR2: `read_cr2` is not in Copihue v0.20.0. The features under "Design goals" are goals, not implemented features.
 
 ![AtomicOS shell running a Copihue kernel in QEMU](docs/copihue-shell.png)
 
@@ -21,27 +21,29 @@ Demo video (40 s): [docs/atomicos-copihue-demo.mp4](docs/atomicos-copihue-demo.m
 
 Measured by source lines that end up in the boot image:
 
-| | Before (v5.2.2) | Now |
+| | Before (v5.2.2) | Now (kernel 0.8) |
 |---|---|---|
-| Bootloader (NASM) | 231 | 233 (`boot64.asm`, now reads the kernel with LBA) |
-| Kernel, assembly | 75 (`kernel_simple64.asm`) | 0 (no entry stub, no inline `asm()`) |
-| Kernel, Copihue | 0 | 318 (`src/kernel/copihue/*.lap`, built with `copihue --flat 0x10000`) |
-| **Share in Copihue** | **0%** | **100% of the kernel; ~58% of the image by source lines (the rest is the bootloader)** |
+| Bootloader (NASM) | 231 | 233 (`boot64.asm`, reads the kernel with LBA; 64-bit code selector is 0x18) |
+| Kernel, assembly | 75 (`kernel_simple64.asm`) | 0 (no entry stub; `asm("ud2")` is the only inline instruction, used by the `ud2` shell command) |
+| Kernel, Copihue | 0 | 609 (`src/kernel/copihue/*.lap`, built with `copihue --flat 0x10000`) |
+| **Share in Copihue** | **0%** | **100% of the kernel; ~72% of the image by source lines (the rest is the bootloader)** |
 
-The compiler is pinned to an exact commit (`COPIHUE_COMMIT` in the `Makefile`); `make` fetches and builds it into `build/copihue`. To use a local compiler: `make COPIHUE=/path/to/copihue`. The older `*.asm`, `*.inc` and `*.tempo` files under `src/kernel/` are not part of the current image (see `src/kernel/LEGACY.md`).
+The compiler is pinned to the tag `v0.20.0` (`COPIHUE_COMMIT` in the `Makefile`; that tag is commit `c489a3052b9e63a6446c4eab0001480c64adfcf4`). `make` fetches and builds it into `build/copihue`. To use a local compiler: `make COPIHUE=/path/to/copihue`. The older `*.asm`, `*.inc` and `*.tempo` files under `src/kernel/` are not part of the current image (see `src/kernel/LEGACY.md`).
 
-## Co-evolution roadmap (planned)
+## Co-evolution roadmap
 
-AtomicOS and Copihue grow together: each OS milestone names the compiler feature it needs. Nothing below is done yet.
+AtomicOS and Copihue grow together. Done in this tree means it is in the boot image and covered by `make qemu-test`.
 
-| OS milestone | Copihue feature it needs |
+| OS milestone | State |
 |---|---|
-| IDT, exceptions and interrupt-driven keyboard | interrupt-handler functions (`iretq` epilogue, saved registers) or naked functions |
-| PIT timer and a tick counter | same as above, plus `volatile`-style memory access |
-| Physical page allocator and paging in Copihue | `u64` bit manipulation helpers, section/address control |
-| Bootloader stage 2 in Copihue | 16/32-bit code generation (or keep the asm stub) |
-| Separate compilation of kernel modules | modules/imports and a linker-friendly output (ELF objects) |
-| User mode and syscalls | `syscall`/`sysret` entry stubs, a calling-convention attribute |
+| IDT, CPU exceptions, PIC remapped to 32-47, PIT at 100 Hz, IRQ1 keyboard | done, on Copihue v0.20.0 (`interrupt fn`, `packed struct`, `let volatile`, `lidt`). The long-mode code selector is 0x18 |
+| Page-fault address (`CR2`) and loading a page table | not in this image. v0.20.0 has no `read_cr2` / `read_cr3` / `write_cr3` (planned for v0.20.1); this kernel does not emit those instructions |
+| Physical page allocator and paging in Copihue | planned, once `write_cr3` exists. Page tables can otherwise be filled through pointers |
+| Bootloader stage 2 in Copihue | planned. Needs 16/32-bit codegen, or the 512-byte stub stays |
+| Separate compilation of kernel modules | planned. Needs modules and relocatable ELF objects. The kernel is still one concatenated `.lap` file |
+| User mode and syscalls | planned. v0.20.0 has `syscall fn`, but this kernel does not program `STAR` / `LSTAR` / `EFER` or a TSS |
+
+`fn name() -> *u8` does not parse on v0.20.0. The compiler reports `expected '{', found 'u8'` because the return type is a single token. Exception names are returned as an `i64` address, which is what a string already is. A pointer return type is a request to the language, not something this tree patches around.
 
 ## Design goals
 
@@ -86,18 +88,18 @@ make debug
 ```
 AtomicOS/
 ├── src/
-│   ├── bootloader/     # First-stage boot (512 bytes)
-│   └── kernel/         # Kernel core
-│       ├── kernel.asm  # Main kernel entry
-│       ├── interrupts.asm  # IDT and handlers
-│       ├── *.tempo     # Security modules (compiled with Tempo)
-│       └── *.inc       # Generated from Tempo modules
-├── examples/           # Tempo modules for kernel
-│   └── atomicos/       # Core OS modules written in Tempo
-├── include/            # System headers
-├── build/             # Build output
-└── scripts/           # Build and utility scripts
+│   ├── bootloader/boot64.asm   # 512-byte stub: long mode, GDT, loads the kernel
+│   └── kernel/copihue/         # the boot image (Copihue)
+│       ├── kernel.lap          # _start, banner, tick samples, shell
+│       ├── idt.lap             # IDT, PIC, PIT, CPU exceptions
+│       ├── keyboard.lap        # PS/2 on IRQ1
+│       ├── console.lap         # VGA text and COM1
+│       └── shell.lap           # line editor and commands
+├── build/                      # boot.bin, kernel.bin, atomicos.img (generated)
+└── tests/qemu_shell_test.sh    # QEMU sendkey checks
 ```
+
+Files under `src/kernel/` other than `copihue/` are not linked into the image.
 
 ### Security Architecture
 
@@ -140,7 +142,7 @@ make clean      # Remove build output
 
 ## Testing
 
-CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) builds the image on every push and boots it in QEMU as a smoke test.
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) builds the image, boots it in QEMU for 10 seconds (the process must still be running), and runs `make qemu-test`. That test types the six original shell commands with `sendkey` and checks their replies, checks that `ticks` grows by 100 in about one second and again while the shell runs, checks that `irqs` reports keyboard interrupts, and checks that `ud2` prints `exception: vector 6 #UD invalid opcode`.
 The kernel unit tests under `src/tests/` depend on the old Tempo toolchain and are not wired into the Makefile yet.
 
 ## Documentation

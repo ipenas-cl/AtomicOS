@@ -120,3 +120,17 @@ fn set_color(attr: i64) -> i64 {
     con_attr = attr;
     return 0;
 }
+
+// Eight lowercase hex digits. Digits live in a string so the index is a
+// pointer, not a local array (a local array index emits a hosted syscall).
+fn put_hex(v: i64) -> i64 {
+    let digits: *u8 = "0123456789abcdef";
+    putc('0');
+    putc('x');
+    let shift = 28;
+    while (shift >= 0) {
+        putc(digits[(v >> shift) & 15]);
+        shift = shift - 4;
+    }
+    return 0;
+}

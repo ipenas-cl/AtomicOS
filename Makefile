@@ -1,9 +1,9 @@
-# AtomicOS v0.7.0 - Deterministic Real-Time Security OS
+# AtomicOS 0.8 - Deterministic Real-Time Security OS
 # Professional Build System
 
 # Configuration
 PROJECT_NAME = AtomicOS
-VERSION = 5.2.2
+VERSION = 0.8
 ARCH = x86_64
 
 # Directories
@@ -104,11 +104,12 @@ $(BOOTLOADER): $(BOOT_SRC)/boot64.asm | $(BUILD_DIR)
 # 	@echo "Compiling fs.c..."
 # 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Copihue compiler, pinned to an exact commit so kernel builds are reproducible.
+# Copihue compiler, pinned so kernel builds are reproducible.
 # Override COPIHUE=/path/to/copihue to use a local build instead.
+# v0.20.0 is tag, commit c489a3052b9e63a6446c4eab0001480c64adfcf4
+# (same tree as 96cdf31). `git fetch` accepts the tag name.
 COPIHUE_REPO   ?= https://github.com/ipenas-cl/copihue.git
-# v0.19.0
-COPIHUE_COMMIT ?= 7dfb4b4f2179803bcfc71975ff13a2c6e9abd19f
+COPIHUE_COMMIT ?= v0.20.0
 COPIHUE_DIR     = $(BUILD_DIR)/copihue
 COPIHUE       ?= $(COPIHUE_DIR)/copihue
 
@@ -122,7 +123,8 @@ $(COPIHUE_DIR)/copihue: | $(BUILD_DIR)
 
 # Kernel: 100% Copihue. `copihue --flat` emits a flat binary that starts at fn _start.
 COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap $(KERNEL_SRC)/copihue/keyboard.lap \
-                     $(KERNEL_SRC)/copihue/shell.lap $(KERNEL_SRC)/copihue/kernel.lap
+                     $(KERNEL_SRC)/copihue/idt.lap $(KERNEL_SRC)/copihue/shell.lap \
+                     $(KERNEL_SRC)/copihue/kernel.lap
 # boot64.asm loads 64 sectors
 KERNEL_MAX_BYTES = 32768
 

@@ -183,7 +183,7 @@ disk_packet:
     dw 0x0000, 0x1000   ; offset, segment -> 0x10000
     dq 1                ; starting LBA (sector after the boot sector)
 
-boot_msg:       db 'AtomicOS v5.2.1 64-bit', 13, 10, 0
+boot_msg:       db 'AtomicOS 0.8 64-bit', 13, 10, 0
 disk_err_msg:   db 'Disk error!', 13, 10, 0
 no_lm_msg:      db 'CPU does not support 64-bit mode!', 13, 10, 0
 

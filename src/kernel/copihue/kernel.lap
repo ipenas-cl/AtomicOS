@@ -26,8 +26,18 @@ fn kmain() -> i64 {
     set_color(0x0B);
     puts("AtomicOS 0.8 (x86-64)\n");
     set_color(0x07);
-    puts("Kernel, console, PS/2 keyboard driver and shell are written in Copihue.\n");
+    puts("Kernel in Copihue: VGA/COM1, IDT, PIT 100 Hz, PS/2 by IRQ.\n");
     puts("Type 'help' for commands.\n\n");
+    idt_init();
+    while (ticks < 100) { hlt(); }
+    puts("timer: ticks=");
+    put_int(ticks);
+    puts("\n");
+    let mark = ticks;
+    while (ticks < mark + 100) { hlt(); }
+    puts("timer: ticks=");
+    put_int(ticks);
+    puts("\n");
     shell_run();
     return 0;
 }

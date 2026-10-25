@@ -58,6 +58,9 @@ fn cmd_help() -> i64 {
     puts("  mul <a> <b>     multiply two integers\n");
     puts("  clear           clear the screen\n");
     puts("  version         kernel and compiler version\n");
+    puts("  ticks           PIT tick count\n");
+    puts("  irqs            keyboard IRQ count\n");
+    puts("  ud2             raise #UD and halt\n");
     puts("  reboot          reset the machine\n");
     return 0;
 }
@@ -82,7 +85,25 @@ fn run_command() -> i64 {
     }
     if (cmd_is("clear")) { con_clear(); return 0; }
     if (cmd_is("version")) {
-        puts("AtomicOS 0.8 - kernel written in Copihue\n");
+        puts("AtomicOS 0.8 - kernel written in Copihue v0.20.0\n");
+        return 0;
+    }
+    if (cmd_is("ticks")) {
+        puts("ticks ");
+        put_int(ticks);
+        putc('\n');
+        return 0;
+    }
+    if (cmd_is("irqs")) {
+        puts("kbd_irqs ");
+        put_int(kbd_irqs);
+        putc('\n');
+        return 0;
+    }
+    if (cmd_is("ud2")) {
+        puts("raising #UD\n");
+        asm("ud2");
+        puts("ud2 returned\n");
         return 0;
     }
     if (cmd_is("reboot")) {
