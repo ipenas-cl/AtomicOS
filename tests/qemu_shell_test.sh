@@ -10,6 +10,11 @@
 # and a ring-3 program that syscalls "user ok" and then #PF on a kernel read.
 # Also checks the data disk (IDE slave, build/data.img): ata ok, blk ok,
 # and blk corrupt detected, in that order, after the `disk` command.
+# Then the copy-on-write filesystem: format, snapshot, rollback and a
+# two-block file. QEMU is quit and started again on the same data.img
+# to check that the files and the snapshot are still there. A corrupted
+# data sector must print `fs corrupt detected` and the snapshot must
+# still read the old bytes. A missing line fails the script.
 # Usage: tests/qemu_shell_test.sh [image] [--screenshot out.png]
 # Needs: qemu-system-x86_64, socat; ffmpeg only for --screenshot.
 set -u
@@ -17,15 +22,38 @@ IMAGE=${1:-build/atomicos.img}
 DATA=$(dirname "$IMAGE")/data.img
 SHOT=""; [ "${2:-}" = "--screenshot" ] && SHOT=$3
 if [ ! -f "$DATA" ]; then echo "FAIL: no data image $DATA"; exit 1; fi
-TMP=$(mktemp -d); MON=$TMP/mon.sock; SERIAL=$TMP/serial.log
+TMP=$(mktemp -d); MON=$TMP/mon.sock; SERIAL=$TMP/serial1.log
+QPID=""
 # El primer drive es la imagen de arranque (IDE maestro). El segundo es
 # el disco de datos, esclavo del canal primario. No cambiar el orden.
-qemu-system-x86_64 -drive format=raw,file="$IMAGE" \
-    -drive file="$DATA",format=raw,if=ide,index=1 \
-    -display none -no-reboot \
-    -serial file:"$SERIAL" -monitor unix:"$MON",server,nowait &
-QPID=$!
-trap 'kill $QPID 2>/dev/null; rm -rf "$TMP"' EXIT
+start_qemu() {
+    SERIAL="$1"
+    : > "$SERIAL"
+    rm -f "$MON"
+    qemu-system-x86_64 -drive format=raw,file="$IMAGE" \
+        -drive file="$DATA",format=raw,if=ide,index=1 \
+        -display none -no-reboot \
+        -serial file:"$SERIAL" -monitor unix:"$MON",server,nowait &
+    QPID=$!
+}
+stop_qemu() {
+    if [ -n "${QPID:-}" ] && kill -0 "$QPID" 2>/dev/null; then
+        echo quit | socat - UNIX-CONNECT:"$MON" >/dev/null 2>&1 || true
+        local i
+        for i in $(seq 50); do
+            if ! kill -0 "$QPID" 2>/dev/null; then
+                wait "$QPID" 2>/dev/null || true
+                QPID=""
+                return 0
+            fi
+            sleep 0.1
+        done
+        kill "$QPID" 2>/dev/null || true
+        wait "$QPID" 2>/dev/null || true
+        QPID=""
+    fi
+}
+trap 'stop_qemu; rm -rf "$TMP"' EXIT
 
 mon() { echo "$1" | socat - UNIX-CONNECT:"$MON" >/dev/null; }
 typeline() {
@@ -38,7 +66,31 @@ typeline() {
     mon "sendkey ret"
     sleep 0.3
 }
-fail() { echo "FAIL: $*"; echo "--- serial ---"; tr -d '\r' < "$SERIAL" 2>/dev/null || true; exit 1; }
+# Espera el prompt que el shell imprime al terminar el comando.
+typefs() {
+    local before
+    before=$(grep -c "atomicos> " "$SERIAL" 2>/dev/null || true)
+    typeline "$1"
+    local i n
+    for i in $(seq 40); do
+        n=$(grep -c "atomicos> " "$SERIAL" 2>/dev/null || true)
+        if [ "${n:-0}" -gt "${before:-0}" ]; then return 0; fi
+        sleep 0.1
+    done
+    fail "no prompt after: $1"
+}
+fail() {
+    echo "FAIL: $*"
+    echo "--- serial ---"
+    tr -d '\r' < "$SERIAL" 2>/dev/null || true
+    if [ -f "$TMP/serial1.log" ] && [ "$SERIAL" != "$TMP/serial1.log" ]; then
+        echo "--- serial phase 1 ---"
+        tr -d '\r' < "$TMP/serial1.log" 2>/dev/null || true
+    fi
+    exit 1
+}
+
+start_qemu "$TMP/serial1.log"
 
 # The kernel prints ticks once the counter reaches 100, then again after 100
 # more interrupts. Stamp each line so the gap can be compared to 1 second.
@@ -278,6 +330,52 @@ if ! printf '%s\n' "$clean" | awk '
 fi
 echo "ok   ata ok, blk ok, blk corrupt detected"
 
+# Copy-on-write. `disk` ya pisó el bloque 0 y el LBA 2; el fs parte en el 2.
+typefs "fs format"
+typefs "fs create c"
+typefs "fs cat c"
+typefs "fs write a v1"
+typefs "fs snap s1"
+typefs "fs write a v2"
+typefs "fs cat a"
+typefs "fs snap s1 a"
+typefs "fs ls"
+typefs "fs write b b1"
+typefs "fs snap s1 b"
+typefs "fs snap s2"
+typefs "fs write b b2"
+typefs "fs rollback s2"
+typefs "fs cat b"
+typefs "fs blocks"
+tr -d '\r' < "$SERIAL" | awk '
+{
+    if (i==0 && $0=="fs format ok") i=1
+    else if (i==1 && $0=="fs create ok") i=2
+    else if (i==2 && $0=="fs empty") i=3
+    else if (i==3 && $0=="fs write ok") i=4
+    else if (i==4 && $0=="fs snap ok") i=5
+    else if (i==5 && $0=="fs write ok") i=6
+    else if (i==6 && $0=="fs live v2") i=7
+    else if (i==7 && $0=="fs snap v1") i=8
+    else if (i==8 && $0=="fs file c") i=9
+    else if (i==9 && $0=="fs file a") i=10
+    else if (i==10 && $0=="fs write ok") i=11
+    else if (i==11 && $0=="fs fail 7") i=12
+    else if (i==12 && $0=="fs snap ok") i=13
+    else if (i==13 && $0=="fs write ok") i=14
+    else if (i==14 && $0=="fs rollback ok") i=15
+    else if (i==15 && $0=="fs live b1") i=16
+    else if (i==16 && $0=="fs blocks ok") i=17
+}
+END {
+    if (i != 17) {
+        print "fs phase 1 stuck at " i > "/dev/stderr"
+        exit 1
+    }
+}
+' || fail "fs story missing a line"
+echo "ok   fs format, snap v1, live v2, rollback, two blocks"
+
 typeline ud2
 sleep 0.5
 if tr -d '\r' < "$SERIAL" | grep -q "exception: vector 6 #UD invalid opcode"; then
@@ -285,3 +383,43 @@ if tr -d '\r' < "$SERIAL" | grep -q "exception: vector 6 #UD invalid opcode"; th
 else
     fail "no #UD exception message"
 fi
+
+# Mismo data.img, otro arranque. `quit` del monitor cierra el disco.
+stop_qemu
+sync
+start_qemu "$TMP/serial2.log"
+for _ in $(seq 100); do grep -q "atomicos> " "$SERIAL" 2>/dev/null && break; sleep 0.2; done
+grep -q "atomicos> " "$SERIAL" || fail "no shell prompt on second boot"
+typefs "fs cat a"
+typefs "fs snap s1 a"
+typefs "fs cat b"
+typefs "fs cat c"
+typefs "fs snap s1 b"
+typefs "fs check"
+typefs "fs corrupt a"
+typefs "fs cat a"
+typefs "fs snap s1 a"
+tr -d '\r' < "$SERIAL" | awk '
+{
+    if (i==0 && $0=="fs live v2") i=1
+    else if (i==1 && $0=="fs snap v1") i=2
+    else if (i==2 && $0=="fs live b1") i=3
+    else if (i==3 && $0=="fs empty") i=4
+    else if (i==4 && $0=="fs fail 7") i=5
+    else if (i==5 && $0=="fs blocks ok") i=6
+    else if (i==6 && $0=="fs corrupt armed") i=7
+    else if (i==7 && $0 ~ /^fs live/) {
+        print "fs corrupt returned live data" > "/dev/stderr"
+        exit 1
+    }
+    else if (i==7 && $0=="fs corrupt detected") i=8
+    else if (i==8 && $0=="fs snap v1") i=9
+}
+END {
+    if (i != 9) {
+        print "fs phase 2 stuck at " i > "/dev/stderr"
+        exit 1
+    }
+}
+' || fail "fs persist or corrupt check failed"
+echo "ok   fs persist v2, snap v1, corrupt detected"

@@ -79,6 +79,7 @@ COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap \
                      $(KERNEL_SRC)/copihue/idt.lap \
                      $(KERNEL_SRC)/copihue/ata.lap \
                      $(KERNEL_SRC)/copihue/blk.lap \
+                     $(KERNEL_SRC)/copihue/fs.lap \
                      $(KERNEL_SRC)/copihue/shell.lap \
                      $(KERNEL_SRC)/copihue/kernel.lap
 
@@ -187,7 +188,7 @@ help:
 	@echo "  make qemu       Arranca la imagen en QEMU (curses, teclado PS/2)."
 	@echo "                  Agrega build/data.img como IDE esclavo (index=1)."
 	@echo "  make qemu-test  Arranque mudo: sendkey y comprobaciones por COM1."
-	@echo "                  Incluye el disco de datos (ata, bloques, CRC)."
+	@echo "                  Incluye el disco de datos (ata, bloques, CRC, fs)."
 	@echo "  make debug      Igual que qemu, esperando gdb en tcp::1234."
 	@echo "  make clean      Borra build/."
 	@echo "  make help       Esta lista."

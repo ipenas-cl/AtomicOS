@@ -1,0 +1,571 @@
+// Sistema de archivos copy-on-write sobre blk_read / blk_write.
+// El mapa de bytes está en docs/fs.md. Los bloques 0 y 1 los usa
+// `disk`. Los superbloques viven en 2 y 3. El primer bloque libre es 4.
+//
+// Una struct no alcanza: un arreglo adentro de packed struct pierde el
+// largo (docs/PEDIDOS_COPIHUE.md). Todo el disco son offsets sobre
+// buffers de bytes.
+
+let fs_super: [u8; 512];
+let fs_dir: [u8; 512];
+let fs_scratch: [u8; 512];
+let fs_buf: [u8; 1024];
+let fs_sub: [u8; 16];
+let fs_name: [u8; 16];
+let fs_name2: [u8; 16];
+let fs_slot: i64;
+let fs_oldb: [i64; 8];
+let fs_newb: [i64; 8];
+
+fn fs_zero(p: *u8, n: i64) -> i64 {
+    let i = 0;
+    while (i < n) {
+        p[i] = 0;
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_zero_at(p: *u8, off: i64, n: i64) -> i64 {
+    let i = 0;
+    while (i < n) {
+        p[off + i] = 0;
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_copy(d: *u8, s: *u8, n: i64) -> i64 {
+    let i = 0;
+    while (i < n) {
+        d[i] = s[i];
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_u32(p: *u8, off: i64) -> i64 {
+    let b0 = p[off] & 255;
+    let b1 = p[off + 1] & 255;
+    let b2 = p[off + 2] & 255;
+    let b3 = p[off + 3] & 255;
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+}
+
+fn fs_p32(p: *u8, off: i64, v: i64) -> i64 {
+    p[off] = v & 255;
+    p[off + 1] = (v >> 8) & 255;
+    p[off + 2] = (v >> 16) & 255;
+    p[off + 3] = (v >> 24) & 255;
+    return 0;
+}
+
+fn fs_magic(p: *u8) -> i64 {
+    if (p[0] != 0x41 || p[1] != 0x46 || p[2] != 0x53 || p[3] != 0x31) { return 0; }
+    if (fs_u32(p, 4) != 1) { return 0; }
+    return 1;
+}
+
+fn fs_dir_magic(p: *u8) -> i64 {
+    if (p[0] != 0x41 || p[1] != 0x44 || p[2] != 0x49 || p[3] != 0x52) { return 0; }
+    return 1;
+}
+
+fn fs_name_ok(name: *u8, max: i64) -> i64 {
+    if ((name[0] & 255) == 0) { return 0; }
+    let i = 0;
+    while (i <= max) {
+        if ((name[i] & 255) == 0) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_name_eq(p: *u8, off: i64, name: *u8, width: i64) -> i64 {
+    let i = 0;
+    let ended = 0;
+    while (i < width) {
+        let b = 0;
+        if (ended == 0) {
+            b = name[i] & 255;
+            if (b == 0) { ended = 1; }
+        }
+        if ((p[off + i] & 255) != b) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn fs_name_put(p: *u8, off: i64, name: *u8, width: i64) -> i64 {
+    let i = 0;
+    while (i < width) {
+        p[off + i] = 0;
+        i = i + 1;
+    }
+    i = 0;
+    while (i < width - 1) {
+        let c = name[i] & 255;
+        if (c == 0) { return 0; }
+        p[off + i] = c;
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_puts_at(p: *u8, off: i64) -> i64 {
+    let i = 0;
+    while (i < 16) {
+        let c = p[off + i] & 255;
+        if (c == 0) { return 0; }
+        putc(c);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_mark(n: i64, v: i64) -> i64 {
+    if (n < 0 || n >= 1024) { return 0; }
+    let byte = 32 + n / 8;
+    let mask = 1 << (n % 8);
+    let cur = fs_super[byte] & 255;
+    if (v != 0) { cur = cur | mask; }
+    else { cur = cur & (255 ^ mask); }
+    fs_super[byte] = cur;
+    return 0;
+}
+
+fn fs_taken(n: i64) -> i64 {
+    if (n < 0 || n >= 1024) { return 1; }
+    let cur = fs_super[32 + n / 8] & 255;
+    if ((cur & (1 << (n % 8))) != 0) { return 1; }
+    return 0;
+}
+
+fn fs_alloc() -> i64 {
+    let n = fs_u32(fs_super, 20);
+    let lim = fs_u32(fs_super, 16);
+    if (n < 4) { n = 4; }
+    if (lim > 1024) { lim = 1024; }
+    while (n < lim) {
+        if (fs_taken(n) == 0) {
+            fs_mark(n, 1);
+            return n;
+        }
+        n = n + 1;
+    }
+    return 0 - 1;
+}
+
+fn fs_put_dir(block: i64) -> i64 {
+    fs_copy(blk_data, fs_dir, 512);
+    return blk_write(block);
+}
+
+fn fs_write_super(dest: i64) -> i64 {
+    fs_copy(blk_data, fs_super, 512);
+    return blk_write(dest);
+}
+
+fn fs_commit() -> i64 {
+    let gen = fs_u32(fs_super, 8) + 1;
+    let dest = 3;
+    if (fs_slot == 3) { dest = 2; }
+    fs_p32(fs_super, 8, gen);
+    let r = fs_write_super(dest);
+    if (r != 0) {
+        fs_p32(fs_super, 8, gen - 1);
+        return r;
+    }
+    fs_slot = dest;
+    return 0;
+}
+
+fn fs_reload() -> i64 {
+    if (ata_sectors == 0) {
+        let id = ata_identify();
+        if (id != 0) { return id; }
+    }
+    let g2 = 0 - 1;
+    let g3 = 0 - 1;
+    let r = blk_read(2);
+    if (r == 0 && fs_magic(blk_data) != 0) {
+        g2 = fs_u32(blk_data, 8);
+        fs_copy(fs_scratch, blk_data, 512);
+    }
+    r = blk_read(3);
+    if (r == 0 && fs_magic(blk_data) != 0) {
+        g3 = fs_u32(blk_data, 8);
+    }
+    if (g2 < 0 && g3 < 0) { return 8; }
+    if (g3 > g2) {
+        fs_copy(fs_super, blk_data, 512);
+        fs_slot = 3;
+    } else {
+        fs_copy(fs_super, fs_scratch, 512);
+        fs_slot = 2;
+    }
+    return 0;
+}
+
+fn fs_load_dir(block: i64) -> i64 {
+    let r = blk_read(block);
+    if (r != 0) { return r; }
+    if (fs_dir_magic(blk_data) == 0) { return 8; }
+    fs_copy(fs_dir, blk_data, 512);
+    return 0;
+}
+
+fn fs_open() -> i64 {
+    let r = fs_reload();
+    if (r != 0) { return r; }
+    return fs_load_dir(fs_u32(fs_super, 12));
+}
+
+fn fs_find(name: *u8) -> i64 {
+    let n = fs_u32(fs_dir, 4);
+    let i = 0;
+    while (i < n && i < 7) {
+        if (fs_name_eq(fs_dir, 8 + i * 64, name, 16) != 0) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fn fs_add(name: *u8) -> i64 {
+    let n = fs_u32(fs_dir, 4);
+    if (n >= 7) { return 0 - 1; }
+    let ent = 8 + n * 64;
+    fs_zero_at(fs_dir, ent, 64);
+    fs_name_put(fs_dir, ent, name, 16);
+    fs_p32(fs_dir, 4, n + 1);
+    return n;
+}
+
+fn fs_dir_has(block: i64) -> i64 {
+    let n = fs_u32(fs_dir, 4);
+    let i = 0;
+    while (i < n && i < 7) {
+        let ent = 8 + i * 64;
+        let nb = fs_u32(fs_dir, ent + 20);
+        let k = 0;
+        while (k < nb && k < 8) {
+            if (fs_u32(fs_dir, ent + 24 + k * 4) == block) { return 1; }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_tree_has(root: i64, block: i64) -> i64 {
+    if (root == block) { return 1; }
+    if (root < 4) { return 0; }
+    let r = blk_read(root);
+    if (r != 0) { return 1; }
+    if (fs_dir_magic(blk_data) == 0) { return 1; }
+    let n = fs_u32(blk_data, 4);
+    let i = 0;
+    while (i < n && i < 7) {
+        let ent = 8 + i * 64;
+        let nb = fs_u32(blk_data, ent + 20);
+        let k = 0;
+        while (k < nb && k < 8) {
+            if (fs_u32(blk_data, ent + 24 + k * 4) == block) { return 1; }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_any_snap(block: i64) -> i64 {
+    let n = fs_u32(fs_super, 24);
+    let i = 0;
+    while (i < n && i < 8) {
+        let root = fs_u32(fs_super, 160 + i * 24 + 12);
+        if (fs_tree_has(root, block) != 0) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_release(block: i64) -> i64 {
+    if (block < 4) { return 0; }
+    if (fs_dir_has(block) != 0) { return 0; }
+    if (fs_any_snap(block) != 0) { return 0; }
+    fs_mark(block, 0);
+    return 0;
+}
+
+fn fs_publish(oldn: i64) -> i64 {
+    let oldroot = fs_u32(fs_super, 12);
+    let nb = fs_alloc();
+    if (nb < 0) { return 6; }
+    let r = fs_put_dir(nb);
+    if (r != 0) { return r; }
+    fs_p32(fs_super, 12, nb);
+    let k = 0;
+    while (k < oldn && k < 8) {
+        fs_release(fs_oldb[k]);
+        k = k + 1;
+    }
+    fs_release(oldroot);
+    return fs_commit();
+}
+
+fn fs_format() -> i64 {
+    if (ata_sectors == 0) {
+        let id = ata_identify();
+        if (id != 0) { return id; }
+    }
+    if (ata_sectors < 16) { return 3; }
+    fs_zero(fs_super, 512);
+    fs_super[0] = 0x41;
+    fs_super[1] = 0x46;
+    fs_super[2] = 0x53;
+    fs_super[3] = 0x31;
+    fs_p32(fs_super, 4, 1);
+    fs_p32(fs_super, 8, 1);
+    let count = (ata_sectors - 2) / 2 + 1;
+    if (count > 1024) { count = 1024; }
+    fs_p32(fs_super, 16, count);
+    fs_p32(fs_super, 20, 4);
+    fs_mark(0, 1);
+    fs_mark(1, 1);
+    fs_mark(2, 1);
+    fs_mark(3, 1);
+    fs_zero(fs_dir, 512);
+    fs_dir[0] = 0x41;
+    fs_dir[1] = 0x44;
+    fs_dir[2] = 0x49;
+    fs_dir[3] = 0x52;
+    let root = fs_alloc();
+    if (root < 0) { return 6; }
+    let r = fs_put_dir(root);
+    if (r != 0) { return r; }
+    fs_p32(fs_super, 12, root);
+    r = fs_write_super(2);
+    if (r != 0) { return r; }
+    fs_p32(fs_super, 8, 0);
+    r = fs_write_super(3);
+    if (r != 0) { return r; }
+    fs_p32(fs_super, 8, 1);
+    fs_slot = 2;
+    return 0;
+}
+
+fn fs_create(name: *u8) -> i64 {
+    if (fs_name_ok(name, 15) == 0) { return 11; }
+    let r = fs_open();
+    if (r != 0) { return r; }
+    if (fs_find(name) >= 0) { return 11; }
+    if (fs_add(name) < 0) { return 6; }
+    return fs_publish(0);
+}
+
+fn fs_write(name: *u8, src: *u8, len: i64) -> i64 {
+    if (fs_name_ok(name, 15) == 0) { return 11; }
+    if (len < 0 || len > 4096) { return 9; }
+    let r = fs_open();
+    if (r != 0) { return r; }
+    let idx = fs_find(name);
+    if (idx < 0) {
+        idx = fs_add(name);
+        if (idx < 0) { return 6; }
+    }
+    let ent = 8 + idx * 64;
+    let oldn = fs_u32(fs_dir, ent + 20);
+    let k = 0;
+    while (k < oldn && k < 8) {
+        fs_oldb[k] = fs_u32(fs_dir, ent + 24 + k * 4);
+        k = k + 1;
+    }
+    let need = 0;
+    if (len > 0) { need = (len + 511) / 512; }
+    k = 0;
+    while (k < need) {
+        let b = fs_alloc();
+        if (b < 0) { return 6; }
+        fs_newb[k] = b;
+        fs_zero(blk_data, 512);
+        let base = k * 512;
+        let ncopy = len - base;
+        if (ncopy > 512) { ncopy = 512; }
+        let j = 0;
+        while (j < ncopy) {
+            blk_data[j] = src[base + j];
+            j = j + 1;
+        }
+        r = blk_write(b);
+        if (r != 0) { return r; }
+        k = k + 1;
+    }
+    fs_p32(fs_dir, ent + 16, len);
+    fs_p32(fs_dir, ent + 20, need);
+    k = 0;
+    while (k < 8) {
+        let v = 0;
+        if (k < need) { v = fs_newb[k]; }
+        fs_p32(fs_dir, ent + 24 + k * 4, v);
+        k = k + 1;
+    }
+    return fs_publish(oldn);
+}
+
+fn fs_read_dir(name: *u8, buf: *u8, max: i64) -> i64 {
+    let idx = fs_find(name);
+    if (idx < 0) { return 0 - 7; }
+    let ent = 8 + idx * 64;
+    let size = fs_u32(fs_dir, ent + 16);
+    let nb = fs_u32(fs_dir, ent + 20);
+    let want = size;
+    if (want > max) { want = max; }
+    let filled = 0;
+    let k = 0;
+    while (k < nb && filled < want) {
+        let b = fs_u32(fs_dir, ent + 24 + k * 4);
+        let r = blk_read(b);
+        if (r != 0) { return 0 - r; }
+        let j = 0;
+        while (j < 512 && filled < want) {
+            buf[filled] = blk_data[j];
+            filled = filled + 1;
+            j = j + 1;
+        }
+        k = k + 1;
+    }
+    return filled;
+}
+
+fn fs_read(name: *u8, buf: *u8, max: i64) -> i64 {
+    let r = fs_open();
+    if (r != 0) { return 0 - r; }
+    return fs_read_dir(name, buf, max);
+}
+
+fn fs_snap_find(name: *u8) -> i64 {
+    let n = fs_u32(fs_super, 24);
+    let i = 0;
+    while (i < n && i < 8) {
+        if (fs_name_eq(fs_super, 160 + i * 24, name, 12) != 0) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fn fs_read_snap(snap: *u8, name: *u8, buf: *u8, max: i64) -> i64 {
+    let r = fs_reload();
+    if (r != 0) { return 0 - r; }
+    let i = fs_snap_find(snap);
+    if (i < 0) { return 0 - 7; }
+    r = fs_load_dir(fs_u32(fs_super, 160 + i * 24 + 12));
+    if (r != 0) { return 0 - r; }
+    return fs_read_dir(name, buf, max);
+}
+
+fn fs_list() -> i64 {
+    let r = fs_open();
+    if (r != 0) { return r; }
+    let n = fs_u32(fs_dir, 4);
+    let i = 0;
+    while (i < n && i < 7) {
+        puts("fs file ");
+        fs_puts_at(fs_dir, 8 + i * 64);
+        putc('\n');
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_snapshot(name: *u8) -> i64 {
+    if (fs_name_ok(name, 11) == 0) { return 11; }
+    let r = fs_reload();
+    if (r != 0) { return r; }
+    if (fs_snap_find(name) >= 0) { return 11; }
+    let n = fs_u32(fs_super, 24);
+    if (n >= 8) { return 6; }
+    let off = 160 + n * 24;
+    fs_name_put(fs_super, off, name, 12);
+    fs_p32(fs_super, off + 12, fs_u32(fs_super, 12));
+    fs_p32(fs_super, off + 16, fs_u32(fs_super, 8));
+    fs_p32(fs_super, 24, n + 1);
+    return fs_commit();
+}
+
+fn fs_drop_old() -> i64 {
+    let oldroot = fs_u32(fs_super, 12);
+    fs_release(oldroot);
+    let n = fs_u32(fs_scratch, 4);
+    let i = 0;
+    while (i < n && i < 7) {
+        let ent = 8 + i * 64;
+        let nb = fs_u32(fs_scratch, ent + 20);
+        let k = 0;
+        while (k < nb && k < 8) {
+            fs_release(fs_u32(fs_scratch, ent + 24 + k * 4));
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_rollback(name: *u8) -> i64 {
+    let r = fs_open();
+    if (r != 0) { return r; }
+    let i = fs_snap_find(name);
+    if (i < 0) { return 7; }
+    let newroot = fs_u32(fs_super, 160 + i * 24 + 12);
+    if (newroot == fs_u32(fs_super, 12)) { return 0; }
+    fs_copy(fs_scratch, fs_dir, 512);
+    r = fs_load_dir(newroot);
+    if (r != 0) { return r; }
+    fs_drop_old();
+    fs_p32(fs_super, 12, newroot);
+    return fs_commit();
+}
+
+// Pisa un byte del primer bloque de datos y deja el CRC viejo.
+fn fs_corrupt(name: *u8) -> i64 {
+    let r = fs_open();
+    if (r != 0) { return r; }
+    let idx = fs_find(name);
+    if (idx < 0) { return 7; }
+    let ent = 8 + idx * 64;
+    if (fs_u32(fs_dir, ent + 20) < 1) { return 7; }
+    let b = fs_u32(fs_dir, ent + 24);
+    if (b < 4) { return 8; }
+    r = blk_read(b);
+    if (r != 0) { return r; }
+    blk_data[0] = (blk_data[0] ^ 0xFF) & 255;
+    return ata_write(b * 2, blk_data);
+}
+
+fn fs_pat(i: i64) -> i64 {
+    return (i + 0x5A) & 255;
+}
+
+fn fs_blocks_check() -> i64 {
+    fs_zero(fs_buf, 1024);
+    let n = fs_read("m", fs_buf, 1024);
+    if (n < 0) { return 0 - n; }
+    if (n != 600) { return 7; }
+    let i = 0;
+    while (i < 600) {
+        if ((fs_buf[i] & 255) != fs_pat(i)) { return 9; }
+        i = i + 1;
+    }
+    puts("fs blocks ok\n");
+    return 0;
+}
+
+fn fs_blocks_test() -> i64 {
+    let i = 0;
+    while (i < 600) {
+        fs_buf[i] = fs_pat(i);
+        i = i + 1;
+    }
+    let r = fs_write("m", fs_buf, 600);
+    if (r != 0) { return r; }
+    return fs_blocks_check();
+}

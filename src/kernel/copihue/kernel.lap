@@ -16,6 +16,7 @@ import "usermode.lap";
 import "idt.lap";
 import "ata.lap";
 import "blk.lap";
+import "fs.lap";
 import "shell.lap";
 
 fn _start() -> i64 {

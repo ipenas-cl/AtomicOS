@@ -18,3 +18,8 @@ LBA28 y bloques de 512 B con CRC-32 en un sector de metadatos. `disk`
 escribe un patrón, lo relee y comprueba que un byte pisado con el
 driver (sin pasar por `blk`) hace fallar la lectura. El layout está en
 `docs/disco.md`.
+
+Encima de esos bloques hay un sistema de archivos copy-on-write, con
+directorio plano, snapshots y rollback (`docs/fs.md`). `make qemu-test`
+formatea, escribe, saca un snapshot, reabre el mismo `data.img` y
+comprueba que un bloque pisado no se entrega como dato.

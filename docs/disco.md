@@ -71,11 +71,7 @@ timeout.
 
 ## Qué falta
 
-Snapshots copy-on-write encima de esta capa. Una tabla diría en qué par
-de sectores está cada bloque vivo. Al escribir un bloque que un snapshot
-todavía ocupa, se reserva otro par, se escribe ahí (datos y CRC) y la
-tabla viva apunta al par nuevo. El snapshot se queda con el par viejo.
-El checksum viaja con su sector de datos, así que un par copiado se
-sigue pudiendo verificar. Hoy no hay tabla ni copia: cada bloque vive
-fijo en `2*n` y `2*n+1`. Tampoco hay directorio, archivos ni otro bus
-(AHCI, NVMe).
+El sistema de archivos copy-on-write está en [docs/fs.md](fs.md): el
+bloque lógico sigue siendo el de esta capa, y un snapshot se queda con
+los bloques que ya no apunta la raíz nueva. Sigue sin otro bus (AHCI,
+NVMe).

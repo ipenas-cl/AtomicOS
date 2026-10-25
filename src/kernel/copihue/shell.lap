@@ -66,9 +66,147 @@ fn cmd_help() -> i64 {
     puts("  user            enter ring 3 and syscall\n");
     puts("  sched           two processes, separate pages\n");
     puts("  disk            data disk checksum\n");
+    puts("  fs              archivos y snapshots\n");
     puts("  ud2             raise #UD and halt\n");
     puts("  reboot          reset the machine\n");
     return 0;
+}
+
+fn fs_scan(pos: i64, dst: *u8) -> i64 {
+    while (pos < line_len && line[pos] == ' ') { pos = pos + 1; }
+    fs_zero(dst, 16);
+    let i = 0;
+    while (pos < line_len && line[pos] != ' ') {
+        if (i >= 15) { return 0 - 1; }
+        dst[i] = line[pos];
+        i = i + 1;
+        pos = pos + 1;
+    }
+    return pos;
+}
+
+fn fs_is(s: *u8) -> i64 {
+    let i = 0;
+    while (s[i] != 0) {
+        if (fs_sub[i] != s[i]) { return 0; }
+        i = i + 1;
+    }
+    return fs_sub[i] == 0;
+}
+
+fn fs_fail(r: i64) -> i64 {
+    puts("fs fail ");
+    put_int(r);
+    putc('\n');
+    return r;
+}
+
+fn fs_show(prefix: *u8, n: i64) -> i64 {
+    if (n < 0) {
+        if (n == 0 - 5) {
+            puts("fs corrupt detected\n");
+            return 0;
+        }
+        return fs_fail(0 - n);
+    }
+    if (n == 0) {
+        puts("fs empty\n");
+        return 0;
+    }
+    puts(prefix);
+    let i = 0;
+    while (i < n) {
+        putc(fs_buf[i]);
+        i = i + 1;
+    }
+    putc('\n');
+    return 0;
+}
+
+fn cmd_fs() -> i64 {
+    let pos = fs_scan(2, fs_sub);
+    if (pos < 0) { return fs_fail(11); }
+    if (fs_is("format")) {
+        let r = fs_format();
+        if (r != 0) { return fs_fail(r); }
+        puts("fs format ok\n");
+        return 0;
+    }
+    if (fs_is("create")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        let r = fs_create(fs_name);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs create ok\n");
+        return 0;
+    }
+    if (fs_is("write")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        if (pos < line_len && line[pos] == ' ') { pos = pos + 1; }
+        let n = 0;
+        while (pos < line_len && n < 1024) {
+            fs_buf[n] = line[pos];
+            n = n + 1;
+            pos = pos + 1;
+        }
+        let r = fs_write(fs_name, fs_buf, n);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs write ok\n");
+        return 0;
+    }
+    if (fs_is("cat")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        return fs_show("fs live ", fs_read(fs_name, fs_buf, 1024));
+    }
+    if (fs_is("ls")) {
+        let r = fs_list();
+        if (r != 0) { return fs_fail(r); }
+        return 0;
+    }
+    if (fs_is("snap")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        let look = pos;
+        while (look < line_len && line[look] == ' ') { look = look + 1; }
+        if (look < line_len) {
+            pos = fs_scan(pos, fs_name2);
+            if (pos < 0) { return fs_fail(11); }
+            return fs_show("fs snap ", fs_read_snap(fs_name, fs_name2, fs_buf, 1024));
+        }
+        let r = fs_snapshot(fs_name);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs snap ok\n");
+        return 0;
+    }
+    if (fs_is("rollback")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        let r = fs_rollback(fs_name);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs rollback ok\n");
+        return 0;
+    }
+    if (fs_is("corrupt")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        let r = fs_corrupt(fs_name);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs corrupt armed\n");
+        return 0;
+    }
+    if (fs_is("blocks")) {
+        let r = fs_blocks_test();
+        if (r != 0) { return fs_fail(r); }
+        return 0;
+    }
+    if (fs_is("check")) {
+        let r = fs_blocks_check();
+        if (r != 0) { return fs_fail(r); }
+        return 0;
+    }
+    return fs_fail(11);
 }
 
 fn run_command() -> i64 {
@@ -135,6 +273,7 @@ fn run_command() -> i64 {
     if (cmd_is("sched")) { sched_demo(); return 0; }
     // Disco de datos: identify, bloque con CRC y un byte corrompido.
     if (cmd_is("disk")) { disk_test(); return 0; }
+    if (cmd_is("fs")) { cmd_fs(); return 0; }
     if (cmd_is("ud2")) {
         puts("raising #UD\n");
         asm("ud2"); // pedido: ud2() → unknown function 'ud2'
