@@ -68,6 +68,7 @@ fn cmd_help() -> i64 {
     puts("  disk            data disk checksum\n");
     puts("  fs              archivos y snapshots\n");
     puts("  exec <nombre>   programa del disco en anillo 3\n");
+    puts("  zone            zonas: create, ls, exec\n");
     puts("  net             ARP, ping y descarte\n");
     puts("  ud2             raise #UD and halt\n");
     puts("  reboot          reset the machine\n");
@@ -208,6 +209,14 @@ fn cmd_fs() -> i64 {
         if (r != 0) { return fs_fail(r); }
         return 0;
     }
+    if (fs_is("rm")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        let r = fs_remove(fs_name);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs rm ok\n");
+        return 0;
+    }
     return fs_fail(11);
 }
 
@@ -277,6 +286,7 @@ fn run_command() -> i64 {
     if (cmd_is("disk")) { disk_test(); return 0; }
     if (cmd_is("fs")) { cmd_fs(); return 0; }
     if (cmd_is("exec")) { cmd_exec(); return 0; }
+    if (cmd_is("zone")) { cmd_zone(); return 0; }
     if (cmd_is("net")) { cmd_net(); return 0; }
     if (cmd_is("ud2")) {
         puts("raising #UD\n");

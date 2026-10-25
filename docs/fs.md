@@ -95,6 +95,8 @@ directorio malo, 9 no cabe, 11 nombre malo o repetido.
 `fs corrupt <archivo>` pisa un byte del dato con `ata_write` y no
 toca el sector de metadatos. `fs blocks` escribe 600 bytes y los
 relee. `fs check` solo relee, para el segundo arranque.
+`fs rm <nombre>` saca la entrada del directorio vivo. Un bloque que
+sigue colgando de un snapshot no se libera.
 
 ## Prueba
 

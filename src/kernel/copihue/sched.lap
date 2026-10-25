@@ -35,6 +35,9 @@ let proc_pages: [i64; 32];
 let proc_rec0: [i64; 2];
 let proc_rec1: [i64; 2];
 let proc_faults: [i64; 2];
+let proc_zone: [i64; 2];
+let proc_held: [i64; 2];
+let proc_uva: [i64; 2];
 let shared_pdpt: i64 = 0;
 let shared_pd: i64 = 0;
 let sched_base: i64 = 0;
@@ -61,7 +64,10 @@ fn take_page(pi: i64, low: i64) -> i64 {
     let pa = 0;
     if (low != 0) { pa = alloc_low_page(); } else { pa = alloc_high_page(); }
     if (pa == 0) { return 0; }
-    if (track(pi, pa) == 0) { return 0; }
+    if (track(pi, pa) == 0) {
+        free_page(pa);
+        return 0;
+    }
     return pa;
 }
 
@@ -181,6 +187,8 @@ fn yield_current() -> i64 {
 }
 
 fn release_proc(pi: i64) -> i64 {
+    let z = proc_zone[pi];
+    charge_zone = z;
     let n = proc_npages[pi];
     let f = 0;
     let i = 0;
@@ -192,9 +200,16 @@ fn release_proc(pi: i64) -> i64 {
         }
         i = i + 1;
     }
+    charge_zone = 0;
     proc_npages[pi] = 0;
     proc_freed[pi] = f;
     proc_state[pi] = 0;
+    if (proc_held[pi] != 0) {
+        zone_release(z);
+        proc_held[pi] = 0;
+    }
+    proc_zone[pi] = 0;
+    proc_uva[pi] = 0;
     return f;
 }
 
@@ -356,10 +371,20 @@ fn build_proc(pi: i64, src: i64, n: i64, secret: i64) -> i64 {
         proc_rsp0[1] = 0x68000;
         proc_sys[1] = 0x78000;
     }
+    proc_uva[pi] = 0;
+    proc_held[pi] = 0;
+    proc_zone[pi] = build_zone;
+    if (zone_acquire(build_zone) != 0) { return 0; }
+    proc_held[pi] = 1;
+    charge_zone = build_zone;
     let pml4 = take_table(pi);
     let pdpt = take_table(pi);
     let pd = take_table(pi);
-    if (pml4 == 0 || pdpt == 0 || pd == 0) { return 0; }
+    if (pml4 == 0 || pdpt == 0 || pd == 0) {
+        charge_zone = 0;
+        zone_errno = 6;
+        return 0;
+    }
     let p4: *u64 = pml4 as *u64;
     let p3: *u64 = pdpt as *u64;
     let p2: *u64 = pd as *u64;
@@ -370,18 +395,47 @@ fn build_proc(pi: i64, src: i64, n: i64, secret: i64) -> i64 {
     attach_half(pml4);
     let code = take_page(pi, 0);
     let stack = take_page(pi, 0);
-    if (code == 0 || stack == 0) { return 0; }
-    if (map_user(pi, 0x400000, code, 7) == 0) { return 0; }
-    if (map_user(pi, 0x401000, stack, 7) == 0) { return 0; }
+    if (code == 0 || stack == 0) {
+        charge_zone = 0;
+        zone_errno = 6;
+        return 0;
+    }
+    if (map_user(pi, 0x400000, code, 7) == 0) {
+        charge_zone = 0;
+        zone_errno = 6;
+        return 0;
+    }
+    if (map_user(pi, 0x401000, stack, 7) == 0) {
+        charge_zone = 0;
+        zone_errno = 6;
+        return 0;
+    }
     if (secret != 0) {
         let data = take_page(pi, 0);
-        if (data == 0) { return 0; }
-        if (paint_secret(data) == 0) { return 0; }
-        if (map_user(pi, 0x500000, data, 7) == 0) { return 0; }
+        if (data == 0) {
+            charge_zone = 0;
+            zone_errno = 6;
+            return 0;
+        }
+        if (paint_secret(data) == 0) {
+            charge_zone = 0;
+            zone_errno = 6;
+            return 0;
+        }
+        if (map_user(pi, 0x500000, data, 7) == 0) {
+            charge_zone = 0;
+            zone_errno = 6;
+            return 0;
+        }
     }
-    if (copy_user(pi, src, n, code) == 0) { return 0; }
+    if (copy_user(pi, src, n, code) == 0) {
+        charge_zone = 0;
+        zone_errno = 6;
+        return 0;
+    }
     forge(pi, 0x400000, 0x402000, 0x202);
     proc_state[pi] = 1;
+    charge_zone = 0;
     return 1;
 }
 
@@ -579,6 +633,8 @@ naked fn prog_b_end() {
 
 fn sched_demo() -> i64 {
     cli();
+    build_zone = 0;
+    charge_zone = 0;
     if (shared_init() == 0) {
         sti();
         puts("sched fail\n");

@@ -19,6 +19,11 @@
 # (not the built-in user/sched strings). A missing name, a bad magic and
 # an oversized header return to the prompt. After `fs corrupt`, exec
 # rejects the file on checksum and does not run it.
+# Then zones: a program in zone A writes and reads under its prefix
+# (`zone fs ok`), is denied a zone-0 file and zone B's prefix
+# (`zone fs denied`), a syscall outside the mask (`zone syscall denied`),
+# a page past its quota (`zone quota ok`, global free memory returns),
+# and a zone change (`zone escape denied`). A missing line fails the script.
 # Then net: user-mode e1000. The kernel ARPs 10.0.2.2 (`net arp ok`),
 # pings that gateway (`net ping ok`) and drops a frame whose IP length
 # does not fit the buffer (`net drop ok`). If this QEMU has no user
@@ -443,6 +448,65 @@ END {
 }
 ' || fail "exec story missing a line"
 echo "ok   exec desde disco, missing, bad magic, bad size, corrupt"
+
+# El directorio cabe 7. exec plant lo llenó. Se sueltan malo y gordo
+# para plantar ztest y dejar un cupo al archivo de la zona.
+typefs "fs rm malo"
+typefs "fs rm gordo"
+typefs "zone plant"
+typefs "zone create a za 12"
+typefs "zone create b zb 12"
+typefs "zone ls"
+typewait "zone exec a ztest" 120
+typefs "zone ls"
+typefs "fs cat zan"
+typefs "fs cat n"
+typefs "fs cat c"
+tr -d '\r' < "$SERIAL" | awk '
+{
+    if (i==0 && $0=="fs rm ok") i=1
+    else if (i==1 && $0=="fs rm ok") i=2
+    else if (i==2 && $0=="zone plant ok") i=3
+    else if (i==3 && $0=="zone created 1") i=4
+    else if (i==4 && $0=="zone created 2") i=5
+    else if (i==5 && $0=="zone fs ok") i=6
+    else if (i==6 && $0=="zone fs denied") i=7
+    else if (i==7 && $0=="zone syscall denied") i=8
+    else if (i==8 && $0=="zone quota ok") i=9
+    else if (i==9 && $0=="zone escape denied") i=10
+    else if (i==10 && $0=="zone exec ok") i=11
+    else if (i==11 && $0=="fs live Z") i=12
+    else if (i==12 && $0=="fs fail 7") i=13
+    else if (i==13 && $0=="fs empty") i=14
+}
+END {
+    if (i != 14) {
+        print "zone story stuck at " i > "/dev/stderr"
+        exit 1
+    }
+}
+' || fail "zone story missing a line"
+mems=$(tr -d '\r' < "$SERIAL" | sed -n 's/^zone mem \([0-9][0-9]*\)$/\1/p')
+m1=$(printf '%s\n' "$mems" | sed -n '1p')
+m2=$(printf '%s\n' "$mems" | sed -n '2p')
+m3=$(printf '%s\n' "$mems" | sed -n '3p')
+[ -n "$m1" ] && [ -n "$m2" ] && [ -z "$m3" ] || fail "want exactly two zone mem lines"
+[ "$m1" = "$m2" ] || fail "zone mem $m1 -> $m2, free memory did not return"
+tr -d '\r' < "$SERIAL" | awk -v a="$m1" '
+$0 == ("zone mem " a) { if (!s) { s=1; next } if (s==1) { s=2 } }
+s==1 && $0=="zone quota ok" { q=1 }
+END { exit !(s==2 && q) }
+' || fail "zone quota ok was not between the two zone mem lines"
+z1=$(tr -d '\r' < "$SERIAL" | grep '^zone 1 ' | tail -1)
+printf '%s\n' "$z1" | grep -q 'pre=za' || fail "zone 1 lost prefix za ($z1)"
+printf '%s\n' "$z1" | grep -q 'pag=0' || fail "zone 1 pages not released ($z1)"
+printf '%s\n' "$z1" | grep -q 'proc=0/' || fail "zone 1 process leaked ($z1)"
+printf '%s\n' "$z1" | grep -q 'niega=1' || fail "denied syscall was not counted ($z1)"
+printf '%s\n' "$z1" | grep -q 'fuga=1' || fail "zone escape was not counted ($z1)"
+tr -d '\r' < "$SERIAL" | grep -q '^zone 2 b pre=zb ' || fail "zone B missing after exec"
+tr -d '\r' < "$SERIAL" | grep -qx 'zone leak' && fail "zone leak"
+tr -d '\r' < "$SERIAL" | grep -q '^zone fail' && fail "zone command failed"
+echo "ok   zone fs, denied, syscall, quota mem $m1, escape"
 
 require_net
 typewait "net" 120

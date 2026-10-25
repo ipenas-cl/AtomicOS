@@ -1,12 +1,22 @@
 #!/bin/sh
 # Arma un ejecutable plano AXE1 y el fuente Copihue que lo embebe.
-# Uso: scripts/mkaxe.sh hola.bin hola.axe exec_img.lap
-# Sin Python: printf, od y awk.
+# Uso: scripts/mkaxe.sh hola.bin hola.axe exec_img.lap [funcion]
+# Sin Python: printf, od y awk. La función por defecto es exec_fill.
 set -eu
-if [ "$#" -ne 3 ]; then
-    echo "usage: mkaxe.sh payload.bin salida.axe exec_img.lap" >&2
+fn_name=exec_fill
+if [ "$#" -eq 4 ]; then
+    fn_name=$4
+elif [ "$#" -ne 3 ]; then
+    echo "usage: mkaxe.sh payload.bin salida.axe salida.lap [funcion]" >&2
     exit 1
 fi
+case $fn_name in
+    [A-Za-z]*) ;;
+    *) echo "mkaxe: nombre de funcion invalido" >&2; exit 1 ;;
+esac
+case $fn_name in
+    *[!A-Za-z0-9_]*) echo "mkaxe: nombre de funcion invalido" >&2; exit 1 ;;
+esac
 bin=$1
 axe=$2
 lap=$3
@@ -44,7 +54,7 @@ if [ "$magic" != "41584531" ]; then
 fi
 {
     echo "// Generado por scripts/mkaxe.sh. No editar."
-    echo "fn exec_fill(p: *u8) -> i64 {"
+    echo "fn ${fn_name}(p: *u8) -> i64 {"
     od -An -tu1 -v "$axe" | awk '
         {
             for (i = 1; i <= NF; i++) {

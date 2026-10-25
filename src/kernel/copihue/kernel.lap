@@ -19,6 +19,8 @@ import "blk.lap";
 import "fs.lap";
 import "exec_img.lap";
 import "exec.lap";
+import "zone_img.lap";
+import "zone.lap";
 import "net.lap";
 import "shell.lap";
 
@@ -49,6 +51,7 @@ fn kmain() -> i64 {
     puts("Kernel in Copihue: VGA/COM1, IDT, PIT 100 Hz, PS/2, sched.\n");
     puts("Type 'help' for commands.\n\n");
     pmm_init();
+    zone_init();
     idt_init();
     while (ticks < 100) { hlt(); }
     puts("timer: ticks=");

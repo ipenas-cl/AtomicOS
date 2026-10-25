@@ -8,6 +8,8 @@
 let user_ran: i64 = 0;
 
 syscall fn sys_user(nr: i64, ch: i64) -> i64 {
+    let g = zone_gate(nr);
+    if (g != 0) { return g; }
     if (nr == 1) {
         putc(ch);
         return 0;
@@ -25,6 +27,10 @@ syscall fn sys_user(nr: i64, ch: i64) -> i64 {
     }
     if (nr == 4) { return yield_current(); }
     if (nr == 5) { return exit_current(); }
+    if (nr == 6) { return zone_sys_write(ch); }
+    if (nr == 7) { return zone_sys_read(ch); }
+    if (nr == 8) { return zone_sys_alloc(); }
+    if (nr == 9) { return zone_sys_set(ch); }
     return 0;
 }
 
