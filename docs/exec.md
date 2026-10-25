@@ -9,6 +9,9 @@ mide 16 bytes y el código va justo después. Little-endian.
 | 4 | 4 | tamaño del código, en bytes |
 | 8 | 8 | punto de entrada, dirección virtual |
 
+`Axe` mide 16. `axe_layout` exige `sizeof(Axe) == 16`, tamaño en 4
+y entrada en 8. Un dword alto distinto de cero no cae en la página.
+
 `exec` copia el código a `0x400000` y la pila a `0x401000`, en un PML4
 nuevo (el mismo camino que `sched`: `build_proc` y `sched_go`). El
 punto de entrada tiene que caer en esa página de código. El programa

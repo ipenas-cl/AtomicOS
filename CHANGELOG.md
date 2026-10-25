@@ -6,7 +6,11 @@ para ese commit es `legacy-tempo`.
 
 ## 0.8
 
-Kernel en Copihue v0.26.1. El arranque es `src/bootloader/boot.lap`
+Kernel en Copihue v0.27.1. El planificador guarda el marco del shell
+con `save_context` y vuelve con `restore_context`. El PIT y el `#PF`
+leen el marco de la CPU por un puntero. El directorio, el superbloque,
+el metadato del bloque y la cabecera AXE1 son structs; el disco no
+cambia. No queda `asm()` en el kernel. El arranque es `src/bootloader/boot.lap`
 (512 bytes) y `src/bootloader/stage2.lap` (en `0x8200`). La etapa 2 pide
 los sectores que ocupa `kernel.bin`, de a 128 por INT 13h. El archivo
 puede pasar de `0x20000`; imagen y `.bss` tienen que terminar antes de

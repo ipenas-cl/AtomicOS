@@ -55,6 +55,12 @@ La entrada mide 64 bytes y parte en el offset 8.
 | 24 | 32 | hasta 8 números de bloque |
 | 56 | 8 | cero |
 
+`FsEnt` es la parte útil (56 bytes). El cero de los últimos 8 va en
+`FsSlot`, que mide 64. `fs_layout` exige `sizeof(FsEnt) == 56`,
+`offsetof` de tamaño 16, cantidad 20 y bloques 24, y
+`sizeof(FsSlot) == 64`. El sector que se escribe sigue siendo 512
+bytes.
+
 Un archivo llega a 8 × 512 = 4096 bytes. El bloque de datos es el
 contenido, sin cabecera: el CRC cubre los bytes del archivo.
 

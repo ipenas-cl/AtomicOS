@@ -16,7 +16,7 @@
 //
 // `dw 8`, `dw 0x8200` and `jmp 0x8200` are checked against the Makefile.
 //
-// Copihue v0.26.1. `cld()` sigue siendo unknown function 'cld'. lodsb
+// Copihue v0.27.1. `cld()` sigue siendo unknown function 'cld'. lodsb
 // avanza si solo con DF en claro, así que clear_df lo apaga con
 // pushfd/popfd antes de leer el disco. Una llamada con argumentos desde
 // bits 16 emite `push rax` / `pop rdi` y nasm dice instruction not

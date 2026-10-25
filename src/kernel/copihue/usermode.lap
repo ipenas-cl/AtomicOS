@@ -121,21 +121,18 @@ fn enter_user() -> i64 {
     write_cr3(read_cr3());
     user_ran = 1;
     cli();
-    // Esta función tiene marco. rsp/rbp solo dentro de naked:
-    // register 'rsp' is only available in a naked function.
-    // .after_user no es un nombre del lenguaje; resume_shell salta ahí.
-    asm("mov [resume_rsp], rsp");
-    asm("mov [resume_rbp], rbp");
-    asm("lea rax, [.after_user]");
-    asm("mov [resume_rip], rax");
-    push(0x33);
-    push(0x402000);
-    push(0x2);
-    push(0x3B);
-    push(0x400000);
-    iretq();
-    asm(".after_user:");
-    resume_rip = 0;
+    // Mismo truco que sched_go: la etiqueta es el regreso del #PF.
+    if (save_context(&shell_ctx) == 0) {
+        shell_ctx.rip = label_addr(after_user);
+        push(0x33);
+        push(0x402000);
+        push(0x2);
+        push(0x3B);
+        push(0x400000);
+        iretq();
+    }
+    label after_user;
+    shell_ctx.rip = 0;
     sti();
     puts("user returned\n");
     return 0;

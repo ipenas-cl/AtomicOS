@@ -34,6 +34,9 @@ Sector de metadatos (el resto va en cero):
 | 4 | 4 | número de bloque, little-endian |
 | 8 | 4 | CRC-32 de los 512 bytes de datos |
 
+`BlkMeta` son esos 12 bytes. `blk_layout` exige
+`sizeof(BlkMeta) == 12`. El resto del sector se escribe en cero.
+
 El CRC es el de ISO-HDLC (Ethernet, PNG, gzip): polinomio reflejado
 `0xEDB88320`, valor inicial `0xFFFFFFFF`, XOR final `0xFFFFFFFF`. Se
 calcula bit a bit, sin tabla. El vector `123456789` da `0xCBF43926`.

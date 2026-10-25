@@ -25,6 +25,26 @@ packed struct IdtEntry {
 
 packed struct DescPtr { limit: u16, base: u64 }
 
+// Sin error code, el puntero es RIP. Con error_code primero, es el
+// código de #PF y rip va 8 bytes después. Los 15 GPR quedan 120 bytes
+// bajo ese primer qword: saved_ksp = frame as i64 - 120.
+struct InterruptFrame {
+    rip: i64,
+    cs: i64,
+    rflags: i64,
+    rsp: i64,
+    ss: i64
+}
+
+struct PfFrame {
+    error_code: i64,
+    rip: i64,
+    cs: i64,
+    rflags: i64,
+    rsp: i64,
+    ss: i64
+}
+
 let volatile ticks: i64 = 0;
 let idt: [IdtEntry; 48];
 
@@ -97,19 +117,15 @@ interrupt fn exc10(err: i64) { cpu_fault(10, err, 1); }
 interrupt fn exc11(err: i64) { cpu_fault(11, err, 1); }
 interrupt fn exc12(err: i64) { cpu_fault(12, err, 1); }
 interrupt fn exc13(err: i64) { cpu_fault(13, err, 1); }
-interrupt fn exc14(err: i64) {
-    // A scheduled ring-3 fault is an isolation check, not the one-shot
-    // `user` command. Copihue v0.23.0 pushes 15 GPRs and one alignment
-    // qword, so the CPU error code is at [rbp+128] and RIP at [rbp+136].
-    if (sched_on != 0 && (err & 4) != 0) {
-        note_user_fault(err);
-        // Una interrupt fn no es naked. *(rbp + 136) = patch_rip →
-        // register 'rbp' is only available in a naked function.
-        asm("mov rax, [patch_rip]");
-        asm("mov [rbp+136], rax");
+interrupt fn exc14(frame: *PfFrame) {
+    // Fallo de anillo 3 con el planificador prendido: se reescribe rip
+    // y el epílogo hace iretq. El de `user` (sin sched) vuelve al shell.
+    if (sched_on != 0 && (frame.error_code & 4) != 0) {
+        note_user_fault(frame.error_code);
+        frame.rip = patch_rip;
         return;
     }
-    cpu_fault(14, err, 1);
+    cpu_fault(14, frame.error_code, 1);
 }
 interrupt fn exc15() { cpu_fault(15, 0, 0); }
 interrupt fn exc16() { cpu_fault(16, 0, 0); }
@@ -129,19 +145,16 @@ interrupt fn exc29(err: i64) { cpu_fault(29, err, 1); }
 interrupt fn exc30(err: i64) { cpu_fault(30, err, 1); }
 interrupt fn exc31() { cpu_fault(31, 0, 0); }
 
-interrupt fn irq_timer() {
+interrupt fn irq_timer(frame: *InterruptFrame) {
     ticks = ticks + 1;
     outb(0x20, 0x20);
-    // No error code on IRQ0: saved CS is at [rbp+128]. RPL 3 means the
-    // CPU loaded this frame from TSS.rsp0. The epilogue pops that frame,
-    // so replacing rbp resumes the next process.
+    // IRQ0 no trae error code. El epílogo relee `frame`: apuntarlo al
+    // otro saved_ksp + 120 reanuda ese proceso. No se nombra rbp.
     if (sched_on != 0) {
-        // register 'rbp' is only available in a naked function.
-        asm("mov rax, [rbp+128]");
-        asm("mov [saved_cs], rax");
-        asm("mov [saved_ksp], rbp");
+        saved_cs = frame.cs;
+        saved_ksp = frame as i64 - 120;
         if (timer_should_switch() != 0) {
-            asm("mov rbp, [saved_ksp]");
+            frame = (saved_ksp + 120) as *InterruptFrame;
         }
     }
 }

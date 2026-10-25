@@ -29,7 +29,7 @@
 // calculation of an empty image only when it is empty; a global would
 // move _start off the first byte. Constants live in `data`.
 //
-// Copihue v0.26.1. `cld()` es unknown function 'cld'. lodsb y rep_stosd
+// Copihue v0.27.1. `cld()` es unknown function 'cld'. lodsb y rep_stosd
 // usan el índice tal como está DF, así que clear_df lo deja en claro.
 // ebx no es un registro asignable (assignment to undeclared variable
 // 'ebx'); el token de continuación de INT 15h entra y sale con push/pop.

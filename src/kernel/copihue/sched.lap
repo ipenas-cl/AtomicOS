@@ -416,22 +416,22 @@ fn dump_tables() -> i64 {
 
 fn sched_go() -> i64 {
     cli();
-    // Esta función tiene marco. register 'rsp' is only available in a naked function.
-    // .after_sched no es un nombre del lenguaje; resume_shell salta ahí.
-    asm("mov [resume_rsp], rsp");
-    asm("mov [resume_rbp], rbp");
-    asm("lea rax, [.after_sched]");
-    asm("mov [resume_rip], rax");
-    cur_i = 0;
-    proc_state[0] = 2;
-    tss.rsp0 = proc_rsp0[0];
-    set_syscall_stack(proc_sys[0]);
-    write_cr3(proc_pml4[0]);
-    saved_ksp = proc_ksp[0];
-    puts("run begin\n");
-    sched_on = 1;
-    resume_frame();
-    asm(".after_sched:");
+    // save_context devuelve 0. Se pisa rip con la etiqueta: resume_shell
+    // vuelve ahí, con este marco, y save_context no devuelve 1.
+    if (save_context(&shell_ctx) == 0) {
+        shell_ctx.rip = label_addr(after_sched);
+        cur_i = 0;
+        proc_state[0] = 2;
+        tss.rsp0 = proc_rsp0[0];
+        set_syscall_stack(proc_sys[0]);
+        write_cr3(proc_pml4[0]);
+        saved_ksp = proc_ksp[0];
+        puts("run begin\n");
+        sched_on = 1;
+        resume_frame();
+    }
+    label after_sched;
+    shell_ctx.rip = 0;
     sched_on = 0;
     write_cr3(0x1000);
     tss.rsp0 = 0x86000;

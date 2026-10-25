@@ -17,6 +17,26 @@
 let blk_data: [u8; 512];
 let blk_meta: [u8; 512];
 
+// 12 bytes al frente del sector de metadatos. El resto queda en cero.
+// sizeof tiene que coincidir con docs/disco.md.
+packed struct BlkMeta {
+    magic: [u8; 4],
+    block: u32,
+    crc: u32
+}
+
+fn blk_layout() -> i64 {
+    if (sizeof(BlkMeta) != 12) { return 0; }
+    if (offsetof(BlkMeta, magic) != 0) { return 0; }
+    if (offsetof(BlkMeta, block) != 4) { return 0; }
+    if (offsetof(BlkMeta, crc) != 8) { return 0; }
+    return 1;
+}
+
+fn blk_mp() -> *BlkMeta {
+    return blk_meta as *BlkMeta;
+}
+
 fn crc32(p: *u8, n: i64) -> i64 {
     let crc = 0xFFFFFFFF;
     let i = 0;
@@ -48,30 +68,21 @@ fn blk_put_meta(n: i64, sum: i64) -> i64 {
         blk_meta[i] = 0;
         i = i + 1;
     }
-    blk_meta[0] = 0x41;
-    blk_meta[1] = 0x42;
-    blk_meta[2] = 0x4C;
-    blk_meta[3] = 0x4B;
-    blk_meta[4] = n & 255;
-    blk_meta[5] = (n >> 8) & 255;
-    blk_meta[6] = (n >> 16) & 255;
-    blk_meta[7] = (n >> 24) & 255;
-    blk_meta[8] = sum & 255;
-    blk_meta[9] = (sum >> 8) & 255;
-    blk_meta[10] = (sum >> 16) & 255;
-    blk_meta[11] = (sum >> 24) & 255;
+    let m: *BlkMeta = blk_mp();
+    m.magic[0] = 0x41;
+    m.magic[1] = 0x42;
+    m.magic[2] = 0x4C;
+    m.magic[3] = 0x4B;
+    m.block = n;
+    m.crc = sum;
     return 0;
 }
 
-fn blk_meta_u32(off: i64) -> i64 {
-    let b0 = blk_meta[off] & 255;
-    let b1 = blk_meta[off + 1] & 255;
-    let b2 = blk_meta[off + 2] & 255;
-    let b3 = blk_meta[off + 3] & 255;
-    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
-}
-
 fn blk_write(n: i64) -> i64 {
+    if (blk_layout() == 0) {
+        puts("blk layout\n");
+        return 5;
+    }
     let r = blk_range(n);
     if (r != 0) { return r; }
     let sum = crc32(blk_data, 512);
@@ -82,16 +93,21 @@ fn blk_write(n: i64) -> i64 {
 }
 
 fn blk_read(n: i64) -> i64 {
+    if (blk_layout() == 0) {
+        puts("blk layout\n");
+        return 5;
+    }
     let r = blk_range(n);
     if (r != 0) { return r; }
     r = ata_read(n * 2, blk_data);
     if (r != 0) { return r; }
     r = ata_read(n * 2 + 1, blk_meta);
     if (r != 0) { return r; }
-    if (blk_meta[0] != 0x41 || blk_meta[1] != 0x42) { return 5; }
-    if (blk_meta[2] != 0x4C || blk_meta[3] != 0x4B) { return 5; }
-    if (blk_meta_u32(4) != n) { return 5; }
-    if (blk_meta_u32(8) != crc32(blk_data, 512)) { return 5; }
+    let m: *BlkMeta = blk_mp();
+    if (m.magic[0] != 0x41 || m.magic[1] != 0x42) { return 5; }
+    if (m.magic[2] != 0x4C || m.magic[3] != 0x4B) { return 5; }
+    if (m.block != n) { return 5; }
+    if (m.crc != crc32(blk_data, 512)) { return 5; }
     return 0;
 }
 

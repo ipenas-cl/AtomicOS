@@ -33,9 +33,21 @@ packed struct Tss {
 
 let tss: Tss;
 let gdt: [u8; 80];
-let resume_rsp: i64 = 0;
-let resume_rbp: i64 = 0;
-let resume_rip: i64 = 0;
+
+// Ocho qwords: rip, rsp, rbp, rbx, r12-r15. save_context los llena.
+// restore_context los carga y salta. rip en 0: no hay shell esperando.
+struct Ctx {
+    rip: i64,
+    rsp: i64,
+    rbp: i64,
+    rbx: i64,
+    r12: i64,
+    r13: i64,
+    r14: i64,
+    r15: i64
+}
+
+let shell_ctx: Ctx;
 
 fn gdt_seg(off: i64, limit_lo: i64, access: i64, flags: i64) -> i64 {
     gdt[off] = limit_lo & 255;
@@ -102,15 +114,10 @@ fn gdt_load() -> i64 {
     return 0;
 }
 
-// #PF from ring 3 lands here. rsp/rbp/rip were saved in enter_user
-// immediately before iretq, on the shell's stack.
-naked fn resume_shell() -> i64 {
-    if (resume_rip == 0) {
-        rax = 0;
-        return;
-    }
-    rsp = resume_rsp;
-    rbp = resume_rbp;
-    // No hay salto indirecto. jmp resume_rip → unknown jump target 'resume_rip'.
-    asm("jmp qword [resume_rip]");
+// #PF de anillo 3 y el último exit caen acá. El marco lo guardó
+// enter_user o sched_go con save_context. restore_context no vuelve.
+fn resume_shell() -> i64 {
+    if (shell_ctx.rip == 0) { return 0; }
+    restore_context(&shell_ctx);
+    return 0;
 }

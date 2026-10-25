@@ -8,6 +8,24 @@
 let exec_buf: [u8; 4096];
 let exec_code: [u8; 4096];
 
+// Cabecera de 16 bytes. docs/exec.md. El código empieza después.
+packed struct Axe {
+    magic: [u8; 4],
+    size: u32,
+    entry: u64
+}
+
+fn axe_layout() -> i64 {
+    if (sizeof(Axe) != 16) { return 0; }
+    if (offsetof(Axe, size) != 4) { return 0; }
+    if (offsetof(Axe, entry) != 8) { return 0; }
+    return 1;
+}
+
+fn axe_of(p: *u8) -> *Axe {
+    return p as *Axe;
+}
+
 fn exec_fail(r: i64) -> i64 {
     puts("exec fail ");
     put_int(r);
@@ -25,10 +43,9 @@ fn exec_is(s: *u8) -> i64 {
 }
 
 fn exec_magic() -> i64 {
-    if (exec_buf[0] != 0x41) { return 0; }
-    if (exec_buf[1] != 0x58) { return 0; }
-    if (exec_buf[2] != 0x45) { return 0; }
-    if (exec_buf[3] != 0x31) { return 0; }
+    let h: *Axe = axe_of(exec_buf);
+    if (h.magic[0] != 0x41 || h.magic[1] != 0x58) { return 0; }
+    if (h.magic[2] != 0x45 || h.magic[3] != 0x31) { return 0; }
     return 1;
 }
 
@@ -40,14 +57,12 @@ fn exec_plant() -> i64 {
     if (n < 16 || n > 4096) { return exec_fail(9); }
     let r = fs_write("hola", exec_buf, n);
     if (r != 0) { return exec_fail(r); }
-    exec_buf[0] = 0;
+    let h: *Axe = axe_of(exec_buf);
+    h.magic[0] = 0;
     r = fs_write("malo", exec_buf, n);
     if (r != 0) { return exec_fail(r); }
     n = exec_fill(exec_buf);
-    exec_buf[4] = 255;
-    exec_buf[5] = 255;
-    exec_buf[6] = 0;
-    exec_buf[7] = 0;
+    h.size = 65535;
     r = fs_write("gordo", exec_buf, n);
     if (r != 0) { return exec_fail(r); }
     puts("exec plant ok\n");
@@ -71,16 +86,20 @@ fn exec_run() -> i64 {
         puts("exec bad magic\n");
         return 0;
     }
-    let sz = fs_u32(exec_buf, 4);
+    if (axe_layout() == 0) {
+        puts("exec bad size\n");
+        return 0;
+    }
+    let h: *Axe = axe_of(exec_buf);
+    let sz = h.size;
     let room = n - 16;
     if (sz <= 0 || sz > 4080 || sz > room) {
         puts("exec bad size\n");
         return 0;
     }
-    let entry = fs_u32(exec_buf, 8);
-    let ehi = fs_u32(exec_buf, 12);
+    let entry = h.entry;
     let end = 0x400000 + sz;
-    if (ehi != 0 || entry < 0x400000 || entry >= 0x401000 || entry >= end) {
+    if (entry < 0x400000 || entry >= 0x401000 || entry >= end) {
         puts("exec bad entry\n");
         return 0;
     }
