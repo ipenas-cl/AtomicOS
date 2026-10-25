@@ -26,7 +26,7 @@ start:
     ; Enable A20 line
     call enable_a20
     
-    ; Load kernel from disk (64 sectors from LBA 1 to 0x10000).
+    ; Load kernel from disk (96 sectors from LBA 1 to 0x10000).
     ; Uses INT 13h extensions (LBA) so the read does not depend on
     ; the BIOS-reported CHS geometry (CHS reads stop at a track end).
     mov ah, 0x42
@@ -209,7 +209,7 @@ long_mode:
 ; Data
 disk_packet:
     db 0x10, 0          ; packet size, reserved
-    dw 64               ; sector count
+    dw 96               ; sector count
     dw 0x0000, 0x1000   ; offset, segment -> 0x10000
     dq 1                ; starting LBA (sector after the boot sector)
 

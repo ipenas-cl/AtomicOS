@@ -124,11 +124,13 @@ $(COPIHUE_DIR)/copihue: | $(BUILD_DIR)
 # Kernel: 100% Copihue. `copihue --flat` emits a flat binary that starts at fn _start.
 COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap $(KERNEL_SRC)/copihue/keyboard.lap \
                      $(KERNEL_SRC)/copihue/pmm.lap $(KERNEL_SRC)/copihue/paging.lap \
-                     $(KERNEL_SRC)/copihue/gdt.lap $(KERNEL_SRC)/copihue/usermode.lap \
+                     $(KERNEL_SRC)/copihue/gdt.lap $(KERNEL_SRC)/copihue/sched.lap \
+                     $(KERNEL_SRC)/copihue/usermode.lap \
                      $(KERNEL_SRC)/copihue/idt.lap $(KERNEL_SRC)/copihue/shell.lap \
                      $(KERNEL_SRC)/copihue/kernel.lap
-# boot64.asm loads 64 sectors
-KERNEL_MAX_BYTES = 32768
+# boot64.asm loads 96 sectors (the count is a word in the DAP; the stub
+# stays 512 bytes). v0.23 scheduler image no longer fits in 64 sectors.
+KERNEL_MAX_BYTES = 49152
 
 $(KERNEL): $(COPIHUE_KERNEL_SRC) $(COPIHUE) | $(BUILD_DIR)
 	@echo "Compiling kernel with Copihue..."

@@ -1,6 +1,6 @@
 # AtomicOS Architecture Overview
 
-The running image is the Copihue kernel described in the [README](../../README.md): long mode, E820 physical pages, an IDT, and one ring-3 program. The diagrams below are the long-term design, not a map of what `make qemu-test` boots.
+The running image is the Copihue kernel described in the [README](../../README.md): long mode, E820 physical pages, an IDT, two ring-3 programs in separate PML4s, and a PIT round-robin. The diagrams below are the long-term design, not a map of what `make qemu-test` boots.
 
 ## System Architecture
 

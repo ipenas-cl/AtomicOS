@@ -16,6 +16,15 @@ syscall fn sys_user(nr: i64, ch: i64) -> i64 {
         puts("user leak\n");
         return 0;
     }
+    if (nr == 3) {
+        putc('\n');
+        puts("getpid ");
+        put_int(proc_pid[cur_i]);
+        puts("\n");
+        return proc_pid[cur_i];
+    }
+    if (nr == 4) { return yield_current(); }
+    if (nr == 5) { return exit_current(); }
     return 0;
 }
 

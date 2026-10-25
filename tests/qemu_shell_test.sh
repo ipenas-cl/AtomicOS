@@ -169,6 +169,81 @@ if ! printf '%s\n' "$clean" | awk '
 fi
 echo "ok   user syscall, #PF on kernel read, returned to shell"
 
+# Two address spaces and the PIT round-robin. `sched` returns to the
+# prompt; the spins are user-mode, so this waits longer than a shell command.
+typeline sched
+sched_ok=0
+for _ in $(seq 200); do
+    if tr -d '\r' < "$SERIAL" | grep -qx "sched ok"; then
+        sched_ok=1
+        break
+    fi
+    if tr -d '\r' < "$SERIAL" | grep -qx "sched fail"; then break; fi
+    sleep 0.25
+done
+[ "$sched_ok" = 1 ] || fail "sched did not finish"
+clean=$(tr -d '\r' < "$SERIAL")
+
+pml4=$(printf '%s\n' "$clean" | sed -n 's/^pml4 a=\(0x[0-9a-f]*\) b=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+half=$(printf '%s\n' "$clean" | sed -n 's/^half a=\(0x[0-9a-f]*\) b=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+span=$(printf '%s\n' "$clean" | sed -n 's/^span a=\(0x[0-9a-f]*\) b=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+low=$(printf '%s\n' "$clean" | sed -n 's/^low a=\(0x[0-9a-f]*\) b=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+cr3a=$(printf '%s\n' "$clean" | sed -n 's/^cr3 a=\(0x[0-9a-f]*\)$/\1/p' | head -1)
+cr3b=$(printf '%s\n' "$clean" | sed -n 's/^cr3 b=\(0x[0-9a-f]*\)$/\1/p' | head -1)
+[ -n "$pml4" ] && [ -n "$half" ] && [ -n "$span" ] && [ -n "$low" ] || fail "missing page-table lines"
+set -- $pml4; pa=$1; pb=$2
+set -- $half; ha=$1; hb=$2
+set -- $span; sa=$1; sb=$2
+set -- $low; la=$1; lb=$2
+[ "$pa" != "$pb" ] || fail "processes share one PML4 ($pa)"
+[ "$pa" != "0x00001000" ] && [ "$pb" != "0x00001000" ] || fail "process PML4 is the bootloader table"
+[ "$cr3a" = "$pa" ] || fail "write_cr3(A) read back $cr3a, PML4 is $pa"
+[ "$cr3b" = "$pb" ] || fail "write_cr3(B) read back $cr3b, PML4 is $pb"
+[ "$ha" = "$hb" ] && [ "$ha" = "$sa" ] && [ "$ha" = "$sb" ] || fail "kernel half is not one shared entry (half $ha $hb span $sa $sb)"
+[ "$ha" != "0x00000000" ] || fail "kernel half entry is empty"
+[ "$la" != "$lb" ] || fail "lower-half PML4[0] is not per process"
+alias_n=$(printf '%s\n' "$clean" | grep -cx "alias ok")
+[ "$alias_n" = 2 ] || fail "alias ok count=$alias_n, want 2 (shared kernel half not readable)"
+echo "ok   per-process PML4, shared kernel half, write_cr3"
+
+printf '%s\n' "$clean" | grep -qx "pf-cross R pid=2 cr2=0x00500000 err=0x00000004" || fail "process B read of A's page did not #PF"
+printf '%s\n' "$clean" | grep -qx "pf-cross W pid=2 cr2=0x00500000 err=0x00000006" || fail "process B write of A's page did not #PF"
+echo "ok   cross-process read and write #PF"
+
+printf '%s\n' "$clean" | grep -qx "getpid 1" || fail "getpid 1 missing"
+printf '%s\n' "$clean" | grep -qx "getpid 2" || fail "getpid 2 missing"
+region=$(printf '%s\n' "$clean" | awk 'f&&/run end/{exit} /run begin/{f=1;next} f{print}')
+printf '%s\n' "$region" | grep -q "M" || fail "process A did not print M from its private page"
+ab=$(printf '%s\n' "$region" | awk 'BEGIN{s=""} {for(i=1;i<=length($0);i++){c=substr($0,i,1); if(c=="a"||c=="b") s=s c}} END{print s}')
+case "$ab" in
+    *a*b*a*|*b*a*b*) ;;
+    *) fail "user letters not interleaved (got '$ab')" ;;
+esac
+echo "ok   A/B interleaved ($ab)"
+
+sw=$(printf '%s\n' "$clean" | sed -n 's/^switch timer=\([0-9][0-9]*\) yield=\([0-9][0-9]*\)$/\1 \2/p' | head -1)
+[ -n "$sw" ] || fail "no switch line"
+set -- $sw; st=$1; sy=$2
+[ "$st" -ge 1 ] || fail "timer switches=$st, want >= 1"
+[ "$sy" -ge 1 ] || fail "yield switches=$sy, want >= 1"
+echo "ok   round-robin timer=$st yield=$sy"
+
+ex1=$(printf '%s\n' "$clean" | sed -n 's/^exit pid=1 freed=\([0-9][0-9]*\)$/\1/p' | head -1)
+ex2=$(printf '%s\n' "$clean" | sed -n 's/^exit pid=2 freed=\([0-9][0-9]*\)$/\1/p' | head -1)
+rel=$(printf '%s\n' "$clean" | sed -n 's/^sched released=\([0-9][0-9]*\)$/\1/p' | head -1)
+bb=$(printf '%s\n' "$clean" | sed -n 's/^sched base=\([0-9][0-9]*\) back=\([0-9][0-9]*\)$/\1 \2/p' | head -1)
+[ -n "$ex1" ] && [ -n "$ex2" ] && [ -n "$rel" ] && [ -n "$bb" ] || fail "missing exit accounting"
+set -- $bb; base=$1; back=$2
+[ "$ex1" -ge 1 ] && [ "$ex2" -ge 1 ] || fail "exit freed pid1=$ex1 pid2=$ex2"
+[ "$rel" -eq $((ex1 + ex2)) ] || fail "released=$rel, want pid1+pid2=$((ex1 + ex2))"
+[ "$back" -eq "$base" ] || fail "pmm free back=$back, base=$base (exit did not return every page)"
+printf '%s\n' "$clean" | grep -qx "half kept" || fail "shared kernel half was freed"
+printf '%s\n' "$clean" | grep -qx "pml4 free" || fail "process PML4 pages were not freed"
+echo "ok   exit freed $ex1+$ex2 pages, pmm back to $base"
+
+printf '%s\n' "$clean" | grep -qx "user leak" && fail "ring 3 read of kernel memory succeeded"
+echo "ok   sched ok"
+
 typeline ud2
 sleep 0.5
 if tr -d '\r' < "$SERIAL" | grep -q "exception: vector 6 #UD invalid opcode"; then

@@ -1,50 +1,72 @@
-// 4KB page tables on top of the bootloader's PML4 (0x1000), PDPT (0x2000)
-// and PD (0x3000). PD[0] stays the supervisor 2MB identity page. A new
-// directory slot gets a page table allocated from the identity-mapped
-// pool (physical address below 2MB) so the kernel can write its entries.
+// 4KB page tables. map_page walks the PML4 in CR3. The bootloader still
+// starts at PML4 0x1000 / PDPT 0x2000 / PD 0x3000, and PD[0] stays the
+// supervisor 2MB identity page. A new directory slot gets a page table
+// from the identity-mapped pool (physical address below 2MB).
 //
 // flags is the low 12 bits of the PTE: 3 is supervisor read/write,
 // 7 is user read/write, 5 is user read-only. The user bit on a directory
 // entry does not by itself make the page user-accessible; every level of
-// the walk has to have it, and PML4/PDPT are left supervisor until
-// enter_user.
+// the walk has to have it.
+//
+// last_alloc_pt is the page table allocated by the latest map_in, or 0
+// when the directory slot already had one. sched.lap records it.
 
-fn map_page(va: i64, pa: i64, flags: i64) -> i64 {
-    if (va < 0 || pa < 0) { return 0; }
-    let pd: *u64 = 0x3000;
-    let pd_idx = (va >> 21) & 511;
-    let pt_idx = (va >> 12) & 511;
-    let pde = pd[pd_idx];
-    if ((pde & 1) == 0) {
+let last_alloc_pt: i64 = 0;
+
+fn cr3_root() -> i64 {
+    return (read_cr3() >> 12) << 12;
+}
+
+fn map_in(root: i64, va: i64, pa: i64, flags: i64) -> i64 {
+    last_alloc_pt = 0;
+    if (va < 0 || pa < 0 || root <= 0) { return 0; }
+    let pml4: *u64 = root;
+    let e = pml4[(va >> 39) & 511];
+    if ((e & 1) == 0) { return 0; }
+    let pdpt: *u64 = (e >> 12) << 12;
+    e = pdpt[(va >> 30) & 511];
+    if ((e & 1) == 0) { return 0; }
+    let pd: *u64 = (e >> 12) << 12;
+    let i2 = (va >> 21) & 511;
+    e = pd[i2];
+    if ((e & 128) != 0) { return 0; }
+    if ((e & 1) == 0) {
         let table = alloc_low_page();
         if (table == 0) { return 0; }
-        let z: *u8 = table;
-        let i = 0;
-        while (i < 4096) {
-            z[i] = 0;
-            i = i + 1;
-        }
-        pd[pd_idx] = table | 7;
-        pde = pd[pd_idx];
+        zero_va(table);
+        pd[i2] = table | 7;
+        last_alloc_pt = table;
+        e = pd[i2];
     }
-    if ((pde & 128) != 0) { return 0; }
-    let pt: *u64 = (pde >> 12) << 12;
-    pt[pt_idx] = ((pa >> 12) << 12) | flags;
+    let pt: *u64 = (e >> 12) << 12;
+    pt[(va >> 12) & 511] = ((pa >> 12) << 12) | flags;
+    invlpg(va);
+    return 1;
+}
+
+fn map_page(va: i64, pa: i64, flags: i64) -> i64 {
+    return map_in(cr3_root(), va, pa, flags);
+}
+
+fn unmap_in(root: i64, va: i64) -> i64 {
+    if (va < 0 || root <= 0) { return 0; }
+    let pml4: *u64 = root;
+    let e = pml4[(va >> 39) & 511];
+    if ((e & 1) == 0) { return 0; }
+    let pdpt: *u64 = (e >> 12) << 12;
+    e = pdpt[(va >> 30) & 511];
+    if ((e & 1) == 0) { return 0; }
+    let pd: *u64 = (e >> 12) << 12;
+    e = pd[(va >> 21) & 511];
+    if ((e & 1) == 0 || (e & 128) != 0) { return 0; }
+    let pt: *u64 = (e >> 12) << 12;
+    pt[(va >> 12) & 511] = 0;
     invlpg(va);
     return 1;
 }
 
 fn unmap_page(va: i64) -> i64 {
-    if (va < 0) { return 0; }
-    let pd: *u64 = 0x3000;
-    let pd_idx = (va >> 21) & 511;
-    let pt_idx = (va >> 12) & 511;
-    let pde = pd[pd_idx];
-    if ((pde & 1) == 0 || (pde & 128) != 0) { return 0; }
-    let pt: *u64 = (pde >> 12) << 12;
-    pt[pt_idx] = 0;
-    invlpg(va);
-    return 1;
+    return unmap_in(cr3_root(), va);
 }
 
 fn zero_va(va: i64) -> i64 {

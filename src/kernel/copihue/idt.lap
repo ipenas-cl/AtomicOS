@@ -97,7 +97,18 @@ interrupt fn exc10(err: i64) { cpu_fault(10, err, 1); }
 interrupt fn exc11(err: i64) { cpu_fault(11, err, 1); }
 interrupt fn exc12(err: i64) { cpu_fault(12, err, 1); }
 interrupt fn exc13(err: i64) { cpu_fault(13, err, 1); }
-interrupt fn exc14(err: i64) { cpu_fault(14, err, 1); }
+interrupt fn exc14(err: i64) {
+    // A scheduled ring-3 fault is an isolation check, not the one-shot
+    // `user` command. Copihue v0.23.0 pushes 15 GPRs and one alignment
+    // qword, so the CPU error code is at [rbp+128] and RIP at [rbp+136].
+    if (sched_on != 0 && (err & 4) != 0) {
+        note_user_fault(err);
+        asm("mov rax, [patch_rip]");
+        asm("mov [rbp+136], rax");
+        return;
+    }
+    cpu_fault(14, err, 1);
+}
 interrupt fn exc15() { cpu_fault(15, 0, 0); }
 interrupt fn exc16() { cpu_fault(16, 0, 0); }
 interrupt fn exc17(err: i64) { cpu_fault(17, err, 1); }
@@ -119,6 +130,17 @@ interrupt fn exc31() { cpu_fault(31, 0, 0); }
 interrupt fn irq_timer() {
     ticks = ticks + 1;
     outb(0x20, 0x20);
+    // No error code on IRQ0: saved CS is at [rbp+128]. RPL 3 means the
+    // CPU loaded this frame from TSS.rsp0. The epilogue pops that frame,
+    // so replacing rbp resumes the next process.
+    if (sched_on != 0) {
+        asm("mov rax, [rbp+128]");
+        asm("mov [saved_cs], rax");
+        asm("mov [saved_ksp], rbp");
+        if (timer_should_switch() != 0) {
+            asm("mov rbp, [saved_ksp]");
+        }
+    }
 }
 
 // Masked lines, and the spurious IRQ7 the PIC can raise on its own.

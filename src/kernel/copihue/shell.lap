@@ -64,6 +64,7 @@ fn cmd_help() -> i64 {
     puts("  pf              read unmapped 0x200000\n");
     puts("  pmm             allocate and free physical pages\n");
     puts("  user            enter ring 3 and syscall\n");
+    puts("  sched           two processes, separate pages\n");
     puts("  ud2             raise #UD and halt\n");
     puts("  reboot          reset the machine\n");
     return 0;
@@ -130,6 +131,7 @@ fn run_command() -> i64 {
     }
     if (cmd_is("pmm")) { pmm_test(); return 0; }
     if (cmd_is("user")) { enter_user(); return 0; }
+    if (cmd_is("sched")) { sched_demo(); return 0; }
     if (cmd_is("ud2")) {
         puts("raising #UD\n");
         asm("ud2");
