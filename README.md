@@ -30,16 +30,16 @@ En esta compilación (`copihue` v0.27.1, commit `e7564b3782ab2cbabf966311c2e4214
 |---|---|
 | `build/boot.bin` | 512 bytes |
 | `build/stage2.bin` | 1739 bytes con el cartel `LapageriaOS` (cabe en 8 × 512). Con el cartel `AtomicOS` medía 1736 |
-| `build/kernel.bin` | se vuelve a medir al juntar el nombre, v0.27.1, la red y las trazas. Sin red, v0.27.1 medía 68513 bytes → 134 sectores (LBA 9..142); la `.bss` era de 18224 bytes y `0x10000 + kernel.bin + .bss` terminaba en `0x252D1`. El renombre sobre v0.26.1, sin red, medía 68615 bytes → 135 sectores (LBA 9..143); la `.bss` era de 18160 bytes y terminaba en `0x252F7`. Con red y el pin v0.26.1, todavía como AtomicOS, medía 88008 bytes → 172 sectores (LBA 9..180); la `.bss` era de 18300 bytes y terminaba en `0x29F44`. Con red y trazas, sobre v0.26.1 y todavía como AtomicOS, medía 96170 bytes → 188 sectores (LBA 9..196); la `.bss` era de 21084 bytes y terminaba en `0x2CA06` |
+| `build/kernel.bin` | se vuelve a medir al juntar el nombre, v0.27.1, la red, las trazas y las zonas. Sin red, v0.27.1 medía 68513 bytes → 134 sectores (LBA 9..142); la `.bss` era de 18224 bytes y `0x10000 + kernel.bin + .bss` terminaba en `0x252D1`. El renombre sobre v0.26.1, sin red, medía 68615 bytes → 135 sectores (LBA 9..143); la `.bss` era de 18160 bytes y terminaba en `0x252F7`. Con red y el pin v0.26.1, todavía como AtomicOS, medía 88008 bytes → 172 sectores (LBA 9..180); la `.bss` era de 18300 bytes y terminaba en `0x29F44`. Con red y trazas, sobre v0.26.1 y todavía como AtomicOS, medía 96170 bytes → 188 sectores (LBA 9..196); la `.bss` era de 21084 bytes y terminaba en `0x2CA06`. Con red y zonas, sobre v0.26.1 y todavía como AtomicOS, medía 145702 bytes → 285 sectores (LBA 9..293); la `.bss` era de 19212 bytes y terminaba en `0x38432` |
 | `src/bootloader/boot.lap` | 76 líneas, ninguna `asm("...")` |
 | `src/bootloader/stage2.lap` | 268 líneas, ninguna `asm("...")` |
-| `src/kernel/copihue/*.lap` | el kernel de v0.27.1 no tiene `asm("...")` (3222 líneas antes de la red). `net.lap` y `trace.lap` entran ahora y tampoco agregan `asm()`. En el árbol de la red sobre v0.26.1 el total era 3832 líneas, 17 de ellas `asm("...")`, todas fuera de `net.lap`. Con trazas, sobre esa misma base, eran 4353 líneas y las mismas 17 `asm("...")`. `exec_img.lap` lo genera `mkaxe.sh` (173 líneas, ninguna `asm`) y no entra en ese conteo |
+| `src/kernel/copihue/*.lap` | el kernel de v0.27.1 no tiene `asm("...")` (3222 líneas antes de la red). `net.lap`, `trace.lap` y `zone.lap` entran ahora y tampoco agregan `asm()`. En el árbol de la red sobre v0.26.1 el total era 3832 líneas, 17 de ellas `asm("...")`, todas fuera de `net.lap`. Con trazas, sobre esa misma base, eran 4353 líneas y las mismas 17 `asm("...")`. Con zonas, sobre la red y todavía como AtomicOS, eran 4551 líneas y las mismas 17 `asm("...")`. `exec_img.lap` y `zone_img.lap` los genera `mkaxe.sh` y no entran en ese conteo |
 
-`copihue --help` en v0.27.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. Sin red, el binario de la etapa 2 llevaba el paquete `10 00 86 00 00 00 00 10 09 00 00 00 00 00 00 00`: 134 sectores (`0x0086`) desde LBA 9 hacia `0x1000:0`, partido en 128 y 6. El renombre sobre v0.26.1, sin red, llevaba `10 00 87 00 00 00 00 10 09 00 00 00 00 00 00 00`: 135 sectores (`0x0087`), partido en 128 y 7. Con red y v0.26.1 el paquete era `10 00 ac 00 00 00 00 10 09 00 00 00 00 00 00 00`: 172 sectores (`0x00ac`), partido en 128 y 44. Con red y trazas, sobre v0.26.1, el paquete era `10 00 bc 00 00 00 00 10 09 00 00 00 00 00 00 00`: 188 sectores (`0x00bc`), partido en 128 y 60. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt: el segundo paquete no pisa el kernel.
+`copihue --help` en v0.27.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. Sin red, el binario de la etapa 2 llevaba el paquete `10 00 86 00 00 00 00 10 09 00 00 00 00 00 00 00`: 134 sectores (`0x0086`) desde LBA 9 hacia `0x1000:0`, partido en 128 y 6. El renombre sobre v0.26.1, sin red, llevaba `10 00 87 00 00 00 00 10 09 00 00 00 00 00 00 00`: 135 sectores (`0x0087`), partido en 128 y 7. Con red y v0.26.1 el paquete era `10 00 ac 00 00 00 00 10 09 00 00 00 00 00 00 00`: 172 sectores (`0x00ac`), partido en 128 y 44. Con red y trazas, sobre v0.26.1, el paquete era `10 00 bc 00 00 00 00 10 09 00 00 00 00 00 00 00`: 188 sectores (`0x00bc`), partido en 128 y 60. Con red y zonas, sobre v0.26.1, el paquete era `10 00 1D 01 00 00 00 10 09 00 00 00 00 00 00 00`: 285 sectores (`0x011D`), partido en 128, 128 y 29. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt: el segundo paquete no pisa el kernel.
 
 Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `lapageria>`.
 
-El shell responde a `help`, `echo`, `add`, `mul`, `clear`, `version`, `ticks`, `irqs`, `cr3`, `pf`, `pmm`, `user`, `sched`, `disk`, `fs`, `exec`, `net`, `trace`, `ud2` y `reboot`. `disk` ejercita el disco de datos (ver [docs/disco.md](docs/disco.md)). `fs` es el sistema de archivos copy-on-write (ver [docs/fs.md](docs/fs.md)). `exec` carga un ejecutable plano del disco (ver [docs/exec.md](docs/exec.md)). `make qemu-test` escribe los comandos con el `sendkey` del monitor de QEMU y lee COM1. Esa prueba no escribe `reboot` (reinicia la máquina) ni `clear`.
+El shell responde a `help`, `echo`, `add`, `mul`, `clear`, `version`, `ticks`, `irqs`, `cr3`, `pf`, `pmm`, `user`, `sched`, `disk`, `fs`, `exec`, `zone`, `net`, `trace`, `ud2` y `reboot`. `disk` ejercita el disco de datos (ver [docs/disco.md](docs/disco.md)). `fs` es el sistema de archivos copy-on-write (ver [docs/fs.md](docs/fs.md)). `exec` carga un ejecutable plano del disco (ver [docs/exec.md](docs/exec.md)). `make qemu-test` escribe los comandos con el `sendkey` del monitor de QEMU y lee COM1. Esa prueba no escribe `reboot` (reinicia la máquina) ni `clear`.
 
 ![Shell de LapageriaOS en QEMU](docs/copihue-shell.png)
 
@@ -62,6 +62,7 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - `fs`: formatea, escribe `a` como `v1`, saca el snapshot `s1`, reescribe `a` como `v2`, lee `v2` en vivo y `v1` desde `s1`, hace rollback de otro archivo y un archivo de 600 bytes. Apaga QEMU, abre el mismo `build/data.img` y vuelve a leer. Después pisa un bloque de `a`: tiene que salir `fs corrupt detected` y `s1` sigue en `v1`;
 - `exec`: después del `fs`, `exec plant` escribe en el disco el programa `hola` (cabecera `AXE1`), `malo` (magic malo) y `gordo` (tamaño 65535). `exec hola` imprime `desde disco` y `exec ok`. `exec noesta` imprime `exec fail 7`. `exec malo` imprime `exec bad magic`. `exec gordo` imprime `exec bad size`. `fs corrupt hola` y otro `exec hola` imprimen `exec corrupt` y no vuelven a imprimir `desde disco`;
 - `ud2` imprime la excepción `#UD`;
+- `zone`: después de soltar `malo` y `gordo`, planta `ztest` y crea las zonas `a` (prefijo `za`, 12 páginas) y `b` (prefijo `zb`). `zone exec a ztest` imprime `zone fs ok`, `zone fs denied`, `zone syscall denied`, `zone quota ok` y `zone escape denied`. El archivo queda como `zan`. Las dos líneas `zone mem` coinciden. `niega=1` y `fuga=1`. Ver [docs/zonas.md](docs/zonas.md);
 - `net`: con `-nic none -netdev user,id=n0 -device e1000,netdev=n0`, el kernel pide ARP a `10.0.2.2` (`net arp ok`), manda ICMP echo a esa puerta (`net ping ok`) y descarta una trama cuyo largo IP no cabe en el buffer (`net drop ok`). Si QEMU no tiene esa red, el script falla al tiro y no espera el ping. Ver [docs/red.md](docs/red.md);
 - `trace`: los contadores de `#PF` y de `switch` coinciden con lo que imprimió `sched` (`trace counters ok`); `exec hola` con `sys-enter` y `sys-exit` deja las syscalls de «desde disco» en orden y con pid 1 (`trace syscall ok`); apagadas, otro `exec hola` no graba (`trace off ok`); `pit` llena el anillo, cuenta perdidos y el shell sigue (`trace overflow ok`). Ver [docs/trace.md](docs/trace.md).
 
@@ -137,14 +138,17 @@ src/kernel/copihue/
   blk.lap                     bloques de 512 B con CRC-32 en otro sector
   fs.lap                      archivos copy-on-write y snapshots
   exec.lap                    exec: AXE1 del disco a un PML4 nuevo
+  zone.lap                    zonas: cuota, máscara, prefijo y tope de procesos
   net.lap                     e1000, ARP, IPv4 e ICMP
   trace.lap                   sondas estáticas y anillo de eventos
   shell.lap                   editor de línea y comandos
 src/user/hola.lap             programa de anillo 3 que imprime «desde disco»
+src/user/zona.lap             programa de prueba de la zona `a`
 tests/qemu_shell_test.sh
 docs/disco.md                 layout del disco de datos
 docs/fs.md                    sistema de archivos copy-on-write
 docs/exec.md                  ejecutable plano AXE1 y el comando exec
+docs/zonas.md                 zonas, prefijo de archivos y cuota de páginas
 docs/red.md                   e1000, ARP e ICMP en la red de usuario
 docs/PEDIDOS_COPIHUE.md       arreglos que el compilador todavía no tiene
 scripts/run_lapageriaos.sh
@@ -202,7 +206,9 @@ echo. Polling del bit DD. Sin TCP ni UDP. El detalle está en
 
 ### 7. Zonas y observabilidad — parcial, en la imagen
 
-`trace` tiene once sondas estáticas (syscall de entrada y de salida, cambio de contexto, `#PF`, tick del PIT, alloc y free de páginas, lectura y escritura de bloques, paquetes recibidos y enviados) y un anillo fijo de 32 eventos. Apagada, la sonda es un chequeo. El detalle está en [docs/trace.md](docs/trace.md). Siguen pendientes las zonas de aislamiento.
+`zone` aísla procesos con tope de páginas, máscara de syscalls (niega por defecto), prefijo de archivos y tope de procesos. La zona 0 es la global. El detalle está en [docs/zonas.md](docs/zonas.md).
+
+`trace` tiene once sondas estáticas (syscall de entrada y de salida, cambio de contexto, `#PF`, tick del PIT, alloc y free de páginas, lectura y escritura de bloques, paquetes recibidos y enviados) y un anillo fijo de 32 eventos. Apagada, la sonda es un chequeo. El detalle está en [docs/trace.md](docs/trace.md). VGA sigue duplicada en COM1, con `ticks`, `kbd_irqs` y la línea de cada excepción.
 
 ## Historial Tempo
 

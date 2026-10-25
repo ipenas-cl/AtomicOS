@@ -7,6 +7,7 @@
 
 let exec_buf: [u8; 4096];
 let exec_code: [u8; 4096];
+let exec_sz: i64 = 0;
 
 // Cabecera de 16 bytes. docs/exec.md. El código empieza después.
 packed struct Axe {
@@ -69,7 +70,7 @@ fn exec_plant() -> i64 {
     return 0;
 }
 
-fn exec_run() -> i64 {
+fn exec_prepare() -> i64 {
     let n = fs_read(fs_name, exec_buf, 4096);
     if (n < 0) {
         if (n == 0 - 5) {
@@ -108,19 +109,31 @@ fn exec_run() -> i64 {
         exec_code[i] = exec_buf[16 + i];
         i = i + 1;
     }
+    exec_sz = sz;
+    return entry;
+}
+
+fn exec_run() -> i64 {
+    // El shell es la zona 0: el programa hereda esa zona.
+    build_zone = zone_for_new(0 - 1);
+    charge_zone = 0;
+    let entry = exec_prepare();
+    if (entry == 0) { return 0; }
     cli();
     if (shared_init() == 0) {
         sti();
         return exec_fail(6);
     }
-    if (build_proc(0, exec_code as i64, sz, 0) == 0) {
+    if (build_proc(0, exec_code as i64, exec_sz, 0) == 0) {
         write_cr3(0x1000);
         release_proc(0);
         sti();
+        build_zone = 0;
         return exec_fail(6);
     }
     forge(0, entry, 0x402000, 0x202);
     sched_go();
+    build_zone = 0;
     puts("exec ok\n");
     return 0;
 }

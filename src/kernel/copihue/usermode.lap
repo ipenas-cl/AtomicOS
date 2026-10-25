@@ -11,6 +11,11 @@ syscall fn sys_user(nr: i64, ch: i64) -> i64 {
     // sys-enter: número y argumento. sys-exit: número y resultado.
     // yield y exit no vuelven, así que no hay sys-exit de esas dos.
     if (tr_en[0] != 0) { trace_hit(0, proc_pid[cur_i], nr, ch); }
+    let g = zone_gate(nr);
+    if (g != 0) {
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, g); }
+        return g;
+    }
     if (nr == 1) {
         putc(ch);
         if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
@@ -32,6 +37,26 @@ syscall fn sys_user(nr: i64, ch: i64) -> i64 {
     }
     if (nr == 4) { return yield_current(); }
     if (nr == 5) { return exit_current(); }
+    if (nr == 6) {
+        let r = zone_sys_write(ch);
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, r); }
+        return r;
+    }
+    if (nr == 7) {
+        let r = zone_sys_read(ch);
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, r); }
+        return r;
+    }
+    if (nr == 8) {
+        let r = zone_sys_alloc();
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, r); }
+        return r;
+    }
+    if (nr == 9) {
+        let r = zone_sys_set(ch);
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, r); }
+        return r;
+    }
     if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
     return 0;
 }

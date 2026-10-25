@@ -70,8 +70,48 @@ mov rax, 0
 
 Debería medir 14 bytes: destino en 0, origen en 6, ethertype en 12.
 v0.27.0 cierra ese caso (`[T; N]` ocupa `N * sizeof(T)` y el store
-escribe el byte). ARP e IPv4 eran el mismo clavo. `net.lap` todavía
-escribe esas cabeceras con offsets sobre un buffer; el descriptor del
-e1000 ya es un `packed struct` de escalares (16 bytes, campo
-`volatile`). El formato de la trama no cambia al pasar los offsets a
-structs.
+escribe el byte). En v0.26.1 `etype` quedaba en el offset 2 y
+`e.dst[0] = 255` no almacenaba. ARP e IPv4 eran el mismo clavo.
+`net.lap` todavía escribe esas cabeceras con offsets sobre un buffer;
+el descriptor del e1000 ya es un `packed struct` de escalares (16
+bytes, campo `volatile`). El formato de la trama no cambia al pasar
+los offsets a structs.
+
+## `rax` no sobrevive a un `if` ni a un `while`
+
+No hay error: `copihue` termina en 0. La condición deja `rax` en 0 o
+en 1 (`sete` / `movzx`). Un `while (rax == 0)` que sale porque `rax`
+era -1 sigue con `rax == 0`. Un store de constante (`*(p as *u8) = 0`)
+también es `mov rax, 0` y pisa el valor de la syscall de arriba.
+
+Esto es lo que tendría que conservar el -1 de la syscall 8:
+
+```copihue
+rax = 8;
+syscall();
+while (rax == 0) {
+    rax = 8;
+    syscall();
+}
+if (rax == 0 - 1) { emit(33); }
+```
+
+Con v0.26.1 (`copihue --flat 0x400000 -S`) la salida del `while` es:
+
+```
+push rax
+mov rax, 0
+mov rbx, rax
+pop rax
+cmp rax, rbx
+sete al
+movzx rax, al
+test rax, rax
+jz .L17
+```
+
+Cuando la syscall devuelve -1, el salto sale con `rax == 0` y el
+`if` de abajo no ve el -1. Lo mismo pasa si entre la syscall y el
+`if` hay `*(0x401708 as *u8) = 0`. El programa de la zona guarda el
+resultado en memoria antes de comparar. Hay que volver a mirarlo con
+v0.27.3: si el -1 sobrevive, se puede quitar el rodeo.

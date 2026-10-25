@@ -95,6 +95,8 @@ COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap \
                      $(KERNEL_SRC)/copihue/fs.lap \
                      $(KERNEL_SRC)/copihue/exec_img.lap \
                      $(KERNEL_SRC)/copihue/exec.lap \
+                     $(KERNEL_SRC)/copihue/zone_img.lap \
+                     $(KERNEL_SRC)/copihue/zone.lap \
                      $(KERNEL_SRC)/copihue/net.lap \
                      $(KERNEL_SRC)/copihue/trace.lap \
                      $(KERNEL_SRC)/copihue/shell.lap \
@@ -197,6 +199,15 @@ $(EXEC_IMG): src/user/hola.lap scripts/mkaxe.sh $(COPIHUE) | $(BUILD_DIR)
 	$(abspath $(COPIHUE)) --flat 0x400000 -o $(USER_BIN) src/user/hola.lap
 	scripts/mkaxe.sh $(USER_BIN) $(USER_AXE) $@
 
+# Programa de la zona. Misma cabecera AXE1; zone plant lo escribe como ztest.
+ZONE_BIN = $(BUILD_DIR)/zona.bin
+ZONE_AXE = $(BUILD_DIR)/zona.axe
+ZONE_IMG = $(KERNEL_SRC)/copihue/zone_img.lap
+
+$(ZONE_IMG): src/user/zona.lap scripts/mkaxe.sh $(COPIHUE) | $(BUILD_DIR)
+	$(abspath $(COPIHUE)) --flat 0x400000 -o $(ZONE_BIN) src/user/zona.lap
+	scripts/mkaxe.sh $(ZONE_BIN) $(ZONE_AXE) $@ zone_fill
+
 # Consola curses: QEMU entrega el teclado al controlador PS/2 que lee el shell.
 qemu: $(OS_IMAGE) $(DATA_IMG)
 	qemu-system-$(ARCH) $(QEMU_DRIVES) -display curses
@@ -214,7 +225,7 @@ debug: $(OS_IMAGE) $(DATA_IMG)
 
 clean:
 	rm -rf $(BUILD_DIR)
-	rm -f $(KERNEL_SRC)/copihue/exec_img.lap
+	rm -f $(KERNEL_SRC)/copihue/exec_img.lap $(KERNEL_SRC)/copihue/zone_img.lap
 
 help:
 	@echo "LapageriaOS $(VERSION) — kernel y arranque en Copihue $(COPIHUE_COMMIT)"

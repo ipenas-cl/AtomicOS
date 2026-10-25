@@ -39,6 +39,11 @@ tamaño, entrada) desde ese disco a un PML4 nuevo (`docs/exec.md`).
 `fs_write`. Un magic malo, un tamaño de más o un bloque con el CRC
 roto no arrancan el proceso.
 
+Hay zonas ligeras (`docs/zonas.md`): la zona 0 es la global y una
+zona nueva niega syscalls, nombres fuera de su prefijo y páginas o
+procesos sobre su tope. `zone exec` mete un programa del disco en esa
+zona. Al salir, los marcos vuelven al asignador.
+
 `net` habla con el e1000 de QEMU (82540EM) por PCI: ARP de `10.0.2.15`
 contra la puerta `10.0.2.2`, IPv4 con checksum e ICMP echo. No hay
 TCP ni UDP, y el chip no queda prendido en el arranque. El layout y
