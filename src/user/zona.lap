@@ -124,6 +124,7 @@ naked fn _start() {
         }
     }
 
+    *(0x401708 as *u8) = 0;
     *(0x401800 as *u8) = 99;
     *(0x401801 as *u8) = 0;
     *(0x401802 as *u8) = 0;
@@ -131,7 +132,6 @@ naked fn _start() {
     rax = 7;
     rdi = 8;
     syscall();
-    *(0x401708 as *u8) = 0;
     if (rax == 0 - 12) { *(0x401708 as *u8) = 1; }
 
     *(0x401800 as *u8) = 122;
@@ -149,20 +149,25 @@ naked fn _start() {
     syscall();
     if (rax == 0 - 1) { say_sys(); }
 
+    // v0.26.1 reemplaza rax por 0 o 1 al evaluar while/if. El resultado
+    // se guarda en 0x401720 antes de mirarlo. 0x401718 recuerda el -1.
     *(0x401710 as *u8) = 0;
-    rax = 8;
-    syscall();
-    while (rax == 0) {
-        rbp = *(0x401710 as *u8);
-        rbp = rbp + 1;
-        *(0x401710 as *u8) = rbp;
-        if (rbp > 8) { rax = 0 - 3; }
-        else {
-            rax = 8;
-            syscall();
+    *(0x401718 as *u8) = 0;
+    *(0x401728 as *u8) = 1;
+    while (*(0x401728 as *u8) == 1) {
+        rax = 8;
+        syscall();
+        *(0x401720 as *i64) = rax;
+        if (*(0x401720 as *i64) == 0 - 1) { *(0x401718 as *u8) = 1; }
+        if (*(0x401720 as *i64) != 0) { *(0x401728 as *u8) = 0; }
+        if (*(0x401720 as *i64) == 0) {
+            rbp = *(0x401710 as *u8);
+            rbp = rbp + 1;
+            *(0x401710 as *u8) = rbp;
+            if (rbp > 8) { *(0x401728 as *u8) = 0; }
         }
     }
-    if (rax == 0 - 1) { say_quota(); }
+    if (*(0x401718 as *u8) == 1) { say_quota(); }
 
     rax = 9;
     rdi = 0;

@@ -98,3 +98,41 @@ las escribe con offsets sobre un buffer. Un `packed struct` de solo
 escalares sí mide bien: el descriptor del e1000 (`u64`, `u16`, `u8`,
 16 bytes, campo `volatile`) ensambla el ancho real y por eso el anillo
 sí es un struct.
+
+## `rax` no sobrevive a un `if` ni a un `while`
+
+No hay error: `copihue` termina en 0. La condición deja `rax` en 0 o
+en 1 (`sete` / `movzx`). Un `while (rax == 0)` que sale porque `rax`
+era -1 sigue con `rax == 0`. Un store de constante (`*(p as *u8) = 0`)
+también es `mov rax, 0` y pisa el valor de la syscall de arriba.
+
+Esto es lo que tendría que conservar el -1 de la syscall 8:
+
+```copihue
+rax = 8;
+syscall();
+while (rax == 0) {
+    rax = 8;
+    syscall();
+}
+if (rax == 0 - 1) { emit(33); }
+```
+
+Con v0.26.1 (`copihue --flat 0x400000 -S`) la salida del `while` es:
+
+```
+push rax
+mov rax, 0
+mov rbx, rax
+pop rax
+cmp rax, rbx
+sete al
+movzx rax, al
+test rax, rax
+jz .L17
+```
+
+Cuando la syscall devuelve -1, el salto sale con `rax == 0` y el
+`if` de abajo no ve el -1. Lo mismo pasa si entre la syscall y el
+`if` hay `*(0x401708 as *u8) = 0`. El programa de la zona guarda el
+resultado en memoria antes de comparar.
