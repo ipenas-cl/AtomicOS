@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Boot AtomicOS in QEMU, type shell commands with the monitor's sendkey and
+# Boot LapageriaOS in QEMU, type shell commands with the monitor's sendkey and
 # check the replies on the serial console (the kernel mirrors VGA to COM1).
 # Also checks that the PIT counter advances by 100 ticks in about one second,
 # that a later `ticks` read is larger, that IRQ1 delivered keystrokes, and
@@ -26,7 +26,7 @@
 # Usage: tests/qemu_shell_test.sh [image] [--screenshot out.png]
 # Needs: qemu-system-x86_64, socat; ffmpeg only for --screenshot.
 set -u
-IMAGE=${1:-build/atomicos.img}
+IMAGE=${1:-build/lapageriaos.img}
 DATA=$(dirname "$IMAGE")/data.img
 SHOT=""; [ "${2:-}" = "--screenshot" ] && SHOT=$3
 if [ ! -f "$DATA" ]; then echo "FAIL: no data image $DATA"; exit 1; fi
@@ -83,11 +83,11 @@ typeline() {
 # Espera el prompt que el shell imprime al terminar el comando.
 typefs() {
     local before
-    before=$(grep -c "atomicos> " "$SERIAL" 2>/dev/null || true)
+    before=$(grep -c "lapageria> " "$SERIAL" 2>/dev/null || true)
     typeline "$1"
     local i n
     for i in $(seq 40); do
-        n=$(grep -c "atomicos> " "$SERIAL" 2>/dev/null || true)
+        n=$(grep -c "lapageria> " "$SERIAL" 2>/dev/null || true)
         if [ "${n:-0}" -gt "${before:-0}" ]; then return 0; fi
         sleep 0.1
     done
@@ -95,10 +95,10 @@ typefs() {
 }
 typewait() {
     local before n i
-    before=$(grep -c "atomicos> " "$SERIAL" 2>/dev/null || true)
+    before=$(grep -c "lapageria> " "$SERIAL" 2>/dev/null || true)
     typeline "$1"
     for i in $(seq "$2"); do
-        n=$(grep -c "atomicos> " "$SERIAL" 2>/dev/null || true)
+        n=$(grep -c "lapageria> " "$SERIAL" 2>/dev/null || true)
         if [ "${n:-0}" -gt "${before:-0}" ]; then return 0; fi
         sleep 0.1
     done
@@ -156,8 +156,8 @@ if [ "$dt_ms" -lt 400 ] || [ "$dt_ms" -gt 4000 ]; then
     fail "100 ticks took ${dt_ms} ms, want 400..4000 (PIT not ~100 Hz)"
 fi
 
-for _ in $(seq 100); do grep -q "atomicos> " "$SERIAL" 2>/dev/null && break; sleep 0.2; done
-grep -q "atomicos> " "$SERIAL" || fail "no shell prompt"
+for _ in $(seq 100); do grep -q "lapageria> " "$SERIAL" 2>/dev/null && break; sleep 0.2; done
+grep -q "lapageria> " "$SERIAL" || fail "no shell prompt"
 
 CASES=("echo hello from copihue|hello from copihue" "add 40 2|42" "mul 6 -7|-42"
        "version|Copihue" "help|echo <text>" "nosuchcmd|unknown command")
@@ -176,7 +176,7 @@ fails=0
 for c in "${CASES[@]}"; do
     cmd=${c%%|*}; want=${c#*|}
     # the reply must appear after the echoed command line
-    if awk -v c="atomicos> $cmd" -v w="$want" 'f && index($0, w) {ok=1; exit} index($0, c) {f=1} END {exit !ok}' "$SERIAL"; then
+    if awk -v c="lapageria> $cmd" -v w="$want" 'f && index($0, w) {ok=1; exit} index($0, c) {f=1} END {exit !ok}' "$SERIAL"; then
         echo "ok   '$cmd' -> '$want'"
     else
         echo "FAIL '$cmd' -> '$want'"; fails=$((fails + 1))
@@ -355,7 +355,7 @@ done
 [ "$disk_ok" = 1 ] || fail "disk test did not print blk corrupt detected"
 clean=$(tr -d '\r' < "$SERIAL")
 if ! printf '%s\n' "$clean" | awk '
-    /^atomicos> disk$/ { if (!s) s=NR }
+    /^lapageria> disk$/ { if (!s) s=NR }
     /^ata ok$/ { if (s && !a) a=NR }
     /^blk ok$/ { if (a && !b) b=NR }
     /^blk corrupt detected$/ { if (b && !c) c=NR }
@@ -473,8 +473,8 @@ fi
 stop_qemu
 sync
 start_qemu "$TMP/serial2.log"
-for _ in $(seq 100); do grep -q "atomicos> " "$SERIAL" 2>/dev/null && break; sleep 0.2; done
-grep -q "atomicos> " "$SERIAL" || fail "no shell prompt on second boot"
+for _ in $(seq 100); do grep -q "lapageria> " "$SERIAL" 2>/dev/null && break; sleep 0.2; done
+grep -q "lapageria> " "$SERIAL" || fail "no shell prompt on second boot"
 typefs "fs cat a"
 typefs "fs snap s1 a"
 typefs "fs cat b"

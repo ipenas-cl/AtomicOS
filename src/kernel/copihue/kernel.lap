@@ -1,4 +1,4 @@
-// AtomicOS kernel entry. stage2.lap loads this flat image at 0x10000 and
+// LapageriaOS kernel entry. stage2.lap loads this flat image at 0x10000 and
 // jumps to its first byte in 64-bit long mode (stack at 0x90000).
 // Built with `copihue --flat 0x10000`, which places _start first.
 //
@@ -44,7 +44,7 @@ fn kmain() -> i64 {
     set_color(0x0F);
     con_clear();
     set_color(0x0B);
-    puts("AtomicOS 0.8 (x86-64)\n");
+    puts("LapageriaOS 0.8 (x86-64)\n");
     set_color(0x07);
     puts("Kernel in Copihue: VGA/COM1, IDT, PIT 100 Hz, PS/2, sched.\n");
     puts("Type 'help' for commands.\n\n");

@@ -1,4 +1,4 @@
-// AtomicOS stage 2. Stage 1 loads this image at 0x8200 and jumps to it
+// LapageriaOS stage 2. Stage 1 loads this image at 0x8200 and jumps to it
 // in real mode. `copihue --flat 0x8200` (Makefile STAGE2_ORG). The kernel
 // is read from LBA 9 (`dq 9` = 1 + STAGE2_SECTORS) to 0x10000.
 // `dw 0; // KERNEL_SECTORS` is a marker, not the count that boots.
@@ -44,7 +44,7 @@ data kern_packet {
 }
 
 data boot_msg {
-    db "AtomicOS 0.8 64-bit", 13, 10, 0;
+    db "LapageriaOS 0.8 64-bit", 13, 10, 0;
 }
 
 data disk_err_msg {

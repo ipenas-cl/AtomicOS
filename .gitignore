@@ -1,5 +1,5 @@
 # Salida de `make all`: boot.bin, stage2.bin, stage2.lap, kernel.bin,
-# atomicos.img y el compilador Copihue clonado en build/copihue.
+# lapageriaos.img y el compilador Copihue clonado en build/copihue.
 build/
 
 # Bytes del ejecutable de usuario, generados por scripts/mkaxe.sh.

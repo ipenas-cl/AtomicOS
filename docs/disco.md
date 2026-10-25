@@ -1,6 +1,8 @@
 # Disco de datos
 
-El arranque no cambia. `build/atomicos.img` sigue siendo la imagen de
+Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
+
+El arranque no cambia. `build/lapageriaos.img` sigue siendo la imagen de
 2880 sectores (1,44 MB) en el IDE maestro (`ide0-hd0`). QEMU la presenta
 como disco duro, no como disquete. El disco de datos es otro archivo,
 `build/data.img`: 2048 sectores de 512 bytes (1 MiB), esclavo del canal

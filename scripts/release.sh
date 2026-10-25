@@ -4,7 +4,7 @@
 #
 # Uso: scripts/release.sh 0.9
 #
-# La cadena "AtomicOS 0.8" que imprime el shell está en
+# La cadena "LapageriaOS 0.8" que imprime el shell está en
 # src/kernel/copihue/shell.lap. Este script no la modifica.
 set -euo pipefail
 cd "$(dirname "$0")/.."

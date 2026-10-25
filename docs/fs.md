@@ -1,5 +1,7 @@
 # Sistema de archivos
 
+Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
+
 Copy-on-write chico sobre `blk_read` / `blk_write`. El checksum del
 bloque sigue siendo el del sector de metadatos. Si no calza, la
 lectura devuelve error y el shell no imprime esos bytes.

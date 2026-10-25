@@ -1,4 +1,4 @@
-// AtomicOS shell: line editing and built-in commands.
+// LapageriaOS shell: line editing and built-in commands.
 
 let line: [u8; 80];
 let line_len: i64 = 0;
@@ -231,7 +231,7 @@ fn run_command() -> i64 {
     }
     if (cmd_is("clear")) { con_clear(); return 0; }
     if (cmd_is("version")) {
-        puts("AtomicOS 0.8 - kernel written in Copihue v0.27.1\n");
+        puts("LapageriaOS 0.8 - kernel written in Copihue v0.27.1\n");
         return 0;
     }
     if (cmd_is("ticks")) {
@@ -301,7 +301,7 @@ fn run_command() -> i64 {
 fn shell_run() -> i64 {
     while (1) {
         set_color(0x0A);
-        puts("atomicos> ");
+        puts("lapageria> ");
         set_color(0x0F);
         read_line();
         run_command();

@@ -1,5 +1,7 @@
 # Changelog
 
+Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
+
 Las notas de las versiones Tempo (hasta v5.2.2) están en el historial de git,
 en el commit `355f4ec7438239f0062988512a5c9f585da8cc57`. La etiqueta propuesta
 para ese commit es `legacy-tempo`.

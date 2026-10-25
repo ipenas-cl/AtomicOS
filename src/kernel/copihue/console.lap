@@ -1,4 +1,4 @@
-// AtomicOS console: VGA text mode (80x25 at 0xB8000) mirrored to COM1.
+// LapageriaOS console: VGA text mode (80x25 at 0xB8000) mirrored to COM1.
 // Freestanding Copihue: no OS, no syscalls; hardware access via port I/O builtins.
 
 let con_row: i64 = 0;

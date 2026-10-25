@@ -1,4 +1,4 @@
-// AtomicOS stage 1. BIOS enters the first byte at 0x7C00 in real mode.
+// LapageriaOS stage 1. BIOS enters the first byte at 0x7C00 in real mode.
 //
 // The 512-byte sector only loads stage 2. There is no room left in a
 // sector for the E820 map, the page tables and the long-mode switch
