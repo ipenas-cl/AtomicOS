@@ -1,0 +1,178 @@
+// Bloques de 512 B sobre el esclavo ATA. El bloque n vive en dos
+// sectores: datos en LBA 2*n, metadatos en LBA 2*n+1.
+//
+// Metadatos (el resto del sector va en cero):
+//   0..3   magic ABLK (41 42 4C 4B)
+//   4..7   número de bloque, little-endian
+//   8..11  CRC-32/ISO-HDLC de los 512 bytes de datos
+//
+// El CRC es el de Ethernet/PNG: polinomio reflejado 0xEDB88320,
+// inicio 0xFFFFFFFF, XOR final 0xFFFFFFFF. Bit a bit, sin tabla.
+// El vector "123456789" da 0xCBF43926.
+//
+// blk_write actualiza el checksum. blk_read lo compara y, si no
+// calza el magic, el número o el CRC, devuelve 5. Los otros códigos
+// son los de ata.lap (1 timeout, 2 ERR/DF, 3 sin unidad, 4 LBA malo).
+
+let blk_data: [u8; 512];
+let blk_meta: [u8; 512];
+
+fn crc32(p: *u8, n: i64) -> i64 {
+    let crc = 0xFFFFFFFF;
+    let i = 0;
+    while (i < n) {
+        crc = crc ^ (p[i] & 255);
+        let b = 0;
+        while (b < 8) {
+            let bit = crc & 1;
+            crc = (crc >> 1) & 0x7FFFFFFF;
+            if (bit != 0) { crc = crc ^ 0xEDB88320; }
+            b = b + 1;
+        }
+        i = i + 1;
+    }
+    return (crc ^ 0xFFFFFFFF) & 0xFFFFFFFF;
+}
+
+fn blk_range(n: i64) -> i64 {
+    if (n < 0) { return 4; }
+    if (ata_sectors < 2) { return 3; }
+    // Cada bloque gasta dos sectores. El último par tiene que entrar.
+    if (n > (ata_sectors - 2) / 2) { return 4; }
+    return 0;
+}
+
+fn blk_put_meta(n: i64, sum: i64) -> i64 {
+    let i = 0;
+    while (i < 512) {
+        blk_meta[i] = 0;
+        i = i + 1;
+    }
+    blk_meta[0] = 0x41;
+    blk_meta[1] = 0x42;
+    blk_meta[2] = 0x4C;
+    blk_meta[3] = 0x4B;
+    blk_meta[4] = n & 255;
+    blk_meta[5] = (n >> 8) & 255;
+    blk_meta[6] = (n >> 16) & 255;
+    blk_meta[7] = (n >> 24) & 255;
+    blk_meta[8] = sum & 255;
+    blk_meta[9] = (sum >> 8) & 255;
+    blk_meta[10] = (sum >> 16) & 255;
+    blk_meta[11] = (sum >> 24) & 255;
+    return 0;
+}
+
+fn blk_meta_u32(off: i64) -> i64 {
+    let b0 = blk_meta[off] & 255;
+    let b1 = blk_meta[off + 1] & 255;
+    let b2 = blk_meta[off + 2] & 255;
+    let b3 = blk_meta[off + 3] & 255;
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+}
+
+fn blk_write(n: i64) -> i64 {
+    let r = blk_range(n);
+    if (r != 0) { return r; }
+    let sum = crc32(blk_data, 512);
+    blk_put_meta(n, sum);
+    r = ata_write(n * 2, blk_data);
+    if (r != 0) { return r; }
+    return ata_write(n * 2 + 1, blk_meta);
+}
+
+fn blk_read(n: i64) -> i64 {
+    let r = blk_range(n);
+    if (r != 0) { return r; }
+    r = ata_read(n * 2, blk_data);
+    if (r != 0) { return r; }
+    r = ata_read(n * 2 + 1, blk_meta);
+    if (r != 0) { return r; }
+    if (blk_meta[0] != 0x41 || blk_meta[1] != 0x42) { return 5; }
+    if (blk_meta[2] != 0x4C || blk_meta[3] != 0x4B) { return 5; }
+    if (blk_meta_u32(4) != n) { return 5; }
+    if (blk_meta_u32(8) != crc32(blk_data, 512)) { return 5; }
+    return 0;
+}
+
+fn disk_say(msg: *u8, code: i64) -> i64 {
+    puts(msg);
+    putc(' ');
+    put_int(code);
+    putc('\n');
+    return code;
+}
+
+// identify, un sector de ida y vuelta, un bloque con CRC y un byte
+// pisado con ata_write (sin pasar por blk). Las líneas que mira
+// qemu-test son exactamente: ata ok, blk ok, blk corrupt detected.
+fn disk_test() -> i64 {
+    let id = ata_identify();
+    if (id != 0) { return disk_say("ata fail", id); }
+    if (ata_sectors < 3) { return disk_say("ata fail", 3); }
+
+    let i = 0;
+    while (i < 512) {
+        ata_id[i] = (i + 0x3C) & 255;
+        i = i + 1;
+    }
+    let wr = ata_write(2, ata_id);
+    if (wr != 0) { return disk_say("ata fail", wr); }
+    i = 0;
+    while (i < 512) {
+        ata_id[i] = 0;
+        i = i + 1;
+    }
+    let rd = ata_read(2, ata_id);
+    if (rd != 0) { return disk_say("ata fail", rd); }
+    i = 0;
+    while (i < 512) {
+        if ((ata_id[i] & 255) != ((i + 0x3C) & 255)) {
+            puts("ata mismatch\n");
+            return 6;
+        }
+        i = i + 1;
+    }
+    puts("ata ok\n");
+
+    let vec: *u8 = "123456789";
+    if (crc32(vec, 9) != 0xCBF43926) {
+        puts("blk crc\n");
+        return 6;
+    }
+
+    i = 0;
+    while (i < 512) {
+        blk_data[i] = (i + 0xA5) & 255;
+        i = i + 1;
+    }
+    let bw = blk_write(0);
+    if (bw != 0) { return disk_say("blk fail", bw); }
+    i = 0;
+    while (i < 512) {
+        blk_data[i] = 0;
+        i = i + 1;
+    }
+    let br = blk_read(0);
+    if (br != 0) { return disk_say("blk fail", br); }
+    i = 0;
+    while (i < 512) {
+        if ((blk_data[i] & 255) != ((i + 0xA5) & 255)) {
+            puts("blk mismatch\n");
+            return 6;
+        }
+        i = i + 1;
+    }
+    puts("blk ok\n");
+
+    // Salta blk: el sector de datos queda distinto y el de metadatos no.
+    blk_data[100] = (blk_data[100] ^ 0xFF) & 255;
+    let cw = ata_write(0, blk_data);
+    if (cw != 0) { return disk_say("blk corrupt miss", cw); }
+    let cr = blk_read(0);
+    if (cr == 5) {
+        puts("blk corrupt detected\n");
+        return 0;
+    }
+    return disk_say("blk corrupt miss", cr);
+}

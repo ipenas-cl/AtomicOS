@@ -8,13 +8,21 @@
 # that address from CR2 and then the loaded byte 0x00000000.
 # Also checks the E820 map, alloc/free, a mapped page at or above 2MB,
 # and a ring-3 program that syscalls "user ok" and then #PF on a kernel read.
+# Also checks the data disk (IDE slave, build/data.img): ata ok, blk ok,
+# and blk corrupt detected, in that order, after the `disk` command.
 # Usage: tests/qemu_shell_test.sh [image] [--screenshot out.png]
 # Needs: qemu-system-x86_64, socat; ffmpeg only for --screenshot.
 set -u
 IMAGE=${1:-build/atomicos.img}
+DATA=$(dirname "$IMAGE")/data.img
 SHOT=""; [ "${2:-}" = "--screenshot" ] && SHOT=$3
+if [ ! -f "$DATA" ]; then echo "FAIL: no data image $DATA"; exit 1; fi
 TMP=$(mktemp -d); MON=$TMP/mon.sock; SERIAL=$TMP/serial.log
-qemu-system-x86_64 -drive format=raw,file="$IMAGE" -display none -no-reboot \
+# El primer drive es la imagen de arranque (IDE maestro). El segundo es
+# el disco de datos, esclavo del canal primario. No cambiar el orden.
+qemu-system-x86_64 -drive format=raw,file="$IMAGE" \
+    -drive file="$DATA",format=raw,if=ide,index=1 \
+    -display none -no-reboot \
     -serial file:"$SERIAL" -monitor unix:"$MON",server,nowait &
 QPID=$!
 trap 'kill $QPID 2>/dev/null; rm -rf "$TMP"' EXIT
@@ -243,6 +251,32 @@ echo "ok   exit freed $ex1+$ex2 pages, pmm back to $base"
 
 printf '%s\n' "$clean" | grep -qx "user leak" && fail "ring 3 read of kernel memory succeeded"
 echo "ok   sched ok"
+
+# `ud2` deja la CPU en hlt. El disco tiene que correr antes.
+typeline disk
+disk_ok=0
+for _ in $(seq 50); do
+    if tr -d '\r' < "$SERIAL" | grep -qx "blk corrupt detected"; then
+        disk_ok=1
+        break
+    fi
+    if tr -d '\r' < "$SERIAL" | grep -qE '^(ata fail|ata mismatch|blk fail|blk mismatch|blk crc|blk corrupt miss)'; then
+        break
+    fi
+    sleep 0.2
+done
+[ "$disk_ok" = 1 ] || fail "disk test did not print blk corrupt detected"
+clean=$(tr -d '\r' < "$SERIAL")
+if ! printf '%s\n' "$clean" | awk '
+    /^atomicos> disk$/ { if (!s) s=NR }
+    /^ata ok$/ { if (s && !a) a=NR }
+    /^blk ok$/ { if (a && !b) b=NR }
+    /^blk corrupt detected$/ { if (b && !c) c=NR }
+    END { exit !(s && a && b && c && s<a && a<b && b<c) }
+'; then
+    fail "ata ok / blk ok / blk corrupt detected missing or out of order"
+fi
+echo "ok   ata ok, blk ok, blk corrupt detected"
 
 typeline ud2
 sleep 0.5

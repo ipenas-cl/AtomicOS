@@ -28,16 +28,16 @@ En esta compilación (`copihue` v0.25.0, commit `b8b0d0740cd7b7bdbe4a2f6d5ba01ba
 |---|---|
 | `build/boot.bin` | 512 bytes |
 | `build/stage2.bin` | 846 bytes (cabe en 8 × 512) |
-| `build/kernel.bin` | 38319 bytes → 75 sectores (LBA 9..83) |
+| `build/kernel.bin` | 45355 bytes → 89 sectores (LBA 9..97) |
 | `src/bootloader/boot.lap` | 75 líneas, 19 de ellas `asm("...")` |
 | `src/bootloader/stage2.lap` | 255 líneas, 86 de ellas `asm("...")` |
-| `src/kernel/copihue/*.lap` | 1915 líneas, 183 de ellas `asm("...")` |
+| `src/kernel/copihue/*.lap` | 2258 líneas, 183 de ellas `asm("...")` |
 
-`copihue --help` en v0.25.0 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 4b 00 00 00 00 10 09 00 00 00 00 00 00 00`: 75 sectores (`0x004b`) desde LBA 9 hacia `0x1000:0`.
+`copihue --help` en v0.25.0 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 59 00 00 00 00 10 09 00 00 00 00 00 00 00`: 89 sectores (`0x0059`) desde LBA 9 hacia `0x1000:0`.
 
 Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `atomicos>`.
 
-El shell responde a `help`, `echo`, `add`, `mul`, `clear`, `version`, `ticks`, `irqs`, `cr3`, `pf`, `pmm`, `user`, `sched`, `ud2` y `reboot`. `make qemu-test` escribe los comandos con el `sendkey` del monitor de QEMU y lee COM1. Esa prueba no escribe `reboot` (reinicia la máquina) ni `clear`.
+El shell responde a `help`, `echo`, `add`, `mul`, `clear`, `version`, `ticks`, `irqs`, `cr3`, `pf`, `pmm`, `user`, `sched`, `disk`, `ud2` y `reboot`. `disk` ejercita el disco de datos (ver [docs/disco.md](docs/disco.md)). `make qemu-test` escribe los comandos con el `sendkey` del monitor de QEMU y lee COM1. Esa prueba no escribe `reboot` (reinicia la máquina) ni `clear`.
 
 ![Shell de AtomicOS en QEMU](docs/copihue-shell.png)
 
@@ -56,9 +56,10 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - el resumen E820 y el asignador (`pmm`, `pmm high`);
 - `user`: el syscall imprime `user ok`, la lectura de `0x10000` desde anillo 3 produce `#PF` con `err=0x5`, el kernel escribe `user blocked` y vuelve al shell;
 - `sched`: dos PML4 distintos, la mitad alta compartida, `alias ok` dos veces, `pf-cross` de lectura y de escritura, `getpid 1` y `getpid 2`, letras `a`/`b` intercaladas, al menos un cambio por el PIT y uno por `yield`, y `exit` devolviendo todas las páginas contadas;
+- `disk`: en el esclavo IDE, `ata ok`, `blk ok` y `blk corrupt detected`, en ese orden (un byte del sector de datos pisado con el driver, sin pasar por `blk`);
 - `ud2` imprime la excepción `#UD`.
 
-En QEMU 8.2.2, con el pin v0.25.0, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 934 ms, ticks 200 → 417, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `aabababababb`, `switch timer=14 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. El texto de `version` sigue diciendo Copihue v0.24.1: cambiar esa cadena modificaría `kernel.bin`, y este pin deja ese binario idéntico al de v0.24.1.
+En QEMU 8.2.2, con el pin v0.25.0, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 1031 ms, ticks 200 → 417, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `aabbabababab`, `switch timer=18 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473, y las líneas `ata ok`, `blk ok`, `blk corrupt detected`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. El texto de `version` sigue diciendo Copihue v0.24.1. El `kernel.bin` de esta imagen ya no es el de ese pin: suma el driver ATA y los bloques.
 
 El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -no-reboot`) salió con código 124: el proceso seguía vivo.
 
@@ -84,6 +85,14 @@ La consola serie repite el texto de VGA. Con `-display none -serial stdio` se ve
 
 ```bash
 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -serial stdio
+```
+
+`make qemu`, `make debug` y `make qemu-test` agregan el disco de datos. El arranque solo, como el humo de CI, no lo necesita: sin ese drive el comando `disk` imprime `ata fail 1` y vuelve al prompt.
+
+```bash
+qemu-system-x86_64 -drive format=raw,file=build/atomicos.img \
+    -drive file=build/data.img,format=raw,if=ide,index=1 \
+    -display none -serial stdio
 ```
 
 El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.25.0`, commit `b8b0d0740cd7b7bdbe4a2f6d5ba01baf9301f575`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
@@ -118,8 +127,11 @@ src/kernel/copihue/
   gdt.lap                     GDT, TSS, ltr, vuelta del #PF de anillo 3
   sched.lap                   PML4 por proceso, round-robin, write/getpid/yield/exit
   usermode.lap                iretq, syscall, programa de anillo 3
+  ata.lap                     ATA PIO, canal primario, esclavo, LBA28
+  blk.lap                     bloques de 512 B con CRC-32 en otro sector
   shell.lap                   editor de línea y comandos
 tests/qemu_shell_test.sh
+docs/disco.md                 layout del disco de datos y snapshots pendientes
 scripts/run_atomicos.sh
 scripts/pre-commit.sh
 scripts/release.sh
@@ -157,9 +169,9 @@ IDT de 48 entradas. Las excepciones de CPU 0–31 imprimen su nombre; `#PF` tamb
 
 `sched` añade dos procesos. El PIT, cuando la interrupción viene de anillo 3, usa el `TSS.rsp0` de ese proceso. `yield` arma el mismo marco. Las llamadas son `write` (1), `getpid` (3), `yield` (4) y `exit` (5). `exit` cambia de CR3 y devuelve las páginas de ese proceso. No hay más procesos que esos dos, ni un programa de usuario que no sea una función `naked` copiada desde el kernel.
 
-### 5. Disco y sistema de archivos — pendiente
+### 5. Disco y sistema de archivos — parcial, en la imagen
 
-El disco se usa en el arranque para leer la etapa 2 (8 sectores) y los sectores del kernel (INT 13h; el conteo lo calcula `make`). El kernel de la imagen no trae driver ATA, AHCI ni NVMe, ni sistema de archivos.
+El arranque sigue leyendo la etapa 2 (8 sectores) y el kernel con INT 13h; el conteo lo calcula `make`. El kernel ahora trae ATA PIO del esclavo primario (LBA28: identify, leer y escribir un sector, con timeout) y bloques de 512 B cuyo CRC-32 vive en el sector de al lado. El layout y lo que falta (snapshots copy-on-write, archivos, AHCI, NVMe) está en [docs/disco.md](docs/disco.md).
 
 ### 6. Red — pendiente
 

@@ -51,6 +51,14 @@ KERNEL_SEGMENT_SECTORS = 128
 KERNEL_MAX_SECTORS := $(shell a=$$(($(FLOPPY_SECTORS)-$(KERNEL_LBA))); b=$(KERNEL_SEGMENT_SECTORS); if [ $$a -lt $$b ]; then echo $$a; else echo $$b; fi)
 KERNEL_MAX_BYTES := $(shell echo $$(( $(KERNEL_MAX_SECTORS) * 512 )))
 
+# Disco de datos, aparte de la imagen de arranque. 2048 sectores de
+# 512 bytes (1 MiB). QEMU lo cuelga como esclavo del IDE primario
+# (index=1, ide0-hd1). El primer -drive sigue siendo atomicos.img
+# en el maestro (ide0-hd0). Ver docs/disco.md.
+DATA_IMG = $(BUILD_DIR)/data.img
+DATA_SECTORS = 2048
+QEMU_DRIVES = -drive format=raw,file=$(OS_IMAGE) -drive file=$(DATA_IMG),format=raw,if=ide,index=1
+
 # $(COPIHUE) se expande al leer las listas de prerequisitos. Tiene que
 # existir antes de esas reglas: si no, la etapa 1 y la etapa 2 no esperan
 # al compilador (el CI de la etapa 2 falló así la primera vez).
@@ -69,6 +77,8 @@ COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap \
                      $(KERNEL_SRC)/copihue/sched.lap \
                      $(KERNEL_SRC)/copihue/usermode.lap \
                      $(KERNEL_SRC)/copihue/idt.lap \
+                     $(KERNEL_SRC)/copihue/ata.lap \
+                     $(KERNEL_SRC)/copihue/blk.lap \
                      $(KERNEL_SRC)/copihue/shell.lap \
                      $(KERNEL_SRC)/copihue/kernel.lap
 
@@ -148,17 +158,23 @@ $(OS_IMAGE): $(BOOTLOADER) $(STAGE2) $(KERNEL) | $(BUILD_DIR)
 	dd if=$(KERNEL) of=$@ bs=512 seek=$(KERNEL_LBA) conv=notrunc status=none
 	@echo "AtomicOS v$(VERSION) image created: $@"
 
+$(DATA_IMG): | $(BUILD_DIR)
+	dd if=/dev/zero of=$@ bs=512 count=$(DATA_SECTORS) status=none
+
 # Consola curses: QEMU entrega el teclado al controlador PS/2 que lee el shell.
-qemu: $(OS_IMAGE)
-	qemu-system-$(ARCH) -drive format=raw,file=$(OS_IMAGE) -display curses
+qemu: $(OS_IMAGE) $(DATA_IMG)
+	qemu-system-$(ARCH) $(QEMU_DRIVES) -display curses
 
 # tests/qemu_shell_test.sh exige qemu-system-x86_64 y socat.
+# El disco de datos se reescribe en cada corrida: la prueba no depende
+# de lo que haya quedado de la anterior.
 qemu-test: $(OS_IMAGE)
+	dd if=/dev/zero of=$(DATA_IMG) bs=512 count=$(DATA_SECTORS) status=none
 	$(TESTS_DIR)/qemu_shell_test.sh $(OS_IMAGE)
 
 # La imagen es un binario plano: gdb no tiene tabla de símbolos ELF.
-debug: $(OS_IMAGE)
-	qemu-system-$(ARCH) -drive format=raw,file=$(OS_IMAGE) -display curses -s -S
+debug: $(OS_IMAGE) $(DATA_IMG)
+	qemu-system-$(ARCH) $(QEMU_DRIVES) -display curses -s -S
 
 clean:
 	rm -rf $(BUILD_DIR)
@@ -169,7 +185,9 @@ help:
 	@echo "  make all        Imagen de arranque en build/atomicos.img"
 	@echo "                  (copihue --boot, --flat; la primera vez compila Copihue)."
 	@echo "  make qemu       Arranca la imagen en QEMU (curses, teclado PS/2)."
+	@echo "                  Agrega build/data.img como IDE esclavo (index=1)."
 	@echo "  make qemu-test  Arranque mudo: sendkey y comprobaciones por COM1."
+	@echo "                  Incluye el disco de datos (ata, bloques, CRC)."
 	@echo "  make debug      Igual que qemu, esperando gdb en tcp::1234."
 	@echo "  make clean      Borra build/."
 	@echo "  make help       Esta lista."
