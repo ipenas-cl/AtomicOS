@@ -2,6 +2,9 @@
 # atomicos.img y el compilador Copihue clonado en build/copihue.
 build/
 
+# Bytes del ejecutable de usuario, generados por scripts/mkaxe.sh.
+src/kernel/copihue/exec_img.lap
+
 *.o
 *.img
 *.bin

@@ -93,6 +93,8 @@ COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap \
                      $(KERNEL_SRC)/copihue/ata.lap \
                      $(KERNEL_SRC)/copihue/blk.lap \
                      $(KERNEL_SRC)/copihue/fs.lap \
+                     $(KERNEL_SRC)/copihue/exec_img.lap \
+                     $(KERNEL_SRC)/copihue/exec.lap \
                      $(KERNEL_SRC)/copihue/shell.lap \
                      $(KERNEL_SRC)/copihue/kernel.lap
 
@@ -181,6 +183,18 @@ $(OS_IMAGE): $(BOOTLOADER) $(STAGE2) $(KERNEL) | $(BUILD_DIR)
 $(DATA_IMG): | $(BUILD_DIR)
 	dd if=/dev/zero of=$@ bs=512 count=$(DATA_SECTORS) status=none
 
+# Ejecutable de anillo 3. copihue --flat deja el código en hola.bin;
+# mkaxe.sh agrega la cabecera AXE1 y genera exec_img.lap. El kernel no
+# salta a esos bytes: `exec plant` los escribe con fs_write y `exec`
+# los vuelve a leer. Ver docs/exec.md. exec_img.lap no se versiona.
+USER_BIN = $(BUILD_DIR)/hola.bin
+USER_AXE = $(BUILD_DIR)/hola.axe
+EXEC_IMG = $(KERNEL_SRC)/copihue/exec_img.lap
+
+$(EXEC_IMG): src/user/hola.lap scripts/mkaxe.sh $(COPIHUE) | $(BUILD_DIR)
+	$(abspath $(COPIHUE)) --flat 0x400000 -o $(USER_BIN) src/user/hola.lap
+	scripts/mkaxe.sh $(USER_BIN) $(USER_AXE) $@
+
 # Consola curses: QEMU entrega el teclado al controlador PS/2 que lee el shell.
 qemu: $(OS_IMAGE) $(DATA_IMG)
 	qemu-system-$(ARCH) $(QEMU_DRIVES) -display curses
@@ -198,6 +212,7 @@ debug: $(OS_IMAGE) $(DATA_IMG)
 
 clean:
 	rm -rf $(BUILD_DIR)
+	rm -f $(KERNEL_SRC)/copihue/exec_img.lap
 
 help:
 	@echo "AtomicOS $(VERSION) — kernel y arranque en Copihue $(COPIHUE_COMMIT)"
@@ -207,7 +222,7 @@ help:
 	@echo "  make qemu       Arranca la imagen en QEMU (curses, teclado PS/2)."
 	@echo "                  Agrega build/data.img como IDE esclavo (index=1)."
 	@echo "  make qemu-test  Arranque mudo: sendkey y comprobaciones por COM1."
-	@echo "                  Incluye el disco de datos (ata, bloques, CRC, fs)."
+	@echo "                  Incluye el disco de datos (ata, bloques, CRC, fs, exec)."
 	@echo "  make debug      Igual que qemu, esperando gdb en tcp::1234."
 	@echo "  make clean      Borra build/."
 	@echo "  make help       Esta lista."

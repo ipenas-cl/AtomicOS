@@ -15,6 +15,10 @@
 # to check that the files and the snapshot are still there. A corrupted
 # data sector must print `fs corrupt detected` and the snapshot must
 # still read the old bytes. A missing line fails the script.
+# Then exec: a flat program planted on the data disk prints `desde disco`
+# (not the built-in user/sched strings). A missing name, a bad magic and
+# an oversized header return to the prompt. After `fs corrupt`, exec
+# rejects the file on checksum and does not run it.
 # Usage: tests/qemu_shell_test.sh [image] [--screenshot out.png]
 # Needs: qemu-system-x86_64, socat; ffmpeg only for --screenshot.
 set -u
@@ -375,6 +379,39 @@ END {
 }
 ' || fail "fs story missing a line"
 echo "ok   fs format, snap v1, live v2, rollback, two blocks"
+
+# El directorio ya tiene c, a, b y m (tope 7). plant escribe hola, malo
+# y gordo. exec lee con fs_read: no salta a la copia del kernel.
+typefs "exec plant"
+typefs "exec hola"
+typefs "exec noesta"
+typefs "exec malo"
+typefs "exec gordo"
+typefs "fs corrupt hola"
+typefs "exec hola"
+tr -d '\r' < "$SERIAL" | awk '
+{
+    if (i==0 && $0=="exec plant ok") i=1
+    else if (i==1 && $0=="desde disco") i=2
+    else if (i==2 && $0=="exec ok") i=3
+    else if (i==3 && $0=="exec fail 7") i=4
+    else if (i==4 && $0=="exec bad magic") i=5
+    else if (i==5 && $0=="exec bad size") i=6
+    else if (i==6 && $0=="fs corrupt armed") i=7
+    else if (i==7 && $0=="exec corrupt") i=8
+    else if (i==8 && $0=="desde disco") {
+        print "exec ran the corrupt file" > "/dev/stderr"
+        exit 1
+    }
+}
+END {
+    if (i != 8) {
+        print "exec stuck at " i > "/dev/stderr"
+        exit 1
+    }
+}
+' || fail "exec story missing a line"
+echo "ok   exec desde disco, missing, bad magic, bad size, corrupt"
 
 typeline ud2
 sleep 0.5

@@ -26,3 +26,9 @@ Encima de esos bloques hay un sistema de archivos copy-on-write, con
 directorio plano, snapshots y rollback (`docs/fs.md`). `make qemu-test`
 formatea, escribe, saca un snapshot, reabre el mismo `data.img` y
 comprueba que un bloque pisado no se entrega como dato.
+
+`exec` carga un ejecutable plano de 16 bytes de cabecera (`AXE1`,
+tamaño, entrada) desde ese disco a un PML4 nuevo (`docs/exec.md`).
+`scripts/mkaxe.sh` arma la imagen; `exec plant` la escribe con
+`fs_write`. Un magic malo, un tamaño de más o un bloque con el CRC
+roto no arrancan el proceso.

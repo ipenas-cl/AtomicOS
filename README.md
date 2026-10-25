@@ -30,16 +30,16 @@ En esta compilación (`copihue` v0.26.1, commit `54dc238f943968e676040e67bdac206
 |---|---|
 | `build/boot.bin` | 512 bytes |
 | `build/stage2.bin` | 1736 bytes (cabe en 8 × 512) |
-| `build/kernel.bin` | 62524 bytes → 123 sectores (LBA 9..131). La `.bss` mide 9968 bytes y `0x10000 + kernel.bin + .bss` termina en `0x21B2C` |
+| `build/kernel.bin` | 68608 bytes → 134 sectores (LBA 9..142). La `.bss` mide 18160 bytes y `0x10000 + kernel.bin + .bss` termina en `0x252F0` |
 | `src/bootloader/boot.lap` | 76 líneas, ninguna `asm("...")` |
 | `src/bootloader/stage2.lap` | 268 líneas, ninguna `asm("...")` |
-| `src/kernel/copihue/*.lap` | 2947 líneas, 17 de ellas `asm("...")` |
+| `src/kernel/copihue/*.lap` | 3065 líneas, 17 de ellas `asm("...")`. `exec_img.lap` lo genera `mkaxe.sh` (173 líneas, ninguna `asm`) y no entra en ese conteo |
 
-`copihue --help` en v0.26.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 7b 00 00 00 00 10 09 00 00 00 00 00 00 00`: 123 sectores (`0x007B`) desde LBA 9 hacia `0x1000:0`. Esta imagen entra en un solo paquete. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt: el segundo paquete no pisa el kernel.
+`copihue --help` en v0.26.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 86 00 00 00 00 10 09 00 00 00 00 00 00 00`: 134 sectores (`0x0086`) desde LBA 9 hacia `0x1000:0`. 134 pasa de 128, así que la etapa 2 manda 128 y después 6. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt: el segundo paquete no pisa el kernel.
 
 Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `atomicos>`.
 
-El shell responde a `help`, `echo`, `add`, `mul`, `clear`, `version`, `ticks`, `irqs`, `cr3`, `pf`, `pmm`, `user`, `sched`, `disk`, `fs`, `ud2` y `reboot`. `disk` ejercita el disco de datos (ver [docs/disco.md](docs/disco.md)). `fs` es el sistema de archivos copy-on-write (ver [docs/fs.md](docs/fs.md)). `make qemu-test` escribe los comandos con el `sendkey` del monitor de QEMU y lee COM1. Esa prueba no escribe `reboot` (reinicia la máquina) ni `clear`.
+El shell responde a `help`, `echo`, `add`, `mul`, `clear`, `version`, `ticks`, `irqs`, `cr3`, `pf`, `pmm`, `user`, `sched`, `disk`, `fs`, `exec`, `ud2` y `reboot`. `disk` ejercita el disco de datos (ver [docs/disco.md](docs/disco.md)). `fs` es el sistema de archivos copy-on-write (ver [docs/fs.md](docs/fs.md)). `exec` carga un ejecutable plano del disco (ver [docs/exec.md](docs/exec.md)). `make qemu-test` escribe los comandos con el `sendkey` del monitor de QEMU y lee COM1. Esa prueba no escribe `reboot` (reinicia la máquina) ni `clear`.
 
 ![Shell de AtomicOS en QEMU](docs/copihue-shell.png)
 
@@ -60,6 +60,7 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - `sched`: dos PML4 distintos, la mitad alta compartida, `alias ok` dos veces, `pf-cross` de lectura y de escritura, `getpid 1` y `getpid 2`, letras `a`/`b` intercaladas, al menos un cambio por el PIT y uno por `yield`, y `exit` devolviendo todas las páginas contadas;
 - `disk`: en el esclavo IDE, `ata ok`, `blk ok` y `blk corrupt detected`, en ese orden (un byte del sector de datos pisado con el driver, sin pasar por `blk`);
 - `fs`: formatea, escribe `a` como `v1`, saca el snapshot `s1`, reescribe `a` como `v2`, lee `v2` en vivo y `v1` desde `s1`, hace rollback de otro archivo y un archivo de 600 bytes. Apaga QEMU, abre el mismo `build/data.img` y vuelve a leer. Después pisa un bloque de `a`: tiene que salir `fs corrupt detected` y `s1` sigue en `v1`;
+- `exec`: después del `fs`, `exec plant` escribe en el disco el programa `hola` (cabecera `AXE1`), `malo` (magic malo) y `gordo` (tamaño 65535). `exec hola` imprime `desde disco` y `exec ok`. `exec noesta` imprime `exec fail 7`. `exec malo` imprime `exec bad magic`. `exec gordo` imprime `exec bad size`. `fs corrupt hola` y otro `exec hola` imprimen `exec corrupt` y no vuelven a imprimir `desde disco`;
 - `ud2` imprime la excepción `#UD`.
 
 En QEMU 8.2.2, con el pin v0.26.1, una corrida de `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 932 ms, ticks 200 → 416, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `babababababa`, `switch timer=21 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473, las líneas `ata ok`, `blk ok`, `blk corrupt detected`, y después del segundo arranque con el mismo `data.img` la línea `fs persist v2, snap v1, corrupt detected`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. `version` dice Copihue v0.26.1.
@@ -133,14 +134,18 @@ src/kernel/copihue/
   ata.lap                     ATA PIO, canal primario, esclavo, LBA28
   blk.lap                     bloques de 512 B con CRC-32 en otro sector
   fs.lap                      archivos copy-on-write y snapshots
+  exec.lap                    exec: AXE1 del disco a un PML4 nuevo
   shell.lap                   editor de línea y comandos
+src/user/hola.lap             programa de anillo 3 que imprime «desde disco»
 tests/qemu_shell_test.sh
 docs/disco.md                 layout del disco de datos
 docs/fs.md                    sistema de archivos copy-on-write
+docs/exec.md                  ejecutable plano AXE1 y el comando exec
 docs/PEDIDOS_COPIHUE.md       arreglos que el compilador todavía no tiene
 scripts/run_atomicos.sh
 scripts/pre-commit.sh
 scripts/release.sh
+scripts/mkaxe.sh              cabecera AXE1 y bytes embebidos, sin Python
 docs/copihue-shell.png
 docs/atomicos-copihue-demo.mp4
 ```
@@ -153,7 +158,7 @@ El estado de cada etapa es el de la imagen que arranca `make qemu-test`.
 
 ### 1. Arranque y consola — en la imagen
 
-Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. En v0.26.1, `boot.lap` y `stage2.lap` no tienen `asm()`: los segmentos, `jmp`, los stores con ancho, `lodsb`, `rep_stosd`, `pushfd` / `popfd` y `push` / `pop` están en el lenguaje. El lazo que parte el kernel en paquetes de 128 sectores también. `cld()` sigue siendo `unknown function 'cld'`; el arranque apaga DF con `pushfd` antes de `lodsb` y de `rep_stosd`. En el kernel quedan 17 `asm()`: el salto indirecto de `resume_shell` (`jmp resume_rip` es `unknown jump target 'resume_rip'`), el marco de `enter_user` y de `sched_go` (`register 'rsp' is only available in a naked function`) y el marco de las `interrupt fn` (`register 'rbp' is only available in a naked function`). El sistema de archivos no agrega `asm()`. `dq page + 3` ensambla, pero las tablas tienen que quedar en la dirección física `0x1000`, fuera de esta imagen.
+Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. En v0.26.1, `boot.lap` y `stage2.lap` no tienen `asm()`: los segmentos, `jmp`, los stores con ancho, `lodsb`, `rep_stosd`, `pushfd` / `popfd` y `push` / `pop` están en el lenguaje. El lazo que parte el kernel en paquetes de 128 sectores también. `cld()` sigue siendo `unknown function 'cld'`; el arranque apaga DF con `pushfd` antes de `lodsb` y de `rep_stosd`. En el kernel quedan 17 `asm()`: el salto indirecto de `resume_shell` (`jmp resume_rip` es `unknown jump target 'resume_rip'`), el marco de `enter_user` y de `sched_go` (`register 'rsp' is only available in a naked function`) y el marco de las `interrupt fn` (`register 'rbp' is only available in a naked function`). El sistema de archivos y `exec` no agregan `asm()`. `dq page + 3` ensambla, pero las tablas tienen que quedar en la dirección física `0x1000`, fuera de esta imagen.
 
 ### 2. Interrupciones y temporizador — en la imagen
 
@@ -173,7 +178,9 @@ IDT de 48 entradas. Las excepciones de CPU 0–31 imprimen su nombre; `#PF` tamb
 
 `user` entra una vez en anillo 3 (`user already` a la segunda). La GDT tiene segmentos de usuario, un TSS de 104 bytes, `ltr`, `STAR`, `LSTAR`, `SFMASK` y `EFER.SCE`, más `iretq` a anillo 3 y `syscall` / `sysret`. El syscall 1 escribe un carácter. El syscall 2 escribiría `user leak` si esa lectura del kernel llegara a ejecutarse. El `#PF` de anillo 3 vuelve al shell por la pila `rsp0` (`0x86000`). El syscall de `user` usa otra pila (`0x81000`).
 
-`sched` añade dos procesos. El PIT, cuando la interrupción viene de anillo 3, usa el `TSS.rsp0` de ese proceso. `yield` arma el mismo marco. Las llamadas son `write` (1), `getpid` (3), `yield` (4) y `exit` (5). `exit` cambia de CR3 y devuelve las páginas de ese proceso. No hay más procesos que esos dos, ni un programa de usuario que no sea una función `naked` copiada desde el kernel.
+`sched` añade dos procesos. El PIT, cuando la interrupción viene de anillo 3, usa el `TSS.rsp0` de ese proceso. `yield` arma el mismo marco. Las llamadas son `write` (1), `getpid` (3), `yield` (4) y `exit` (5). `exit` cambia de CR3 y devuelve las páginas de ese proceso.
+
+`exec nombre` lee un archivo AXE1 con `fs_read` (el CRC del bloque incluido), rechaza magic malo o tamaño de más, y copia el código a un PML4 nuevo del proceso 0. Lo corre el mismo planificador (`sched_go`); no se agregó `asm()`. `user` y `sched` siguen usando las funciones `naked` internas. El programa del disco es `src/user/hola.lap`.
 
 ### 5. Disco y sistema de archivos — parcial, en la imagen
 
