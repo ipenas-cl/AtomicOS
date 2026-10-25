@@ -29,15 +29,19 @@
 // calculation of an empty image only when it is empty; a global would
 // move _start off the first byte. Constants live in `data`.
 //
-// Copihue v0.29.2. lodsb y rep_stosd usan el índice tal como está DF,
+// Copihue v0.29.4. lodsb y rep_stosd usan el índice tal como está DF,
 // así que clear_df lo deja en claro con cld(). El token de INT 15h
-// vive en ebx. Un while y un if de bits 16 lo restauran (push/pop
-// alrededor de cmp). Un `+` fuera de la condición no: deja el sumando
-// en ebx. `di = di + 24` y el conteo lo pisan después de int 0x15, así
-// que el token se copia a ebx_save antes de esas sumas y se restaura
-// al volver al lazo. Sin esa copia, QEMU 8.2.2 imprimió `e820 n=1`.
-// check_long_mode sigue usando pushfd/popfd: ahí se prueba el
-// bit ID, no se limpia DF. Las llamadas de aquí no tienen argumentos.
+// vive en ebx. Un while, un if y un + de bits 16 lo restauran
+// (push/pop alrededor del operador). get_e820 lo escribe directo:
+// ebx = 0 antes del primer int 0x15, y if (ebx == 0) cierra el mapa.
+// Entre ese int y el if no hay un store cuya dirección no sea número,
+// registro desnudo o reg±disp, ni lgdt/lidt/invlpg de un puntero que
+// no sea etiqueta. *((di + 20) as *u32) = 1 es [di+20] y va antes del
+// int. *(0x8000 as *u16) es un número. Los stores de kern_packet+N
+// pasan por ebx, y están en load_kernel, antes de get_e820. lgdt(&gdtr)
+// es la etiqueta gdtr y va después. check_long_mode sigue usando
+// pushfd/popfd: ahí se prueba el bit ID, no se limpia DF. Las llamadas
+// de aquí no tienen argumentos.
 
 data kern_packet {
     db 0x10, 0;
@@ -164,11 +168,8 @@ bits 16 naked fn get_e820() {
     *(0x8000 as *u16) = 0;
     let cont: u16 = 1;
     let sig: u32 = 0;
-    let ebx_save: u32 = 0;
+    ebx = 0;
     while (cont != 0) {
-        // El while restaura ebx. El `+` de abajo lo deja en el sumando,
-        // así que el token de la BIOS se repone desde la copia.
-        ebx = ebx_save;
         ecx = 24;
         edx = 0x534D4150;
         *((di + 20) as *u32) = 1;
@@ -178,7 +179,6 @@ bits 16 naked fn get_e820() {
             cont = 0;
         } else {
             sig = eax;
-            ebx_save = ebx;
             if (sig != 0x534D4150) {
                 cont = 0;
             } else {
@@ -187,7 +187,7 @@ bits 16 naked fn get_e820() {
                 if (di >= 0x8184) {
                     cont = 0;
                 } else {
-                    if (ebx_save == 0) { cont = 0; }
+                    if (ebx == 0) { cont = 0; }
                 }
             }
         }
