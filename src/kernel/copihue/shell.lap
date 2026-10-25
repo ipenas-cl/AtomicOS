@@ -68,6 +68,7 @@ fn cmd_help() -> i64 {
     puts("  disk            data disk checksum\n");
     puts("  fs              archivos y snapshots\n");
     puts("  exec <nombre>   programa del disco en anillo 3\n");
+    puts("  net             ARP, ping y descarte\n");
     puts("  ud2             raise #UD and halt\n");
     puts("  reboot          reset the machine\n");
     return 0;
@@ -276,6 +277,7 @@ fn run_command() -> i64 {
     if (cmd_is("disk")) { disk_test(); return 0; }
     if (cmd_is("fs")) { cmd_fs(); return 0; }
     if (cmd_is("exec")) { cmd_exec(); return 0; }
+    if (cmd_is("net")) { cmd_net(); return 0; }
     if (cmd_is("ud2")) {
         puts("raising #UD\n");
         ud2();

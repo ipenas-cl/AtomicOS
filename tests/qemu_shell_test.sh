@@ -19,6 +19,10 @@
 # (not the built-in user/sched strings). A missing name, a bad magic and
 # an oversized header return to the prompt. After `fs corrupt`, exec
 # rejects the file on checksum and does not run it.
+# Then net: user-mode e1000. The kernel ARPs 10.0.2.2 (`net arp ok`),
+# pings that gateway (`net ping ok`) and drops a frame whose IP length
+# does not fit the buffer (`net drop ok`). If this QEMU has no user
+# netdev, the script fails immediately instead of waiting.
 # Usage: tests/qemu_shell_test.sh [image] [--screenshot out.png]
 # Needs: qemu-system-x86_64, socat; ffmpeg only for --screenshot.
 set -u
@@ -34,11 +38,17 @@ start_qemu() {
     SERIAL="$1"
     : > "$SERIAL"
     rm -f "$MON"
+    # -nic none evita la NIC por defecto. La única es este e1000.
     qemu-system-x86_64 -drive format=raw,file="$IMAGE" \
         -drive file="$DATA",format=raw,if=ide,index=1 \
         -display none -no-reboot \
+        -nic none -netdev user,id=n0 -device e1000,netdev=n0 \
         -serial file:"$SERIAL" -monitor unix:"$MON",server,nowait &
     QPID=$!
+    sleep 0.3
+    if ! kill -0 "$QPID" 2>/dev/null; then
+        fail "qemu exited at startup (user netdev or disk)"
+    fi
 }
 stop_qemu() {
     if [ -n "${QPID:-}" ] && kill -0 "$QPID" 2>/dev/null; then
@@ -82,6 +92,27 @@ typefs() {
         sleep 0.1
     done
     fail "no prompt after: $1"
+}
+typewait() {
+    local before n i
+    before=$(grep -c "atomicos> " "$SERIAL" 2>/dev/null || true)
+    typeline "$1"
+    for i in $(seq "$2"); do
+        n=$(grep -c "atomicos> " "$SERIAL" 2>/dev/null || true)
+        if [ "${n:-0}" -gt "${before:-0}" ]; then return 0; fi
+        sleep 0.1
+    done
+    fail "no prompt after: $1"
+}
+require_net() {
+    local out
+    out=$(echo "info network" | socat - UNIX-CONNECT:"$MON" 2>/dev/null || true)
+    if printf '%s\n' "$out" | grep -q "type=user" && printf '%s\n' "$out" | grep -q "e1000"; then
+        return 0
+    fi
+    echo "--- info network ---"
+    printf '%s\n' "$out"
+    fail "qemu has no user netdev with e1000; not waiting on ping"
 }
 fail() {
     echo "FAIL: $*"
@@ -412,6 +443,23 @@ END {
 }
 ' || fail "exec story missing a line"
 echo "ok   exec desde disco, missing, bad magic, bad size, corrupt"
+
+require_net
+typewait "net" 120
+tr -d '\r' < "$SERIAL" | awk '
+{
+    if (i==0 && $0=="net arp ok") i=1
+    else if (i==1 && $0=="net ping ok") i=2
+    else if (i==2 && $0=="net drop ok") i=3
+}
+END {
+    if (i != 3) {
+        print "net stuck at " i > "/dev/stderr"
+        exit 1
+    }
+}
+' || fail "net story missing a line"
+echo "ok   net arp, ping, drop"
 
 typeline ud2
 sleep 0.5

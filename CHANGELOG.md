@@ -36,3 +36,9 @@ tamaño, entrada) desde ese disco a un PML4 nuevo (`docs/exec.md`).
 `scripts/mkaxe.sh` arma la imagen; `exec plant` la escribe con
 `fs_write`. Un magic malo, un tamaño de más o un bloque con el CRC
 roto no arrancan el proceso.
+
+`net` habla con el e1000 de QEMU (82540EM) por PCI: ARP de `10.0.2.15`
+contra la puerta `10.0.2.2`, IPv4 con checksum e ICMP echo. No hay
+TCP ni UDP, y el chip no queda prendido en el arranque. El layout y
+la prueba están en `docs/red.md`. Una trama cuyo largo IP no cabe en
+el buffer se descarta.

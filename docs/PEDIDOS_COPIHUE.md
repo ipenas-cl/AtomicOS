@@ -35,3 +35,40 @@ error: unknown function 'cld'
 solo. El PIT cambia de proceso con `frame = (saved_ksp + 120) as
 *InterruptFrame`. No quedó un caso del planificador fuera de ese
 diseño.
+
+## Cabecera Ethernet: el arreglo ya mide
+
+En v0.26.1 esta sonda salía en 0 sin mensaje. `EthHdr` medía 4 bytes,
+`etype` quedaba en el offset 2 y `e.dst[0] = 255` no almacenaba:
+
+```copihue
+packed struct EthHdr {
+    dst: [u8; 6],
+    src: [u8; 6],
+    etype: u16
+}
+
+fn probe() -> i64 {
+    let e: EthHdr;
+    e.etype = 0x0800;
+    e.dst[0] = 255;
+    return e.etype;
+}
+```
+
+```
+; Struct local: e: EthHdr (4 bytes)
+mov rax, 2048
+; Field assignment: e.etype (offset 2)
+mov word [rbp-2], cx
+mov rax, 255
+mov rax, 0
+```
+
+Debería medir 14 bytes: destino en 0, origen en 6, ethertype en 12.
+v0.27.0 cierra ese caso (`[T; N]` ocupa `N * sizeof(T)` y el store
+escribe el byte). ARP e IPv4 eran el mismo clavo. `net.lap` todavía
+escribe esas cabeceras con offsets sobre un buffer; el descriptor del
+e1000 ya es un `packed struct` de escalares (16 bytes, campo
+`volatile`). El formato de la trama no cambia al pasar los offsets a
+structs.
