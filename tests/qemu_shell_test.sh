@@ -100,7 +100,7 @@ kbd=$(tr -d '\r' < "$SERIAL" | sed -n 's/^kbd_irqs \([0-9][0-9]*\)$/\1/p' | tail
 echo "ok   keyboard IRQ count=$kbd"
 
 clean=$(tr -d '\r' < "$SERIAL")
-# boot64.asm writes CR3=0x1000, PML4[0]=0x2003, PDPT[0]=0x3003.
+# stage2.lap writes CR3=0x1000, PML4[0]=0x2003, PDPT[0]=0x3003.
 # The CPU sets the accessed bit (bit 5) on the entries it walks, so they
 # read back as 0x2023 and 0x3023. CR3 itself stays 0x1000.
 printf '%s\n' "$clean" | grep -qx "cr3=0x00001000" || fail "read_cr3 is not the bootloader PML4 at 0x1000"

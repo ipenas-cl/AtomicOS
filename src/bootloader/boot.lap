@@ -1,0 +1,58 @@
+// AtomicOS stage 1. BIOS enters the first byte at 0x7C00 in real mode.
+//
+// The 512-byte sector only loads stage 2. There is no room left in a
+// sector for the E820 map, the page tables and the long-mode switch
+// once they are written with Copihue's codegen (the previous NASM
+// stub, boot64.asm, had 10 bytes free). Stage 2 is Copihue too.
+//
+// Disk layout (1.44MB raw image, QEMU presents it as a hard disk):
+//   LBA 0        this sector
+//   LBA 1..8     stage 2, loaded at 0x8200 (Makefile STAGE2_SECTORS)
+//   LBA 9..72    kernel, 64 sectors at 0x10000 (stage 2 reads it)
+// The BIOS drive number is saved at 0x0500 before any interrupt.
+// 0x0500 is the first free byte past the BIOS data area. The stack
+// grows down from 0x7C00 and does not reach it.
+//
+// `dw 8`, `dw 0x8200` and `jmp 0x8200` are checked against the Makefile.
+
+data packet {
+    db 0x10, 0;
+    dw 8;
+    dw 0x8200, 0;
+    dq 1;
+}
+
+data fail_msg {
+    db "Disk", 13, 10, 0;
+}
+
+bits 16 naked fn _start() {
+    cli();
+    asm("xor ax, ax");
+    asm("mov ds, ax");
+    asm("mov es, ax");
+    asm("mov ss, ax");
+    asm("mov sp, 0x7C00");
+    asm("mov [0x0500], dl");
+    asm("mov ah, 0x42");
+    asm("mov si, packet");
+    asm("mov dl, [0x0500]");
+    int(0x13);
+    asm("jc load_fail");
+    asm("jmp 0x8200");
+}
+
+bits 16 naked fn load_fail() {
+    asm("mov si, fail_msg");
+    asm("cld");
+    asm(".p:");
+    asm("lodsb");
+    asm("test al, al");
+    asm("jz .h");
+    asm("mov ah, 0x0E");
+    int(0x10);
+    asm("jmp .p");
+    asm(".h:");
+    hlt();
+    asm("jmp .h");
+}

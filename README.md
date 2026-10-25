@@ -9,9 +9,9 @@
 
 ## Overview
 
-AtomicOS is a hobby operating system. Its kernel is written in [Copihue](https://github.com/ipenas-cl/copihue); only the 512-byte bootloader is x86-64 assembly. The long-term idea is a deterministic, real-time kernel for security-critical use, where every operation has a known worst-case execution time (WCET) and isolation is enforced by hardware.
+AtomicOS is a hobby operating system. The kernel and the bootloader are written in [Copihue](https://github.com/ipenas-cl/copihue). The bootloader is two stages, both Copihue: a 512-byte sector and a second stage loaded at 0x8200. The long-term idea is a deterministic, real-time kernel for security-critical use, where every operation has a known worst-case execution time (WCET) and isolation is enforced by hardware.
 
-> **Status: experimental hobby OS, kernel 0.8.** `make all` builds a bootable 64-bit image. A NASM bootloader switches to long mode, records the BIOS E820 map, and loads a kernel **written entirely in [Copihue](https://github.com/ipenas-cl/copihue) v0.23.0**: entry and .bss, VGA text and COM1, an IDT (CPU exceptions print a line on the console, which is mirrored to serial; `#PF` also prints `read_cr2()`; exception names are `-> *u8`), the PIC remapped to vectors 32-47, a PIT at 100 Hz (`let volatile ticks`), a PS/2 keyboard on IRQ1, a physical page allocator, a GDT with user segments and a TSS (`ltr`), and a shell. `make qemu-test` checks the previous shell, timer, IRQ, `cr3`, `#PF` and `#UD` cases, and also checks alloc/free, a mapped page above 2MB, and a ring-3 program that syscalls `user ok` and then faults on a kernel read. `clear` and `reboot` are still in the shell; the test does not type `reboot`, because that resets the machine. The features under "Design goals" are goals, not implemented features.
+> **Status: experimental hobby OS, kernel 0.8.** `make all` builds a bootable 64-bit image. A Copihue bootloader (stage 1 at 0x7C00, stage 2 at 0x8200) switches to long mode, records the BIOS E820 map, and loads a kernel **written entirely in [Copihue](https://github.com/ipenas-cl/copihue) v0.23.0**: entry and .bss, VGA text and COM1, an IDT (CPU exceptions print a line on the console, which is mirrored to serial; `#PF` also prints `read_cr2()`; exception names are `-> *u8`), the PIC remapped to vectors 32-47, a PIT at 100 Hz (`let volatile ticks`), a PS/2 keyboard on IRQ1, a physical page allocator, a GDT with user segments and a TSS (`ltr`), and a shell. `make qemu-test` checks the previous shell, timer, IRQ, `cr3`, `#PF` and `#UD` cases, and also checks alloc/free, a mapped page above 2MB, and a ring-3 program that syscalls `user ok` and then faults on a kernel read. `clear` and `reboot` are still in the shell; the test does not type `reboot`, because that resets the machine. The features under "Design goals" are goals, not implemented features.
 
 ![AtomicOS shell running a Copihue kernel in QEMU](docs/copihue-shell.png)
 
@@ -23,12 +23,13 @@ Measured by source lines that end up in the boot image:
 
 | | Before (v5.2.2) | Now (kernel 0.8) |
 |---|---|---|
-| Bootloader (NASM) | 231 | 263 (`boot64.asm`, LBA read of the kernel, E820 map at 0x8000; 64-bit code selector is 0x18) |
+| Bootloader, NASM source | 231 | 0 (no `.asm` is linked; `boot64.asm` is gone) |
+| Bootloader, Copihue | 0 | 328 (`boot.lap` 58 + `stage2.lap` 270, `wc -l`). 147 of those lines are `asm("...")` |
 | Kernel, assembly files | 75 (`kernel_simple64.asm`) | 0 (no `.asm` in the kernel image) |
 | Kernel, Copihue | 0 | 1191 (`src/kernel/copihue/*.lap`, `wc -l`, built with `copihue --flat 0x10000`) |
-| **Share in Copihue** | **0%** | **100% of the kernel; ~82% of the image by source lines (1191 of 1454; the rest is the bootloader)** |
+| **Share in Copihue** | **0%** | **every file linked into the image is `.lap` (1519 lines). 147 bootloader lines are still `asm()` strings** |
 
-Inline `asm` in the `.lap` sources is the `ud2` shell command, the `retfq` that reloads CS after `lgdt`, the pushes that build the `iretq` frame, the jump back from a ring-3 `#PF`, and the body of the user program (`syscall` / a kernel read). Those are Copihue `asm` builtins, the same ones `tests/usermode` in the compiler uses. There is no kernel `.asm` file.
+Inline `asm` in the kernel `.lap` sources is the `ud2` shell command, the `retfq` that reloads CS after `lgdt`, the pushes that build the `iretq` frame, the jump back from a ring-3 `#PF`, and the body of the user program (`syscall` / a kernel read). Those are Copihue `asm` builtins, the same ones `tests/usermode` in the compiler uses. There is no kernel `.asm` file. The bootloader's `asm()` lines are the real-mode and protected-mode operations v0.23.0 cannot express any other way (segment loads, BIOS register setup, `cpuid`, the carry flag, and the 64-bit forms of `read_cr*` / `inb` / `rdmsr` / `lgdt`). `cli`, `hlt`, `int` and `ljmp` are calls. The compiler and nasm errors are quoted in the header of `stage2.lap`.
 
 The compiler is pinned to the tag `v0.23.0` (`COPIHUE_COMMIT` in the `Makefile`; that tag is commit `7dfde0473916501d45840719bf13f8749c5071eb`). `make` fetches and builds it into `build/copihue`. To use a local compiler: `make COPIHUE=/path/to/copihue`. The older `*.asm`, `*.inc` and `*.tempo` files under `src/kernel/` are not part of the current image (see `src/kernel/LEGACY.md`).
 
@@ -42,7 +43,7 @@ AtomicOS and Copihue grow together. Done in this tree means it is in the boot im
 | Page-fault address and demand pages | done. `#PF` prints `read_cr2()`. A not-present fault from ring 0 allocates a 4KB frame, maps it, zeros it, and retries. `pf resumed` then prints `0x00000000`. `cr3` still prints the bootloader PML4 before `user` runs |
 | Physical page allocator | done. Bitmap over E820 type-1 RAM from 1MB up to 128MB. `pmm` checks alloc, write, free, double-free, and a mapped page at or above 2MB |
 | User mode and one syscall | done. Own GDT, `ltr` of a 104-byte TSS, `STAR`/`LSTAR`/`SFMASK`/`EFER.SCE`, `iretq` to ring 3, `syscall`/`sysret`. A ring-3 read of `0x10000` raises `#PF` and the shell resumes |
-| Bootloader stage 2 in Copihue | planned. The 512-byte stub is still NASM (10 bytes free after the E820 routine) |
+| Bootloader stage 2 in Copihue | done. `boot.lap` (`--boot`) loads `stage2.lap` (`--flat 0x8200`, 8 sectors from LBA 1). The kernel is 64 sectors from LBA 9. `asm()` remains where v0.23.0's 16-bit and 32-bit codegen is rejected by nasm; the exact errors are in the header of `stage2.lap` |
 | Separate compilation of kernel modules | planned. Needs modules and relocatable ELF objects. The kernel is still one concatenated `.lap` file |
 | A second address space | planned. User pages are entries in the bootloader's tables. `write_cr3` only reloads the same CR3 to flush the TLB |
 
@@ -105,7 +106,8 @@ make debug
 ```
 AtomicOS/
 ├── src/
-│   ├── bootloader/boot64.asm   # 512-byte stub: long mode, E820, loads the kernel
+│   ├── bootloader/boot.lap     # stage 1: 512 bytes, loads stage 2
+│   ├── bootloader/stage2.lap   # stage 2 at 0x8200: E820, long mode, loads the kernel
 │   └── kernel/copihue/         # the boot image (Copihue)
 │       ├── kernel.lap          # _start, banner, tick samples, shell
 │       ├── pmm.lap             # E820 bitmap, alloc/free
@@ -116,7 +118,7 @@ AtomicOS/
 │       ├── keyboard.lap        # PS/2 on IRQ1
 │       ├── console.lap         # VGA text and COM1
 │       └── shell.lap           # line editor and commands
-├── build/                      # boot.bin, kernel.bin, atomicos.img (generated)
+├── build/                      # boot.bin, stage2.bin, kernel.bin, atomicos.img (generated)
 └── tests/qemu_shell_test.sh    # QEMU sendkey checks
 ```
 
@@ -142,7 +144,7 @@ Files under `src/kernel/` other than `copihue/` are not linked into the image.
 ### Prerequisites
 
 ```bash
-# Only nasm, make and QEMU are needed for `make all` / `make run`.
+# nasm, make and QEMU. nasm is what `copihue --boot` and `--flat` invoke.
 # Ubuntu/Debian
 sudo apt-get install build-essential nasm qemu-system-x86
 

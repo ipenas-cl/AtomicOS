@@ -33,6 +33,14 @@ TEMPO_FLAGS =
 
 # Build targets
 BOOTLOADER = $(BUILD_DIR)/boot.bin
+STAGE2 = $(BUILD_DIR)/stage2.bin
+# Stage 1 (boot.lap) loads STAGE2_SECTORS from LBA 1 to STAGE2_ORG.
+# Stage 2 (stage2.lap, --flat STAGE2_ORG) reads the kernel at KERNEL_LBA.
+# boot.lap's `dw 8`, `dw 0x8200` and `jmp 0x8200`, and stage2.lap's `dq 9`,
+# must stay equal to these three values. KERNEL_LBA is 1 + STAGE2_SECTORS.
+STAGE2_ORG = 0x8200
+STAGE2_SECTORS = 8
+KERNEL_LBA = 9
 KERNEL = $(BUILD_DIR)/kernel.bin
 OS_IMAGE = $(BUILD_DIR)/atomicos.img
 TEMPO_BIN = $(BUILD_DIR)/tempo_compiler
@@ -85,10 +93,23 @@ $(BUILD_DIR)/%.inc: $(EXAMPLES_DIR)/%.tempo $(TEMPO_BIN) | $(BUILD_DIR)
 	$(TEMPO_BIN) $< $(BUILD_DIR)/$*.s
 	@cp $(KERNEL_SRC)/$*.inc $@ 2>/dev/null || echo "; Generated from $<" > $@
 
-# Build 64-bit bootloader
-$(BOOTLOADER): $(BOOT_SRC)/boot64.asm | $(BUILD_DIR)
-	@echo "Assembling 64-bit bootloader..."
-	$(AS) $(ASFLAGS) $< -o $@
+# Stage 1: 512-byte Copihue sector. Stage 2: Copihue flat binary at 0x8200.
+$(BOOTLOADER): $(BOOT_SRC)/boot.lap $(COPIHUE) | $(BUILD_DIR)
+	@echo "Compiling stage-1 boot sector with Copihue..."
+	@grep -q 'dw $(STAGE2_SECTORS);' $<
+	@grep -q 'dw $(STAGE2_ORG), 0;' $<
+	@grep -q 'jmp $(STAGE2_ORG)' $<
+	$(abspath $(COPIHUE)) --boot -o $@ $<
+	@test $$(stat -c %s $@) -eq 512
+	@test "$$(tail -c 2 $@ | od -An -tx1 | tr -d ' \n')" = "55aa"
+
+$(STAGE2): $(BOOT_SRC)/stage2.lap $(COPIHUE) | $(BUILD_DIR)
+	@echo "Compiling stage-2 bootloader with Copihue..."
+	@test $(KERNEL_LBA) -eq $$((1 + $(STAGE2_SECTORS)))
+	@grep -q 'dq $(KERNEL_LBA);' $<
+	$(abspath $(COPIHUE)) --flat $(STAGE2_ORG) -o $@ $<
+	@size=$$(stat -c %s $@); echo "stage2.bin: $$size bytes (max $$(($(STAGE2_SECTORS) * 512)))"; \
+	  test $$size -le $$(($(STAGE2_SECTORS) * 512)) || { echo "stage2 too large for its sectors"; rm -f $@; exit 1; }
 
 # Build kernel C files
 # C files removed - AtomicOS is now pure assembly + Tempo modules
@@ -127,7 +148,7 @@ COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap $(KERNEL_SRC)/copihue/key
                      $(KERNEL_SRC)/copihue/gdt.lap $(KERNEL_SRC)/copihue/usermode.lap \
                      $(KERNEL_SRC)/copihue/idt.lap $(KERNEL_SRC)/copihue/shell.lap \
                      $(KERNEL_SRC)/copihue/kernel.lap
-# boot64.asm loads 64 sectors
+# stage2.lap loads 64 sectors from KERNEL_LBA
 KERNEL_MAX_BYTES = 32768
 
 $(KERNEL): $(COPIHUE_KERNEL_SRC) $(COPIHUE) | $(BUILD_DIR)
@@ -142,12 +163,13 @@ $(KERNEL): $(COPIHUE_KERNEL_SRC) $(COPIHUE) | $(BUILD_DIR)
 qemu-test: $(OS_IMAGE)
 	$(TESTS_DIR)/qemu_shell_test.sh $(OS_IMAGE)
 
-# Create OS image
-$(OS_IMAGE): $(BOOTLOADER) $(KERNEL) | $(BUILD_DIR)
+# Create OS image. LBA 0 is stage 1, LBA 1 is stage 2, LBA KERNEL_LBA is the kernel.
+$(OS_IMAGE): $(BOOTLOADER) $(STAGE2) $(KERNEL) | $(BUILD_DIR)
 	@echo "Creating OS image..."
 	dd if=/dev/zero of=$@ bs=512 count=2880 status=none
 	dd if=$(BOOTLOADER) of=$@ conv=notrunc status=none
-	dd if=$(KERNEL) of=$@ bs=512 seek=1 conv=notrunc status=none
+	dd if=$(STAGE2) of=$@ bs=512 seek=1 conv=notrunc status=none
+	dd if=$(KERNEL) of=$@ bs=512 seek=$(KERNEL_LBA) conv=notrunc status=none
 	@echo "AtomicOS v$(VERSION) image created: $@"
 
 # Release management

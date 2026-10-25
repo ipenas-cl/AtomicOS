@@ -1,0 +1,270 @@
+// AtomicOS stage 2. Stage 1 loads this image at 0x8200 and jumps to it
+// in real mode. `copihue --flat 0x8200` (Makefile STAGE2_ORG). The kernel
+// is read from LBA 9 (`dq 9` = 1 + STAGE2_SECTORS) to 0x10000, 64 sectors,
+// the same window boot64.asm used when the kernel started at LBA 1.
+//
+// What the kernel still requires from this file (qemu-test checks it):
+//   CR3 = 0x1000, PML4[0] = 0x2003, PDPT[0] = 0x3003, PD[0] = 0x83
+//   E820 count word at 0x8000, entries of 24 bytes at 0x8004
+//   GDT selectors 0x08/0x10 32-bit, 0x18/0x20 64-bit, stack 0x90000
+//   a far jump to 0x10000 in long mode
+// Do not add a `let` global here. --flat puts .bss before the address
+// calculation of an empty image only when it is empty; a global would
+// move _start off the first byte. Constants live in `data`.
+//
+// Pedido al lenguaje (Copihue v0.23.0, the probes are not in this tree).
+// The lines below are asm() because the compiler's own codegen is
+// 64-bit and nasm rejects it in the mode this code has to run in.
+// Nothing here is a separate .asm file. Same escape hatch as
+// tests/boot/boot_sector.lap and tests/usermode/kernel.lap.
+//
+//   read_cr0() in bits 16 naked fn emits `mov rax, cr0`.
+//     nasm: r16.asm:10: error: instruction not supported in 16-bit mode
+//   write_cr4(read_cr4() | 32) in bits 32 emits `mov rax, cr4`.
+//     nasm: r32.asm:19: error: instruction not supported in 32-bit mode
+//   outb(0x92, inb(0x92) | 2) in bits 16 emits `mov rax, 146`.
+//     nasm: io16.asm:10: error: instruction not supported in 16-bit mode
+//   wrmsr(0xC0000080, rdmsr(0xC0000080) | 0x100) in bits 32 emits
+//     `mov rax, 3221225600` / `shl rdx, 32`.
+//     nasm: m32.asm:19: error: instruction not supported in 32-bit mode
+//   lgdt(&gdtr) where gdtr is a data label:
+//     data_addr.lap:4:11: error: use of undeclared variable 'gdtr'
+//   lgdt of a `let` array in bits 16 emits `lea rax, [...]` / `lgdt [rax]`.
+//     nasm: g16.asm:11: error: impossible combination of address sizes
+//     nasm: g16.asm:11: error: invalid 16-bit effective address
+//     and --boot drops the uninitialized `let` (no label in the sector).
+//   while (1) { hlt(); } in bits 16 naked fn emits `mov rax, 1`.
+//     nasm: loop16.asm:11: error: instruction not supported in 16-bit mode
+//   a local in a naked function:
+//     naked_local.lap:1:18: error: a naked function cannot have local variables
+//   bits 16 fn _start() without naked:
+//     bits_frame.lap:1:12: error: --boot _start must be 'bits 16 naked fn' (real mode, no 64-bit frame)
+//   cpuid():
+//     cpuid_call.lap:2:5: error: unknown function 'cpuid'
+//   ds = 0:
+//     seg.lap:2:8: error: assignment to undeclared variable 'ds'
+//   dq next + 3 in a data block (a page-table entry cannot name its target):
+//     plus.lap:2:12: error: expected ';' after this, found '+'
+// There is no carry-flag expression, so `jc` after int 0x13 / int 0x15
+// is asm as well. cli(), hlt(), int() and ljmp() are real calls.
+
+data kern_packet {
+    db 0x10, 0;
+    dw 64;
+    dw 0, 0x1000;
+    dq 9;
+}
+
+data boot_msg {
+    db "AtomicOS 0.8 64-bit", 13, 10, 0;
+}
+
+data disk_err_msg {
+    db "Disk error!", 13, 10, 0;
+}
+
+data no_lm_msg {
+    db "No64", 13, 10, 0;
+}
+
+data gdt {
+    dq 0;
+    dw 0xFFFF;
+    dw 0;
+    db 0;
+    db 0x9A;
+    db 0xCF;
+    db 0;
+    dw 0xFFFF;
+    dw 0;
+    db 0;
+    db 0x92;
+    db 0xCF;
+    db 0;
+    dw 0;
+    dw 0;
+    db 0;
+    db 0x9A;
+    db 0xAF;
+    db 0;
+    dw 0;
+    dw 0;
+    db 0;
+    db 0x92;
+    db 0;
+    db 0;
+}
+
+data gdtr {
+    dw 39;
+    dd gdt;
+}
+
+bits 16 naked fn _start() {
+    cli();
+    asm("xor ax, ax");
+    asm("mov ds, ax");
+    asm("mov es, ax");
+    asm("mov ss, ax");
+    asm("mov sp, 0x7C00");
+    asm("mov ax, 0x0003");
+    int(0x10);
+    asm("mov si, boot_msg");
+    asm("call print_string");
+    asm("call enable_a20");
+    asm("call load_kernel");
+    asm("jc disk_error");
+    asm("call get_e820");
+    asm("call check_long_mode");
+    asm("jc no_long_mode");
+    asm("call setup_page_tables");
+    cli();
+    asm("lgdt [gdtr]");
+    asm("mov eax, cr0");
+    asm("or eax, 1");
+    asm("mov cr0, eax");
+    ljmp(0x08, protected_mode);
+}
+
+bits 16 naked fn print_string() {
+    asm("push ax");
+    asm("push si");
+    asm("cld");
+    asm(".loop:");
+    asm("lodsb");
+    asm("test al, al");
+    asm("jz .done");
+    asm("mov ah, 0x0E");
+    int(0x10);
+    asm("jmp .loop");
+    asm(".done:");
+    asm("pop si");
+    asm("pop ax");
+}
+
+bits 16 naked fn enable_a20() {
+    asm("in al, 0x92");
+    asm("or al, 2");
+    asm("out 0x92, al");
+}
+
+bits 16 naked fn load_kernel() {
+    asm("mov ah, 0x42");
+    asm("mov si, kern_packet");
+    asm("mov dl, [0x0500]");
+    int(0x13);
+}
+
+bits 16 naked fn get_e820() {
+    asm("xor ebx, ebx");
+    asm("mov di, 0x8004");
+    asm("mov word [0x8000], 0");
+    asm("push ds");
+    asm("pop es");
+    asm(".loop:");
+    asm("mov eax, 0xE820");
+    asm("mov ecx, 24");
+    asm("mov edx, 0x534D4150");
+    asm("mov dword [di + 20], 1");
+    int(0x15);
+    asm("jc .done");
+    asm("cmp eax, 0x534D4150");
+    asm("jne .done");
+    asm("inc word [0x8000]");
+    asm("add di, 24");
+    asm("cmp di, 0x8184");
+    asm("jae .done");
+    asm("test ebx, ebx");
+    asm("jnz .loop");
+    asm(".done:");
+}
+
+bits 16 naked fn check_long_mode() {
+    asm("pushfd");
+    asm("pop eax");
+    asm("mov ecx, eax");
+    asm("xor eax, 0x200000");
+    asm("push eax");
+    asm("popfd");
+    asm("pushfd");
+    asm("pop eax");
+    asm("push ecx");
+    asm("popfd");
+    asm("cmp eax, ecx");
+    asm("je .no");
+    asm("mov eax, 0x80000000");
+    asm("cpuid");
+    asm("cmp eax, 0x80000001");
+    asm("jb .no");
+    asm("mov eax, 0x80000001");
+    asm("cpuid");
+    asm("test edx, 1 << 29");
+    asm("jz .no");
+    asm("clc");
+    asm("ret");
+    asm(".no:");
+    asm("stc");
+}
+
+bits 16 naked fn setup_page_tables() {
+    asm("mov edi, 0x1000");
+    asm("mov cr3, edi");
+    asm("xor eax, eax");
+    asm("mov ecx, 4096");
+    asm("cld");
+    asm("rep stosd");
+    asm("mov edi, 0x1000");
+    asm("mov dword [edi], 0x2003");
+    asm("add edi, 0x1000");
+    asm("mov dword [edi], 0x3003");
+    asm("add edi, 0x1000");
+    asm("mov dword [edi], 0x83");
+}
+
+bits 16 naked fn disk_error() {
+    asm("mov si, disk_err_msg");
+    asm("call print_string");
+    asm(".hang:");
+    hlt();
+    asm("jmp .hang");
+}
+
+bits 16 naked fn no_long_mode() {
+    asm("mov si, no_lm_msg");
+    asm("call print_string");
+    asm(".hang:");
+    hlt();
+    asm("jmp .hang");
+}
+
+bits 32 naked fn protected_mode() {
+    asm("mov ax, 0x10");
+    asm("mov ds, ax");
+    asm("mov es, ax");
+    asm("mov fs, ax");
+    asm("mov gs, ax");
+    asm("mov ss, ax");
+    asm("mov esp, 0x90000");
+    asm("mov eax, cr4");
+    asm("or eax, 1 << 5");
+    asm("mov cr4, eax");
+    asm("mov ecx, 0xC0000080");
+    asm("rdmsr");
+    asm("or eax, 1 << 8");
+    asm("wrmsr");
+    asm("mov eax, cr0");
+    asm("or eax, 1 << 31");
+    asm("mov cr0, eax");
+    ljmp(0x18, long_mode);
+}
+
+bits 64 naked fn long_mode() {
+    asm("mov ax, 0x20");
+    asm("mov ds, ax");
+    asm("mov es, ax");
+    asm("mov fs, ax");
+    asm("mov gs, ax");
+    asm("mov ss, ax");
+    asm("mov rsp, 0x90000");
+    asm("jmp 0x10000");
+}
