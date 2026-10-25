@@ -60,6 +60,13 @@ trace clear
 `clear` vacía el anillo, los perdidos y los contadores; no toca el
 indicador.
 
+El costo de una sonda apagada se midió en QEMU 8.2.2, con el PIT a
+100 Hz. Ocho millones de veces el chequeo `tr_en[4] != 0` (la sonda
+`pit` apagada, sin entrar a `trace_hit`) tardaron 6 o 7 ticks. El
+mismo lazo, sin ese chequeo, tardó 4 ticks en las cuatro corridas. La
+diferencia es 2 o 3 ticks (20 a 30 ms en total), del orden de 3 ns por
+chequeo. El tick mide 10 ms: el número no es más fino que eso.
+
 `trace dump` imprime `trace begin`, una línea `t <tick> <nombre> pid <pid> a <n> b <n>`
 por evento y `trace end n <cuántos> lost <perdidos>`.
 
