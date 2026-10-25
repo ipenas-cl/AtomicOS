@@ -31,9 +31,10 @@
 //
 // Copihue v0.28.1. lodsb y rep_stosd usan el índice tal como está DF,
 // así que clear_df lo deja en claro con cld(). El token de INT 15h
-// vive en ebx; un `if (ebx == 0)` lo pisa (el comparando pasa por ebx),
-// por eso se copia a ebx_save antes de mirarlo y se restaura al volver
-// al lazo. check_long_mode sigue usando pushfd/popfd: ahí se prueba el
+// vive en ebx; un `while` y un `if (ebx == 0)` lo pisan (el comparando
+// pasa por ebx). Se copia a ebx_save antes de mirarlo y se restaura al
+// volver al lazo. En v0.28.1, sin esa copia, QEMU imprimió `e820 n=16`.
+// check_long_mode sigue usando pushfd/popfd: ahí se prueba el
 // bit ID, no se limpia DF. Las llamadas de aquí no tienen argumentos.
 
 data kern_packet {

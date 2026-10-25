@@ -8,8 +8,8 @@ para ese commit es `legacy-tempo`.
 
 ## 0.8
 
-Kernel en Copihue v0.27.3 (commit
-`333f74ae8c82fd679232d754920e335e012483c7`). Esta imagen junta la red
+Kernel en Copihue v0.28.1 (commit
+`4f12ea1ea940d307eca2d2d2c5a914d650b88d00`). Esta imagen junta la red
 e1000, el nombre LapageriaOS, las trazas y las zonas ligeras sobre el
 kernel sin `asm()`. El planificador guarda el marco del shell con
 `save_context` y vuelve con `restore_context`. El PIT y el `#PF` leen
@@ -23,37 +23,42 @@ usa `FsEnt` y `FsSlot`; el slot del directorio sigue midiendo 64.
 No queda `asm()` en el kernel ni en el arranque. `clear_df` es
 `cld()` antes de `lodsb` y de `rep_stosd`. `pushfd` / `popfd` queda
 en `check_long_mode` (bit ID) y en `trace_save_if` (en 64 bits emite
-`pushfq`). `get_e820` copia el token de INT 15h a memoria: un `while`
-y un `if (ebx == 0)` pisan `ebx`.
+`pushfq`). `get_e820` copia el token de INT 15h a memoria: en v0.28.1
+un `while` de `bits 16` sigue haciendo `mov ebx, 0` antes del
+`int 0x15`. Sin esa copia, QEMU imprimió `e820 n=16`; con ella,
+`e820 n=7`.
 
-El arranque es `src/bootloader/boot.lap` (512 bytes) y
-`src/bootloader/stage2.lap` (en `0x8200`). La etapa 2 pide los
-sectores que ocupa `kernel.bin`, de a 128 por INT 13h. En esta
-compilación `kernel.bin` mide 157143 bytes: 307 sectores, LBA 9..315,
-paquete `10 00 33 01 00 00 00 10 09 00 00 00 00 00 00 00`. La `.bss`
-mide 22060 bytes y `0x10000 + kernel.bin + .bss` termina en `0x3BC03`.
+El arranque es `src/bootloader/boot.lap` (512 bytes, firma `55 aa`) y
+`src/bootloader/stage2.lap` (en `0x8200`, 1579 bytes). La etapa 2 pide
+los sectores que ocupa `kernel.bin`, de a 128 por INT 13h. En esta
+compilación `kernel.bin` mide 136535 bytes: 267 sectores, LBA 9..275,
+paquete `10 00 0b 01 00 00 00 10 09 00 00 00 00 00 00 00`. La `.bss`
+mide 22060 bytes y `0x10000 + kernel.bin + .bss` termina en `0x36B83`.
 El archivo puede pasar de `0x20000`; imagen y `.bss` tienen que
 terminar antes de `0x58000` (la pila de `0x60000` crece hacia abajo).
 `make` rechaza un kernel de más de 512 sectores. El disquete tiene
 2880 sectores y después del LBA 8 quedan 2871, así que el tope que
 aprieta es esa pila, no los 1.44 MB. 512 sectores caben: el kernel
-máximo terminaría en el LBA 520 y sobrarían 2359. Cada proceso tiene
+máximo terminaría en el LBA 520 y sobrarían 2359. Con esta `.bss`, ese
+tope llegaría a `0x5562C`, todavía antes de `0x58000`. Cada proceso tiene
 su PML4 y el PIT hace round-robin. La imagen la construyen `make all`
 y la comprueba `make qemu-test`. El árbol de trabajo ya no incluye el
 lenguaje Tempo ni sus salidas generadas.
 
-En `--flat`, un `while` y un store de constante siguen dejando `rax`
-en 0 o en 1. `src/user/zona.lap` guarda el resultado de la syscall en
-`0x401720` antes de compararlo. El ensamblado exacto está en
-`docs/PEDIDOS_COPIHUE.md`.
+En v0.28.1 un `while` y un `if` saltan por los flags, y un store de
+constante no pasa por `rax`. `src/user/zona.lap` pide la cuota con
+`r = syscall(8)` y `if (r == 0 - 1)`. `r` está en la pila. El
+ensamblado está en `docs/PEDIDOS_COPIHUE.md`.
 
 En QEMU 8.2.2, `make qemu-test` de esta imagen terminó en 0: PIT a
-~100 Hz, `#PF`, anillo 3, planificador, disco, sistema de archivos,
-`exec`, zonas, ARP/ICMP del e1000, trazas (contadores, syscalls,
+~100 Hz (ticks 100 → 200 en 1034 ms), `#PF`, anillo 3, planificador,
+disco, sistema de archivos, `exec`, zonas (`zone syscall denied` y
+`zone quota ok`), ARP/ICMP del e1000, trazas (contadores, syscalls,
 sonda apagada y anillo lleno) y un segundo arranque con el mismo
-`data.img`. El humo de 10 s, sin disco de datos, salió 124. No se
-probó `reboot`, `clear`, el teclado a mano, TCP, UDP, AHCI, NVMe, el
-bit NX ni un kernel en la mitad alta.
+`data.img` (`fs persist v2, snap v1, corrupt detected`). El humo de
+10 s, sin disco de datos, salió 124. No se probó `reboot`, `clear`,
+el teclado a mano, TCP, UDP, AHCI, NVMe, el bit NX ni un kernel en
+la mitad alta.
 
 El esclavo IDE (`build/data.img`, QEMU index=1) tiene driver ATA PIO
 LBA28 y bloques de 512 B con CRC-32 en un sector de metadatos. `disk`

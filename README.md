@@ -24,20 +24,20 @@ El número de sectores del kernel no está fijo en el fuente. `stage2.lap` tiene
 
 El archivo puede pasar de `0x20000`. La `.bss` no va en `kernel.bin`; `_start` la limpia justo después. El tope real es la memoria, no el disquete (quedan 2880 − 9 sectores, y eso atravesaría las pilas y pasaría de 1 MB). La primera pila fija está en `0x60000` (`proc_rsp0` del proceso 0) y crece hacia abajo. Entre topes de pila hay 32 KiB (`0x60000`, `0x68000`, `0x70000`, `0x78000`, y más arriba `0x81000`, `0x86000` y `0x90000`), así que imagen y `.bss` tienen que terminar antes de `0x58000`. `make` reserva 32 KiB para la `.bss` y rechaza un `kernel.bin` de más de 512 sectores (256 KiB, el archivo termina a más tardar en `0x50000`). También suma los `resb` y `resq` de la `.bss` y falla si `0x10000 + kernel.bin + .bss` pasa de `0x58000`.
 
-En esta compilación (`copihue` v0.27.3, commit `333f74ae8c82fd679232d754920e335e012483c7`, `wc -l` y `stat`):
+En esta compilación (`copihue` v0.28.1, commit `4f12ea1ea940d307eca2d2d2c5a914d650b88d00`, `wc -l` y `stat`):
 
 | Archivo | Tamaño |
 |---|---|
-| `build/boot.bin` | 512 bytes |
-| `build/stage2.bin` | 1707 bytes (cabe en 8 × 512) |
-| `build/kernel.bin` | 157143 bytes → 307 sectores (LBA 9..315). La `.bss` mide 22060 bytes y `0x10000 + kernel.bin + .bss` termina en `0x3BC03` |
+| `build/boot.bin` | 512 bytes, firma `55 aa` |
+| `build/stage2.bin` | 1579 bytes (cabe en 8 × 512) |
+| `build/kernel.bin` | 136535 bytes → 267 sectores (LBA 9..275). La `.bss` mide 22060 bytes y `0x10000 + kernel.bin + .bss` termina en `0x36B83` |
 | `src/bootloader/boot.lap` | 70 líneas, ninguna `asm("...")` |
-| `src/bootloader/stage2.lap` | 262 líneas, ninguna `asm("...")` |
-| `src/kernel/copihue/*.lap` | 7372 líneas, ninguna `asm("...")`. `exec_img.lap` y `zone_img.lap` los genera `mkaxe.sh` y no entran en ese conteo |
+| `src/bootloader/stage2.lap` | 263 líneas, ninguna `asm("...")` |
+| `src/kernel/copihue/*.lap` | 5230 líneas, ninguna `asm("...")`. `exec_img.lap` y `zone_img.lap` los genera `mkaxe.sh` y no entran en ese conteo |
 
-`copihue --help` en v0.27.3 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 33 01 00 00 00 10 09 00 00 00 00 00 00 00`: 307 sectores (`0x0133`) desde LBA 9 hacia `0x1000:0`. 307 pasa de 128 dos veces, así que la etapa 2 manda 128, después 128 y al final 51. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt en el pin anterior: el segundo paquete no pisa el kernel.
+`copihue --help` en v0.28.1 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 0b 01 00 00 00 10 09 00 00 00 00 00 00 00`: 267 sectores (`0x010B`) desde LBA 9 hacia `0x1000:0`. 267 pasa de 128 dos veces, así que la etapa 2 manda 128, después 128 y al final 11. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt en el pin anterior: el segundo paquete no pisa el kernel. Esta corrida no repitió esa imagen.
 
-El tope que aplica `make` es 512 sectores de `kernel.bin`. Sale de la memoria, no del disquete. La imagen tiene 2880 sectores; después del LBA 8 quedan 2871, y 512 caben (el kernel máximo terminaría en el LBA 520, y sobran 2359 sectores). 512 × 512 bytes terminan en `0x50000`. La reserva de 32 KiB para la `.bss` llega justo a `0x58000`, antes de la pila de `0x60000`. Esta imagen usa 307 de esos 512. La `.bss` real mide 22060 bytes, así que `0x10000 + kernel.bin + .bss` queda en `0x3BC03`, con 115709 bytes libres hasta `0x58000`. Si el archivo creciera hasta el tope de 512 y la `.bss` se quedara en 22060, el final sería `0x5560C`, todavía antes de `0x58000`. El otro freno es ese final: `make` falla si la suma pasa de `0x58000`, aunque el archivo quepa en 512 sectores.
+El tope que aplica `make` es 512 sectores de `kernel.bin`. Sale de la memoria, no del disquete. La imagen tiene 2880 sectores; después del LBA 8 quedan 2871, y 512 caben (el kernel máximo terminaría en el LBA 520, y sobran 2359 sectores). 512 × 512 bytes terminan en `0x50000`. La reserva de 32 KiB para la `.bss` llega justo a `0x58000`, antes de la pila de `0x60000`. Esta imagen usa 267 de esos 512. La `.bss` real mide 22060 bytes, así que `0x10000 + kernel.bin + .bss` queda en `0x36B83`, con 136317 bytes libres hasta `0x58000`. Si el archivo creciera hasta el tope de 512 y la `.bss` se quedara en 22060, el final sería `0x5562C`, todavía antes de `0x58000`. El otro freno es ese final: `make` falla si la suma pasa de `0x58000`, aunque el archivo quepa en 512 sectores. v0.28.1 cambia el código de los `if` y los stores de constante; los offsets fijos (LBA, `0x10000`, `0x8000`, CR3 `0x1000`, pilas, `0x400000`) no dependen de ese tamaño y `make` los volvió a comprobar.
 
 Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `lapageria>`.
 
@@ -68,9 +68,9 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - `net`: con `-nic none -netdev user,id=n0 -device e1000,netdev=n0`, el kernel pide ARP a `10.0.2.2` (`net arp ok`), manda ICMP echo a esa puerta (`net ping ok`) y descarta una trama cuyo largo IP no cabe en el buffer (`net drop ok`). Si QEMU no tiene esa red, el script falla al tiro y no espera el ping. Ver [docs/red.md](docs/red.md);
 - `trace`: los contadores de `#PF` y de `switch` coinciden con lo que imprimió `sched` (`trace counters ok`); `exec hola` con `sys-enter` y `sys-exit` deja las syscalls de «desde disco» en orden y con pid 1 (`trace syscall ok`); apagadas, otro `exec hola` no graba (`trace off ok`); `pit` llena el anillo, cuenta perdidos y el shell sigue (`trace overflow ok`). Ver [docs/trace.md](docs/trace.md).
 
-En QEMU 8.2.2, con el pin v0.27.3 y esta imagen (red, trazas y zonas), `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 933 ms, ticks 200 → 417, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm high ok 0x00201000`, letras `babbababbaaa`, `switch timer=25 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473, `trace counters ok`, `ata ok`, `blk ok`, `blk corrupt detected`, `trace syscall ok`, `trace off ok`, `exec` (`desde disco`, nombre que no está, magic malo, tamaño de más y archivo corrupto), la zona (`zone fs`, denegada, syscall, cuota con memoria libre 32473 y fuga), `net arp ok`, `net ping ok`, `net drop ok`, `trace overflow ok`, `#UD`, y después del segundo arranque con el mismo `data.img` la línea `fs persist v2, snap v1, corrupt detected`. `version` imprime Copihue v0.27.3. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba.
+En QEMU 8.2.2, con el pin v0.28.1 y esta imagen (red, trazas y zonas), `make qemu-test` terminó en 0 e imprimió: ticks 100 → 200 en 1034 ms, ticks 200 → 416, `kbd_irqs=151`, `cr3=0x1000`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `pmm ok, high page 0x00201000`, letras `babababababa`, `switch timer=25 yield=4`, `exit` liberó 7+6 páginas y el asignador volvió a 32473, `trace counters ok`, `ata ok`, `blk ok`, `blk corrupt detected`, `trace syscall ok`, `trace off ok`, `exec` (`desde disco`, nombre que no está, magic malo, tamaño de más y archivo corrupto), la zona (`zone fs, denied, syscall, quota mem 32473, escape`), `net arp ok`, `net ping ok`, `net drop ok`, `trace overflow ok`, `#UD`, y después del segundo arranque con el mismo `data.img` la línea `fs persist v2, snap v1, corrupt detected`. Un arranque corto de la misma imagen imprimió `LapageriaOS 0.8 - kernel written in Copihue v0.28.1` y `e820 n=7`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba.
 
-El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img -display none -no-reboot`, sin disco de datos) salió con código 124: el proceso seguía vivo. Esa corrida no escribe comandos. No se probó `reboot`, `clear`, el teclado a mano en `make qemu`, TCP, UDP, AHCI, NVMe, el bit NX ni un kernel enlazado en la mitad alta. Sin el disco de datos, `disk` imprime `ata fail 1`.
+El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img -display none -no-reboot`, sin disco de datos) salió con código 124: el proceso seguía vivo. Esa corrida no escribe comandos. No se probó `reboot`, `clear`, el teclado a mano en `make qemu`, TCP, UDP, AHCI, NVMe, el bit NX ni un kernel enlazado en la mitad alta. `get_e820` sin la copia de `ebx` se probó aparte: QEMU imprimió `e820 n=16`, así que el rodeo sigue. El detalle está en [docs/PEDIDOS_COPIHUE.md](docs/PEDIDOS_COPIHUE.md).
 
 ## Cómo compilar y probar
 
@@ -104,7 +104,7 @@ qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img \
     -display none -serial stdio
 ```
 
-El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.27.3`, commit `333f74ae8c82fd679232d754920e335e012483c7`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
+El compilador está fijado en el Makefile (`COPIHUE_COMMIT ?= v0.28.1`, commit `4f12ea1ea940d307eca2d2d2c5a914d650b88d00`, repositorio `https://github.com/ipenas-cl/copihue.git`). `make` lo construye en `build/copihue`. Para un binario ya compilado:
 
 ```bash
 make COPIHUE=/ruta/al/copihue all
@@ -169,7 +169,7 @@ El estado de cada etapa es el de la imagen que arranca `make qemu-test`.
 
 ### 1. Arranque y consola — en la imagen
 
-Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. En v0.27.3, `boot.lap` y `stage2.lap` no tienen `asm()`: los segmentos, `jmp`, los stores con ancho, `lodsb`, `rep_stosd`, `cld()`, `pushfd` / `popfd` y `push` / `pop` están en el lenguaje. El lazo que parte el kernel en paquetes de 128 sectores también. `clear_df` es `cld()` antes de `lodsb` y de `rep_stosd`. `check_long_mode` sigue con `pushfd` / `popfd` para probar el bit ID. En el kernel no queda `asm()`: `save_context` guarda el marco de `sched_go` y de `enter_user`, `restore_context` vuelve al shell, y el PIT y el `#PF` usan el puntero al marco. La red, las trazas, las zonas, el sistema de archivos y `exec` tampoco agregan `asm()`. `dq page + 3` ensambla, pero las tablas tienen que quedar en la dirección física `0x1000`, fuera de esta imagen.
+Dos etapas en Copihue, modo largo, kernel en Copihue, VGA y COM1, shell con los comandos de arriba. En v0.28.1, `boot.lap` y `stage2.lap` no tienen `asm()`: los segmentos, `jmp`, los stores con ancho, `lodsb`, `rep_stosd`, `cld()`, `pushfd` / `popfd` y `push` / `pop` están en el lenguaje. El lazo que parte el kernel en paquetes de 128 sectores también. `clear_df` es `cld()` antes de `lodsb` y de `rep_stosd`. `check_long_mode` sigue con `pushfd` / `popfd` para probar el bit ID. En el kernel no queda `asm()`: `save_context` guarda el marco de `sched_go` y de `enter_user`, `restore_context` vuelve al shell, y el PIT y el `#PF` usan el puntero al marco. La red, las trazas, las zonas, el sistema de archivos y `exec` tampoco agregan `asm()`. `dq page + 3` ensambla, pero las tablas tienen que quedar en la dirección física `0x1000`, fuera de esta imagen. La cuota de la zona guarda el -1 en un local de pila; el token de INT 15h sigue copiado a memoria porque un `while` de `bits 16` pisa `ebx`.
 
 ### 2. Interrupciones y temporizador — en la imagen
 

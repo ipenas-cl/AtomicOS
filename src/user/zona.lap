@@ -102,6 +102,18 @@ naked fn say_escape() {
     emit(10);
 }
 
+// r vive en la pila de 0x402000. Un let de _start naked caería en la
+// página de código, y el kernel la deja solo lectura.
+fn zone_pages() {
+    let r: i64 = 0;
+    let n: i64 = 0;
+    while (r == 0 && n <= 8) {
+        r = syscall(8);
+        if (r == 0) { n = n + 1; }
+    }
+    if (r == 0 - 1) { say_quota(); }
+}
+
 naked fn _start() {
     *(0x401800 as *u8) = 110;
     *(0x401801 as *u8) = 0;
@@ -149,27 +161,7 @@ naked fn _start() {
     syscall();
     if (rax == 0 - 1) { say_sys(); }
 
-    // v0.27.3 sigue dejando rax en 0 o 1 al evaluar while/if, y un
-    // store de constante también es `mov rax, 0`. El resultado se
-    // guarda en 0x401720 antes de mirarlo. 0x401718 recuerda el -1.
-    // El ensamblado está en docs/PEDIDOS_COPIHUE.md.
-    *(0x401710 as *u8) = 0;
-    *(0x401718 as *u8) = 0;
-    *(0x401728 as *u8) = 1;
-    while (*(0x401728 as *u8) == 1) {
-        rax = 8;
-        syscall();
-        *(0x401720 as *i64) = rax;
-        if (*(0x401720 as *i64) == 0 - 1) { *(0x401718 as *u8) = 1; }
-        if (*(0x401720 as *i64) != 0) { *(0x401728 as *u8) = 0; }
-        if (*(0x401720 as *i64) == 0) {
-            rbp = *(0x401710 as *u8);
-            rbp = rbp + 1;
-            *(0x401710 as *u8) = rbp;
-            if (rbp > 8) { *(0x401728 as *u8) = 0; }
-        }
-    }
-    if (*(0x401718 as *u8) == 1) { say_quota(); }
+    zone_pages();
 
     rax = 9;
     rdi = 0;

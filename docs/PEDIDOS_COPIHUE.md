@@ -2,8 +2,10 @@
 
 Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
 
-Compilador fijado en el Makefile: v0.27.3, commit
-`333f74ae8c82fd679232d754920e335e012483c7`.
+Compilador fijado en el Makefile: v0.28.1, commit
+`4f12ea1ea940d307eca2d2d2c5a914d650b88d00`. El tag es ligero: `git
+ls-remote` y `gh` devuelven ese commit, y `git -C build/copihue
+rev-parse HEAD` después del `make` también.
 
 ## Cerrado en v0.27.0 y v0.27.1
 
@@ -45,56 +47,83 @@ Un `if (ebx == 0)` igual lo pisa (`mov ebx, eax` con el cero del
 comparando), así que `get_e820` copia el token a memoria antes de
 mirarlo y lo restaura al volver al lazo.
 
-`syscall(n, a, ...)` existe en `--flat`. El programa de la zona
-sigue con `syscall()` sin argumentos: el resultado queda en `rax` y
-el caso de abajo lo pisa igual.
+`syscall(n, a, ...)` existe en `--flat`. En v0.27.3 el programa de la
+zona seguía con `syscall()` sin argumentos: el resultado quedaba en
+`rax` y el caso de abajo lo pisaba igual.
 
-## Sigue abierto: `rax` no sobrevive a un `if` ni a un `while`
+## Cerrado en v0.28.1: `rax` sobrevive al `if` y al `while`
 
-No hay error: `copihue` termina en 0. La condición deja `rax` en 0 o
-en 1 (`sete` / `movzx`). Un `while (rax == 0)` que sale porque `rax`
-era -1 sigue con `rax == 0`. Un store de constante (`*(p as *u8) = 0`)
-también es `mov rax, 0` y pisa el valor de la syscall de arriba.
+Un `if` o un `while` cuya condición es una comparación salta por los
+flags. No deja 0 o 1 en `rax`. Un store de una constante que cabe en
+el apuntado es `mov tamaño [addr], imm` y no pasa por `rax`.
 
-Esto es lo que tendría que conservar el -1 de la syscall 8:
+La cuota de `src/user/zona.lap` quedó así. `r` es un local de
+`zone_pages` (pila de `0x402000`). Un `let` dentro del `_start` naked
+caería en la página de código, y el kernel la mapea solo lectura:
 
 ```copihue
-rax = 8;
-syscall();
-while (rax == 0) {
-    rax = 8;
-    syscall();
+let r: i64 = 0;
+let n: i64 = 0;
+while (r == 0 && n <= 8) {
+    r = syscall(8);
+    if (r == 0) { n = n + 1; }
 }
-if (rax == 0 - 1) { emit(33); }
+if (r == 0 - 1) { say_quota(); }
 ```
 
-Con v0.27.3 (`copihue --flat 0x400000 -S`, commit
-`333f74ae8c82fd679232d754920e335e012483c7`) la salida del `while` es:
+`copihue --flat 0x400000 -S` con este pin escribe la syscall y guarda
+`r` antes de comparar. Al salir del `while` recarga ese slot, resta 1
+y salta con `jne`. No hay `sete`:
 
 ```
+mov rax, 8
 syscall
-.L0:
-    push rax
-    mov rax, 0
-    mov rbx, rax
-    pop rax
-    cmp rax, rbx
-    sete al
-    movzx rax, al
-    test rax, rax
-    jz .L1
+mov [rbp-8], rax
 ```
 
-Cuando la syscall devuelve -1, el salto sale con `rax == 0` y el
-`if` de abajo no ve el -1. El store de constante, en la misma
-corrida, es:
-
 ```
-syscall
+mov rax, [rbp-8]
+push rax
 mov rax, 0
-mov byte [4200200], al
+push rax
+mov rax, 1
+mov rbx, rax
+pop rax
+sub rax, rbx
+mov rbx, rax
+pop rax
+cmp rax, rbx
+jne .L23
+call say_quota
 ```
 
-`0x401708` queda en cero y `rax` también, antes del `if`. El programa
-de la zona guarda el resultado en `0x401720` antes de comparar.
-`src/user/zona.lap` no puede soltar ese rodeo.
+En QEMU 8.2.2, `make qemu-test` de esta imagen terminó en 0. La línea
+de la zona fue `zone fs, denied, syscall, quota mem 32473, escape`:
+la syscall 2 denegada devolvió -1 (`zone syscall denied`) y la cuota
+también (`zone quota ok`). El resultado no se perdió.
+
+## Sigue abierto: el comparando de `bits 16` pasa por `ebx`
+
+v0.28.1 no escribe el booleano en `eax`, pero el otro lado de la
+comparación sigue siendo `mov ebx, <valor>`. El token de INT 15h vive
+en `ebx`. Este `while` lo pone a cero antes de `int 0x15`:
+
+```
+mov eax, 0
+mov ebx, eax
+pop edx
+pop eax
+cmp eax, ebx
+je .L11
+mov ecx, 24
+mov edx, 1397571920
+mov dword [di+20], 1
+mov eax, 59424
+int 21
+```
+
+Eso es `get_e820` sin `ebx_save`, compilado con este pin
+(`copihue --flat 0x8200 -S`). La copia que está en `stage2.lap`
+repone el token al entrar al cuerpo. Sin ella, el mismo kernel y
+QEMU 8.2.2 imprimieron `e820 n=16`. Con la copia, el arranque corto y
+`make qemu-test` imprimieron `e820 n=7`. El rodeo se queda.
