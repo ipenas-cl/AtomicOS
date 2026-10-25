@@ -336,8 +336,8 @@ fn net_read_mac() -> i64 {
         net_mac[5] = (rah >> 8) & 255;
     }
     if (net_mac_ok() == 0) { return net_fail("net fail mac\n"); }
-    let ral = (net_mac[0] & 255) | ((net_mac[1] & 255) << 8) | ((net_mac[2] & 255) << 16) | ((net_mac[3] & 255) << 24);
-    let rah = (net_mac[4] & 255) | ((net_mac[5] & 255) << 8) | 0x80000000;
+    let ral = (net_mac[0] & 255) | (((net_mac[1] & 255) as i64) << 8) | (((net_mac[2] & 255) as i64) << 16) | (((net_mac[3] & 255) as i64) << 24);
+    let rah = (net_mac[4] & 255) | (((net_mac[5] & 255) as i64) << 8) | 0x80000000;
     e_wr(0x5400, ral);
     e_wr(0x5404, rah);
     if ((e_rd(0x5400) & 0xFFFFFFFF) != (ral & 0xFFFFFFFF)) { return net_fail("net fail mac\n"); }
@@ -487,7 +487,7 @@ fn net_csum(p: *u8, off: i64, n: i64) -> i64 {
         s = s + ((hi << 8) | lo);
         i = i + 2;
     }
-    if (i < n) { s = s + ((p[off + i] & 255) << 8); }
+    if (i < n) { s = s + (((p[off + i] & 255) as i64) << 8); }
     while ((s >> 16) != 0) {
         s = (s & 65535) + (s >> 16);
     }
@@ -658,7 +658,7 @@ fn net_arp(p: *u8, hw: i64) -> i64 {
     if ((a.ht_hi & 255) != 0 || (a.ht_lo & 255) != 1) { return 1; }
     if ((a.pt_hi & 255) != 0x08 || (a.pt_lo & 255) != 0) { return 1; }
     if ((a.hlen & 255) != 6 || (a.plen & 255) != 4) { return 1; }
-    let oper = ((a.op_hi & 255) << 8) | (a.op_lo & 255);
+    let oper = (((a.op_hi & 255) as i64) << 8) | (a.op_lo & 255);
     if (oper != 1 && oper != 2) { return 1; }
     let for_us = 0;
     let i = 0;
@@ -694,10 +694,10 @@ fn net_ip(p: *u8, hw: i64) -> i64 {
     let ihl = (vi & 15) * 4;
     if (ihl < 20 || ihl > 60) { return 1; }
     if (hw < sizeof(EthHdr) + ihl) { return 1; }
-    let total = ((ip.len_hi & 255) << 8) | (ip.len_lo & 255);
+    let total = (((ip.len_hi & 255) as i64) << 8) | (ip.len_lo & 255);
     if (total < ihl || total > 1500) { return 1; }
     if (sizeof(EthHdr) + total > hw) { return 1; }
-    let frag = ((ip.frag_hi & 255) << 8) | (ip.frag_lo & 255);
+    let frag = (((ip.frag_hi & 255) as i64) << 8) | (ip.frag_lo & 255);
     if ((frag & 0x3FFF) != 0) { return 0; }
     if (net_csum(p, offsetof(IpPkt, vihl), ihl) != 0) { return 1; }
     if ((ip.proto & 255) != 1) { return 0; }
@@ -720,8 +720,8 @@ fn net_ip(p: *u8, hw: i64) -> i64 {
         return 0;
     }
     if (typ == 0 && code == 0 && net_b4(ip.sip[0], ip.sip[1], ip.sip[2], ip.sip[3], 10, 0, 2, 2) != 0) {
-        let id = ((ic.id_hi & 255) << 8) | (ic.id_lo & 255);
-        let seq = ((ic.seq_hi & 255) << 8) | (ic.seq_lo & 255);
+        let id = (((ic.id_hi & 255) as i64) << 8) | (ic.id_lo & 255);
+        let seq = (((ic.seq_hi & 255) as i64) << 8) | (ic.seq_lo & 255);
         if (id == 0x4242 && seq == 1 && total - ihl >= sizeof(IcmpEcho)) {
             if ((ic.data[0] & 255) == 0x41 && (ic.data[1] & 255) == 0x54 && (ic.data[2] & 255) == 0x4F && (ic.data[3] & 255) == 0x4D) {
                 net_ping_seen = 1;
@@ -734,7 +734,7 @@ fn net_ip(p: *u8, hw: i64) -> i64 {
 fn net_frame(p: *u8, hw: i64) -> i64 {
     if (hw < sizeof(EthHdr) || hw > 2048) { return 1; }
     let e: *EthHdr = p as *EthHdr;
-    let et = ((e.et_hi & 255) << 8) | (e.et_lo & 255);
+    let et = (((e.et_hi & 255) as i64) << 8) | (e.et_lo & 255);
     if (et == 0x0806) { return net_arp(p, hw); }
     if (et == 0x0800) { return net_ip(p, hw); }
     return 0;

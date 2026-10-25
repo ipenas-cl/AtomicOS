@@ -2,11 +2,11 @@
 
 Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
 
-Compilador fijado en el Makefile: v0.29.4, commit
-`cac6fc27453c0136711e5de4ead703f836eff987`. El tag es ligero: `git
-ls-remote` devuelve ese commit para `refs/tags/v0.29.4` y para
+Compilador fijado en el Makefile: v0.30.0, commit
+`899dc7de7ce362e61dd4fa3ae384f64176a64a86`. El tag es ligero: `git
+ls-remote` devuelve ese commit para `refs/tags/v0.30.0` y para
 `HEAD`. `git -C build/copihue rev-parse HEAD` después del `make`
-también, y `copihue --version` imprime `Copihue 0.29.4`.
+también, y `copihue --version` imprime `Copihue 0.30.0`.
 
 ## Cerrado en v0.27.0 y v0.27.1
 
@@ -206,6 +206,7 @@ pop edx
 pop eax
 add eax, ebx
 pop ebx
+movzx eax, ax
 mov word [32768], ax
 movzx eax, di
 push ebx
@@ -226,8 +227,11 @@ push ebx
 ```
 
 `[di+20]` y `[32768]` son un operando de memoria. El `pop ebx` del `+`
-ocurre antes del store. `lgdt` de esta etapa es `lgdt [gdtr]`, después
-de que `get_e820` vuelve.
+ocurre antes del store. v0.30.0 mete `movzx eax, ax` entre ese `pop` y
+el `mov word`: el destino es un `u16` y el `+` recorta. El store sigue
+escribiendo `ax`. El mapa para antes de `di >= 0x8184`, así que el
+conteo no pasa de 16 bits. `lgdt` de esta etapa es `lgdt [gdtr]`,
+después de que `get_e820` vuelve.
 
 En QEMU 8.2.2, `make qemu-test` de esta imagen terminó en 0 e imprimió
 `e820 n=7` y `pmm free=32480 base=0x0000000000100000
@@ -316,3 +320,119 @@ escribe en `[32768]`. Los stores `kern_packet+N` sí pasan por `ebx`, y
 están en `load_kernel`, antes de `get_e820`. `lgdt(&gdtr)` es la
 etiqueta y va después. En `protected_mode` (`bits 32`) no hay
 `int 0x15` ni un uso del token.
+
+## v0.30.0: el `<<` de un `u8` recorta
+
+Un `u8` (un byte de un arreglo o de un campo) operado con un literal
+que cabe en 8 bits sigue siendo `u8`. El desplazamiento usa el
+operando izquierdo, así que `(b[0] & 255) << 8` recorta después del
+`shl` y el byte alto queda en 0. El `or` de dos `u8` también recorta.
+Esta función se compiló con `copihue --freestanding` de este pin. No
+se ejecutó:
+
+```copihue
+fn pack(b: *u8) -> i64 {
+    return ((b[0] & 255) << 8) | (b[1] & 255);
+}
+```
+
+```
+shl rax, cl
+movzx rax, al
+```
+
+```
+or rax, rbx
+movzx rax, al
+```
+
+El mismo `<<` con el byte ensanchado a `i64` no recorta el
+desplazamiento ni el `or`:
+
+```copihue
+fn pack_wide(b: *u8) -> i64 {
+    return (((b[0] & 255) as i64) << 8) | (b[1] & 255);
+}
+```
+
+```
+shl rax, cl
+```
+
+```
+or rax, rbx
+```
+
+No pedimos que un `<<` de `u8` deje de recortar. El kernel ensancha
+con `as i64` donde el byte es la parte alta de un entero de más de 8
+bits: la palabra IDENTIFY (`ata_id_word`), la MAC que se reescribe en
+el e1000, el ethertype, el largo IP, el fragmento, el id y la
+secuencia ICMP, el opcode ARP y el byte impar del checksum. `hi` y
+`lo` de `net_csum` siguen sin tipo: el acumulador es `i64` y `(hi <<
+8) | lo` no recorta. `ata_pio_out` hace lo mismo con `let lo` y `let
+hi`.
+
+El CRC-32 no cambió de forma. `crc` no tiene tipo, así que sigue en
+`i64`. `p[i] & 255` recorta a `u8` (`movzx rax, al`) y el valor ya
+estaba en 0..255. El `>> 1` es del acumulador, y `& 0x7FFFFFFF`
+después. `parse_int` resta `'0'` solo dentro de `line[i]` entre `'0'`
+y `'9'`; el `movzx rax, al` deja 0..9. `fs_commit` hace `s.gen + 1`
+con `gen` en `u32` (`mov eax, eax`). Es un solo `add`: el `u32` que
+vuelve a `s.gen` es el mismo que el store recortaba antes, también si
+`gen` era `0xFFFFFFFF` (el local `i64` sí difiere en ese borde; no se
+ejecutó). `e_rd` hace `p[0] & 0xFFFFFFFF` (`mov eax, eax`); el MMIO es
+de 32 bits y el `i64` devuelto es ese valor con ceros arriba. Las
+páginas y las PTE se mueven en `i64` / `u64`. No hay un `<<` de un
+`u32` en esta imagen. Los contadores (`ticks`, IRQ, trazas) son
+`i64`.
+
+## Para v0.31.0: conversiones implícitas puntero/entero
+
+El chequeo de este pin ya separa puntero de entero. Lo que sigue
+acepta sin `as` es lo que este árbol usa. Se listó compilando boot,
+stage2, kernel y los dos programas de usuario con el fuente de
+`899dc7de`, anotando cada permiso de `check_types` y cada `+`/`-`
+entre puntero e entero. El compilador del repositorio no se tocó.
+Cero errores. No apareció `ptr+int`, ni un puntero pasado a un
+`i64`, ni `*volatile T` asignado a `*T`, ni `*i8` contra `*u8`.
+
+Un literal entero no negativo puede inicializar cualquier puntero.
+Son direcciones físicas:
+
+- `console.lap` 36, 49 y 72: `*u16 = 0xB8000`
+- `pmm.lap` 104: `*u16 = 0x8000`
+- `pmm.lap` 193: `*u8 = 0x300000`
+- `sched.lap` 307: `*u8 = 0x10000`
+- `sched.lap` 334: `*u8 = 0x300000`
+- `sched.lap` 356: `*u8 = 0x400000`
+- `shell.lap` 276: `*u8 = 0x200000`
+- `usermode.lap` 116: `*u8 = 0x400000`
+- `usermode.lap` 150: `*u64 = 0x1000`
+- `usermode.lap` 152: `*u64 = 0x2000`
+- `zone.lap` 355 y 365: `*u8 = 0x401C00`
+
+Tiene que seguir permitido. Un entero que no es literal no se asigna
+a un puntero sin `as` (ya es error en 0.30.0) y este árbol no lo hace.
+
+`kernel.lap` 31: `bss_end() - bss_start()` es `*u8 - *u8` y el
+resultado es `i64`. Es el largo de la `.bss`. Tiene que seguir
+siendo un entero.
+
+Estos builtins reciben la dirección en un hueco sin tipo. El
+argumento es `&` de un struct, o sea un puntero:
+
+- `stage2.lap` 120: `lgdt(&gdtr)` (en `bits 16` el tipo es dirección)
+- `gdt.lap` 111: `lgdt(&gdtr)` (`*DescPtr`)
+- `idt.lap` 262: `lidt(&idtr)` (`*DescPtr`)
+- `gdt.lap` 121: `restore_context(&shell_ctx)` (`*Ctx`)
+- `sched.lap` 479 y `usermode.lap` 158: `save_context(&shell_ctx)` (`*Ctx`)
+
+`lgdt`, `lidt`, `save_context` y `restore_context` tienen que seguir
+aceptando ese puntero. `invlpg` en este árbol recibe un `i64` (`va` o
+el literal `0x300000`), no un puntero.
+
+El resto ya es `as` y tiene que seguir compilando, no volverse
+implícito: `i64` a `*T` y a `*volatile u32`, puntero a `i64`/`u64`
+antes de sumar (`p as i64 + n`, `gdt as u64`, `idt as u64`), `*u8` a
+un puntero de struct, y `(byte & 255) as i64` antes de un `<<`. Una
+cadena literal ya es `*u8`; no es un entero.

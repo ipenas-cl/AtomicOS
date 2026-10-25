@@ -116,7 +116,9 @@ fn ata_pio_out(src: *u8) -> i64 {
 
 fn ata_id_word(n: i64) -> i64 {
     let o = n * 2;
-    return (ata_id[o] & 255) | ((ata_id[o + 1] & 255) << 8);
+    // v0.30.0 recorta el << al u8 de la izquierda. Sin el cast, el
+    // byte alto sale 0 y LBA28 se lee mal.
+    return (ata_id[o] & 255) | (((ata_id[o + 1] & 255) as i64) << 8);
 }
 
 fn ata_identify() -> i64 {
