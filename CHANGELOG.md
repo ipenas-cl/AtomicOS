@@ -8,11 +8,11 @@ para ese commit es `legacy-tempo`.
 
 ## 0.8
 
-Kernel en Copihue v0.29.2 (commit
-`584f731121744c3683ad610a9dab0b021e702ca5`). `git ls-remote` devuelve
+Kernel en Copihue v0.29.4 (commit
+`cac6fc27453c0136711e5de4ead703f836eff987`). `git ls-remote` devuelve
 ese commit para el tag y para `HEAD`. `git -C build/copihue rev-parse
 HEAD` después del `make` también, y `copihue --version` imprime
-`Copihue 0.29.2`. Esta imagen junta la red e1000, el nombre
+`Copihue 0.29.4`. Esta imagen junta la red e1000, el nombre
 LapageriaOS, las trazas y las zonas ligeras sobre el kernel sin
 `asm()`. El planificador guarda el marco del shell con `save_context`
 y vuelve con `restore_context`. El PIT y el `#PF` leen el marco de la
@@ -26,17 +26,18 @@ bloque y la cabecera AXE1 son structs; el disco no cambia. `EthHdr`,
 queda `asm()` en el kernel ni en el arranque. `clear_df` es `cld()`
 antes de `lodsb` y de `rep_stosd`. `pushfd` / `popfd` queda en
 `check_long_mode` (bit ID) y en `trace_save_if` (en 64 bits emite
-`pushfq`). `get_e820` sigue copiando el token de INT 15h a memoria.
-En v0.29.2 un `while` y un `if` de `bits 16` hacen `push ebx` /
-`cmp` / `pop ebx`, así que la comparación ya no deja el cero en
-`ebx`. Un `+` fuera de la condición sí: `di = di + 24` deja 24 en
-`ebx`. Sin la copia, QEMU 8.2.2 imprimió `e820 n=1` (una entrada en
-0 y el fallback, `pmm free=256`). Con la copia, `e820 n=7`. El caso
-mínimo está en `docs/PEDIDOS_COPIHUE.md`.
+`pushfq`). `get_e820` escribe el token de INT 15h en `ebx`. En
+v0.29.2 un `+` fuera de la condición dejaba el sumando ahí (`di = di
++ 24` dejaba 24) y sin la copia QEMU imprimía `e820 n=1`. v0.29.4
+hace `push ebx` / `pop ebx` alrededor de ese `+`. Con `ebx` directo,
+QEMU 8.2.2 imprimió `e820 n=7` y `pmm free=32480`. Un store de
+dirección no simple y `lgdt` / `lidt` / `invlpg` sin etiqueta todavía
+dejan `ebx` modificado; `get_e820` no los usa entre el `int 0x15` y
+el `if (ebx == 0)`. El caso está en `docs/PEDIDOS_COPIHUE.md`.
 
 El arranque es `src/bootloader/boot.lap` (512 bytes, firma `55 aa`;
 el último byte distinto de cero antes de la firma está en el offset
-168) y `src/bootloader/stage2.lap` (en `0x8200`, 1643 bytes). La
+168) y `src/bootloader/stage2.lap` (en `0x8200`, 1678 bytes). La
 etapa 2 pide los sectores que ocupa `kernel.bin`, de a 128 por INT
 13h. En esta compilación `kernel.bin` mide 136535 bytes: 267
 sectores, LBA 9..275, paquete `10 00 0b 01 00 00 00 10 09 00 00 00
@@ -60,7 +61,7 @@ constante no pasa por `rax`. `src/user/zona.lap` pide la cuota con
 ensamblado está en `docs/PEDIDOS_COPIHUE.md`.
 
 En QEMU 8.2.2, `make qemu-test` de esta imagen terminó en 0. El
-script imprimió ticks 100 → 200 en 1067 ms, ticks 200 → 426,
+script imprimió ticks 100 → 200 en 933 ms, ticks 200 → 416,
 `keyboard IRQ count=151`, `cr3=0x1000 pml4=0x2023 pdpt=0x3023`,
 `e820 n=7`, `pmm free=32480 base=0x0000000000100000
 end=0x0000000007fe0000`, `pmm ok, high page 0x00201000`, letras
@@ -72,12 +73,11 @@ denied, syscall, quota mem 32473, escape`, `net arp, ping, drop`,
 `trace overflow ok`, `ud2 -> #UD`, y en el segundo arranque `fs
 persist v2, snap v1, corrupt detected`. El humo de 10 s
 (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img
--display none -no-reboot`, sin disco de datos) salió 124. La serie
-mostró `e820 n=7`, `pmm free=32480` y `lapageria>`. Esa corrida no
-escribe comandos. No se probó `reboot`, `clear`, el teclado a mano,
-TCP, UDP, AHCI, NVMe, el bit NX ni un kernel en la mitad alta.
-`get_e820` sin la copia se probó aparte, en un arranque de 6 s:
-QEMU imprimió `e820 n=1`, no 7.
+-display none -no-reboot -serial file:…`, sin disco de datos) salió
+124. La serie mostró `e820 n=7`, las siete entradas, `pmm free=32480`
+y `lapageria>`. Esa corrida no escribe comandos. No se probó
+`reboot`, `clear`, el teclado a mano, TCP, UDP, AHCI, NVMe, el bit
+NX ni un kernel en la mitad alta.
 
 El esclavo IDE (`build/data.img`, QEMU index=1) tiene driver ATA PIO
 LBA28 y bloques de 512 B con CRC-32 en un sector de metadatos. `disk`

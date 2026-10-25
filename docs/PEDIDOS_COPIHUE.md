@@ -2,11 +2,11 @@
 
 Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
 
-Compilador fijado en el Makefile: v0.29.2, commit
-`584f731121744c3683ad610a9dab0b021e702ca5`. El tag es ligero: `git
-ls-remote` devuelve ese commit para `refs/tags/v0.29.2` y para
+Compilador fijado en el Makefile: v0.29.4, commit
+`cac6fc27453c0136711e5de4ead703f836eff987`. El tag es ligero: `git
+ls-remote` devuelve ese commit para `refs/tags/v0.29.4` y para
 `HEAD`. `git -C build/copihue rev-parse HEAD` después del `make`
-también, y `copihue --version` imprime `Copihue 0.29.2`.
+también, y `copihue --version` imprime `Copihue 0.29.4`.
 
 ## Cerrado en v0.27.0 y v0.27.1
 
@@ -103,7 +103,8 @@ terminó en 0. La línea de la zona fue `zone fs, denied, syscall,
 quota mem 32473, escape`: la syscall 2 denegada devolvió -1 (`zone
 syscall denied`) y la cuota también (`zone quota ok`). El resultado
 no se perdió. El `make qemu-test` de v0.29.2 también imprimió esa
-línea de resumen y terminó en 0.
+línea de resumen y terminó en 0. El de v0.29.4 también: `zone fs,
+denied, syscall, quota mem 32473, escape`, código 0.
 
 ## Cerrado en v0.29.2: el `while` y el `if` restauran `ebx`
 
@@ -147,11 +148,12 @@ devuelve el 7. El fallo de v0.28.1 (el `while` dejaba `ebx` en 0, el
 siguiente `int 0x15` reiniciaba el mapa y QEMU imprimía `e820 n=16`)
 queda cerrado por ese `push` / `pop`.
 
-## Sigue abierto: un `+` fuera de la condición deja el sumando en `ebx`
+## Cerrado en v0.29.4: un `+` fuera de la condición restaura `ebx`
 
-El mismo operador, fuera del `if` o del `while`, sigue usando `ebx`
-de borrador y no lo restaura. Caso mínimo, misma corrida de
-`--freestanding`, sin ensamblar y sin arrancar:
+En v0.29.2, `di = di + 24` fuera de un `if` o un `while` dejaba 24 en
+`ebx`. Este pin hace `push ebx` antes del sumando y `pop ebx` después
+del `add`. Esta función se compiló con `copihue --freestanding` de este
+pin. No se arrancó:
 
 ```copihue
 bits 16 naked fn add_clobber() {
@@ -164,6 +166,7 @@ bits 16 naked fn add_clobber() {
 add_clobber:
 mov ebx, 7
 movzx eax, di
+push ebx
 push eax
 push edx
 mov eax, 24
@@ -171,23 +174,30 @@ mov ebx, eax
 pop edx
 pop eax
 add eax, ebx
+pop ebx
 mov di, ax
-ret
 ```
 
-`ebx` sale en 24. `get_e820` hace esa suma, y otra de 1 para el
-conteo, después de `int 0x15` y antes de la vuelta al lazo. Sin
-`ebx_save`, `copihue --flat 0x8200 -S` de este pin escribe:
+El `pop ebx` devuelve el 7. El changelog de v0.29.4 dice que `-`, `&`,
+`|`, `^`, `*`, `/`, `%` y un desplazamiento hacen el mismo par (el
+desplazamiento también guarda `ecx`), y que una comparación usada como
+valor hace el `pop` después del `cmp` y antes del `sete`. Esas otras
+formas no se compilaron en este árbol.
+
+`get_e820` ya no copia el token. `ebx = 0` abre el mapa. Después de
+`int 0x15` el conteo y `di = di + 24` restauran `ebx`, y `if (ebx == 0)`
+mira el token. `copihue --flat 0x8200 -S` de este pin, sobre
+`build/stage2.lap`, escribe esto entre el `int` y ese uso:
 
 ```
+mov dword [di+20], 1
 mov eax, 59424
 int 21
-jnc .L13
 ```
 
 ```
-.L15:
 movzx eax, word [32768]
+push ebx
 push eax
 push edx
 mov eax, 1
@@ -195,8 +205,10 @@ mov ebx, eax
 pop edx
 pop eax
 add eax, ebx
+pop ebx
 mov word [32768], ax
 movzx eax, di
+push ebx
 push eax
 push edx
 mov eax, 24
@@ -204,26 +216,103 @@ mov ebx, eax
 pop edx
 pop eax
 add eax, ebx
+pop ebx
 mov di, ax
 ```
 
-El `if (ebx == 0)` que sigue compara ese 24, no el token de la BIOS.
-La próxima `int 0x15` también lo recibe en 24.
-
-Esa imagen, sin la copia y con el resto del kernel igual, se arrancó
-en QEMU 8.2.2 (`timeout 6`, `-display none -no-reboot`, serie a
-archivo, código 124). Imprimió una sola entrada y el fallback:
-
 ```
-e820 n=1
-e820[0] type=1 base=0x0000000000000000 len=0x000000000009fc00 acpi=1
-e820 fallback 0x00100000-0x00200000
-pmm free=256 base=0x0000000000100000 end=0x0000000000200000
+mov eax, ebx
+push ebx
 ```
 
-No fue `e820 n=7` y tampoco el `e820 n=16` del pin anterior: el
-`while` ya no pone el token a cero, pero el `+` lo reemplaza por el
-sumando y el mapa se corta. Con `ebx_save` en `stage2.lap`, el mismo
-QEMU y un arranque de 6 s imprimieron `e820 n=7`, las siete entradas
-(la usable de 1 MB termina en `0x7fe0000`) y `pmm free=32480
-base=0x0000000000100000 end=0x0000000007fe0000`. El rodeo se queda.
+`[di+20]` y `[32768]` son un operando de memoria. El `pop ebx` del `+`
+ocurre antes del store. `lgdt` de esta etapa es `lgdt [gdtr]`, después
+de que `get_e820` vuelve.
+
+En QEMU 8.2.2, `make qemu-test` de esta imagen terminó en 0 e imprimió
+`e820 n=7` y `pmm free=32480 base=0x0000000000100000
+end=0x0000000007fe0000`. El humo de 10 s
+(`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img
+-display none -no-reboot -serial file:…`, sin disco de datos) salió
+124 y la serie mostró `e820 n=7`, las siete entradas (la usable de
+1 MB termina en `0x7fe0000`) y el mismo `pmm free=32480`. No fue 1 ni
+16.
+
+## Sigue abierto: un store de dirección no simple, y `lgdt` / `lidt` / `invlpg` sin etiqueta
+
+Un store cuya dirección no es un número, un registro desnudo o
+`reg±disp` sigue dejando esa dirección en `ebx`. `lgdt`, `lidt` e
+`invlpg` de un puntero que no es una etiqueta de `data` mueven la
+dirección a `bx` o a `ebx`. Una etiqueta (`lgdt(&gdtr)`) sigue siendo
+`lgdt [gdtr]` y no toca `ebx`.
+
+Estas funciones se compilaron con `copihue --freestanding` de este pin
+y se ensamblaron con nasm. No se arrancaron:
+
+```copihue
+data gdtr {
+    dw 39;
+    dd 0;
+}
+
+bits 16 naked fn store_clobber() {
+    ebx = 7;
+    *((di + si) as *u16) = 1;
+}
+
+bits 16 naked fn lgdt_label() {
+    ebx = 7;
+    lgdt(&gdtr);
+}
+
+bits 16 naked fn lgdt_reg() {
+    ebx = 7;
+    lgdt(di);
+}
+```
+
+```
+store_clobber:
+mov ebx, 7
+movzx eax, di
+push ebx
+push eax
+push edx
+movzx eax, si
+mov ebx, eax
+pop edx
+pop eax
+add eax, ebx
+pop ebx
+push eax
+mov eax, 1
+pop ebx
+mov word [ebx], ax
+```
+
+```
+lgdt_label:
+mov ebx, 7
+lgdt [gdtr]
+```
+
+```
+lgdt_reg:
+mov ebx, 7
+movzx eax, di
+mov bx, ax
+lgdt [bx]
+```
+
+El `+` de `di + si` restaura el 7. El store de después hace `pop ebx`
+con la dirección y `mov word [ebx], ax`. `ebx` sale con esa dirección,
+no con 7. `mov bx, ax` pisa la mitad baja del token. `lidt(di)` e
+`invlpg(di)` salen igual (`lidt [bx]`, `invlpg [bx]`). En `bits 32`,
+`*((edi + esi) as *u32) = 1` termina en `pop ebx` / `mov dword [ebx], eax`.
+
+`get_e820` no usa esos casos entre el `int 0x15` y el `if (ebx == 0)`.
+`*((di + 20) as *u32) = 1` es `[di+20]` y va antes del `int`. El conteo
+escribe en `[32768]`. Los stores `kern_packet+N` sí pasan por `ebx`, y
+están en `load_kernel`, antes de `get_e820`. `lgdt(&gdtr)` es la
+etiqueta y va después. En `protected_mode` (`bits 32`) no hay
+`int 0x15` ni un uso del token.
