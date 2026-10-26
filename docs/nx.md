@@ -43,4 +43,6 @@ El fetch es de una página presente (bit 0) y de instrucción (bit 4). La escrit
 
 Esa corrida de `make qemu-test` imprimió `ok   nx fetch=0x00000011 write=0x00000003 user=0x00000015 audit wx=0 leaves=513 code=35 nx=478`.
 
+En esta imagen, tres `make qemu-test` seguidos terminaron en 0 e imprimieron la misma línea: `ok   nx fetch=0x00000011 write=0x00000003 user=0x00000015 audit wx=0 leaves=513 code=35 nx=478`. El humo de 10 s con `-cpu qemu64` salió 124 y mostró `nx efer on` y `nx wp on`.
+
 Copihue v0.31.0 alcanza para esto: `cpuid` / `cpuid_edx`, `rdmsr` / `wrmsr`, `read_cr0` / `write_cr0`, `read_cr2` y un `<<` de 63 bits guardado en 8 bytes (`mov qword`). El único `as` nuevo de este archivo es `p[0] = (old) as u8`: el byte de `.text` que la sonda iba a escribir. El bit 63 no pasa por ese `as`. No se agregó un pedido ni un `asm()`.

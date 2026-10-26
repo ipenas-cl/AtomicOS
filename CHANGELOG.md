@@ -156,6 +156,33 @@ entradas, `pmm free=32480`, `nx efer on`, `nx wp on` y `lapageria>`.
 No se probó `reboot`, `clear`, el teclado a mano, TCP, UDP, AHCI,
 NVMe ni un kernel en la mitad alta.
 
+En esta imagen (v0.31.0 y NX), tres `make qemu-test` seguidos en
+QEMU 8.2.2 con `-cpu qemu64` terminaron en 0. La línea NX fue la
+misma las tres veces: `ok   nx fetch=0x00000011 write=0x00000003
+user=0x00000015 audit wx=0 leaves=513 code=35 nx=478`. También
+coincidieron `keyboard IRQ count=151`, `cr3=0x1000 pml4=0x2023
+pdpt=0x3023`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000
+end=0x0000000007fe0000`, `gdt ok`, `pmm ok, high page 0x00201000`,
+`exit freed 7+6 pages, pmm back to 32472`, `trace counters ok`,
+`ata ok, blk ok, blk corrupt detected`, `trace syscall ok`, `trace
+off ok`, `exec desde disco, missing, bad magic, bad size, corrupt`,
+`zone fs, denied, syscall, quota mem 32472, escape`, `net arp, ping,
+drop`, `trace overflow ok`, `ud2 -> #UD` y, en el segundo arranque,
+`fs persist v2, snap v1, corrupt detected`. Lo que cambió entre
+corridas: ticks 100 → 200 en 935 ms, 934 ms y 946 ms; ticks 200 →
+416, 418 y 419; letras `abbaababbaab`, `babababababa` y
+`abababababba`; `round-robin timer=38`, `27` y `29`, las tres con
+`yield=4`. No apareció `released=` distinto de la suma de los dos
+`exit`. El humo de 10 s (`timeout 10 qemu-system-x86_64 -cpu qemu64
+-drive format=raw,file=build/lapageriaos.img -display none -no-reboot
+-serial file:…`, sin disco de datos) salió 124. La serie mostró
+`e820 n=7`, las siete entradas (la usable de 1 MB termina en
+`0x7fe0000`), `pmm free=32480`, `gdt load`, `gdt ok`, `nx efer on`,
+`nx wp on`, `timer: ticks=100`, `timer: ticks=200` y `lapageria>`.
+Esa corrida no escribe comandos. No se probó `reboot`, `clear`, el
+teclado a mano, TCP, UDP, AHCI, NVMe ni un kernel en la mitad alta.
+El borde `gen == 0xFFFFFFFF` de `fs_commit` no se ejecutó.
+
 El esclavo IDE (`build/data.img`, QEMU index=1) tiene driver ATA PIO
 LBA28 y bloques de 512 B con CRC-32 en un sector de metadatos. `disk`
 escribe un patrón, lo relee y comprueba que un byte pisado con el
