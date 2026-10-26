@@ -638,6 +638,8 @@ naked fn prog_b_end() {
 
 fn sched_demo() -> i64 {
     cli();
+    // `nx` también libera procesos. Esta línea es la de esta corrida.
+    released_ok = 0;
     build_zone = 0;
     charge_zone = 0;
     if (shared_init() == 0) {
