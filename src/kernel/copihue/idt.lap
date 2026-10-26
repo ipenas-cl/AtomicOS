@@ -125,6 +125,17 @@ interrupt fn exc14(frame: *PfFrame) {
         let addr = read_cr2();
         trace_hit(3, proc_pid[cur_i], addr, frame.error_code);
     }
+    // Anillo 0, con la sonda del comando nx: #PF de fetch o de
+    // escritura. restore_context vuelve al comando; no se reintenta.
+    if (nx_probe != 0 && (frame.error_code & 4) == 0) {
+        if (nx_kernel_fault(frame) != 0) { return; }
+    }
+    // Anillo 3 ejecutando pila o datos durante `nx`: el proceso muere
+    // y el otro (o el shell) sigue. No se parchea rip.
+    if (sched_on != 0 && nx_user != 0 && (frame.error_code & 4) != 0 && (frame.error_code & 16) != 0) {
+        nx_user_fault(frame);
+        return;
+    }
     if (sched_on != 0 && (frame.error_code & 4) != 0) {
         note_user_fault(frame.error_code);
         frame.rip = patch_rip;

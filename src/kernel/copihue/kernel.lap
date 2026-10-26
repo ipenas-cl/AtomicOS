@@ -13,6 +13,7 @@ import "paging.lap";
 import "gdt.lap";
 import "sched.lap";
 import "usermode.lap";
+import "nx.lap";
 import "idt.lap";
 import "ata.lap";
 import "blk.lap";
@@ -54,6 +55,7 @@ fn kmain() -> i64 {
     pmm_init();
     zone_init();
     idt_init();
+    nx_init();
     while (ticks < 100) { hlt(); }
     puts("timer: ticks=");
     put_int(ticks);
@@ -65,4 +67,11 @@ fn kmain() -> i64 {
     puts("\n");
     shell_run();
     return 0;
+}
+
+// .text y .data no pueden compartir una página: el código queda sin
+// escritura y los datos con NX. NASM alinea este hueco a 4096, y
+// __text_end queda en ese borde. .data empieza en la página siguiente.
+data nx_text_pad {
+    align 4096;
 }

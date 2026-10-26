@@ -72,6 +72,12 @@ DATA_IMG = $(BUILD_DIR)/data.img
 DATA_SECTORS = 2048
 QEMU_DRIVES = -drive format=raw,file=$(OS_IMAGE) -drive file=$(DATA_IMG),format=raw,if=ide,index=1
 
+# qemu64 expone NX: CPUID hoja 0x80000001, EDX bit 20. Sin ese bit el
+# kernel no prende EFER.NXE (MSR 0xC0000080 bit 11). El mismo -cpu está
+# en tests/qemu_shell_test.sh, .github/workflows/ci.yml y
+# scripts/pre-commit.sh. No usar un modelo sin nx (qemu64,-nx).
+QEMU_CPU = -cpu qemu64
+
 # $(COPIHUE) se expande al leer las listas de prerequisitos. Tiene que
 # existir antes de esas reglas: si no, la etapa 1 y la etapa 2 no esperan
 # al compilador (el CI de la etapa 2 falló así la primera vez).
@@ -89,6 +95,7 @@ COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap \
                      $(KERNEL_SRC)/copihue/gdt.lap \
                      $(KERNEL_SRC)/copihue/sched.lap \
                      $(KERNEL_SRC)/copihue/usermode.lap \
+                     $(KERNEL_SRC)/copihue/nx.lap \
                      $(KERNEL_SRC)/copihue/idt.lap \
                      $(KERNEL_SRC)/copihue/ata.lap \
                      $(KERNEL_SRC)/copihue/blk.lap \
@@ -210,7 +217,7 @@ $(ZONE_IMG): src/user/zona.lap scripts/mkaxe.sh $(COPIHUE) | $(BUILD_DIR)
 
 # Consola curses: QEMU entrega el teclado al controlador PS/2 que lee el shell.
 qemu: $(OS_IMAGE) $(DATA_IMG)
-	qemu-system-$(ARCH) $(QEMU_DRIVES) -display curses
+	qemu-system-$(ARCH) $(QEMU_CPU) $(QEMU_DRIVES) -display curses
 
 # tests/qemu_shell_test.sh exige qemu-system-x86_64 y socat.
 # El disco de datos se reescribe en cada corrida: la prueba no depende
@@ -221,7 +228,7 @@ qemu-test: $(OS_IMAGE)
 
 # La imagen es un binario plano: gdb no tiene tabla de símbolos ELF.
 debug: $(OS_IMAGE) $(DATA_IMG)
-	qemu-system-$(ARCH) $(QEMU_DRIVES) -display curses -s -S
+	qemu-system-$(ARCH) $(QEMU_CPU) $(QEMU_DRIVES) -display curses -s -S
 
 clean:
 	rm -rf $(BUILD_DIR)

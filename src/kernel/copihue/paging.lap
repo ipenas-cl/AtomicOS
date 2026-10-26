@@ -1,17 +1,33 @@
 // 4KB page tables. map_page walks the PML4 in CR3. The bootloader still
-// starts at PML4 0x1000 / PDPT 0x2000 / PD 0x3000, and PD[0] stays the
-// supervisor 2MB identity page. A new directory slot gets a page table
+// starts at PML4 0x1000 / PDPT 0x2000 / PD 0x3000. PD[0] begins as the
+// supervisor 2MB identity page; nx_init replaces it with kern_low_pt,
+// one 4KB table for the low 2MB. A new directory slot gets a page table
 // from the identity-mapped pool (physical address below 2MB).
 //
-// flags is the low 12 bits of the PTE: 3 is supervisor read/write,
-// 7 is user read/write, 5 is user read-only. The user bit on a directory
-// entry does not by itself make the page user-accessible; every level of
-// the walk has to have it.
+// flags is the low 12 bits of the PTE, plus bit 63 (NX) when the caller
+// ORs pte_nx_bit(). 3 is supervisor read/write, 7 is user read/write,
+// 5 is user read-only executable. The user bit on a directory entry does
+// not by itself make the page user-accessible; every level of the walk
+// has to have it. NX is only set on a leaf: a directory entry with bit
+// 63 would make (e >> 12) << 12 sign-extend, because >> is arithmetic.
 //
 // last_alloc_pt is the page table allocated by the latest map_in, or 0
 // when the directory slot already had one. sched.lap records it.
+// kern_low_pt is 0 until nx_init. low_pd_entry() is that table, or the
+// bootloader's 2MB page if NX could not be turned on.
 
 let last_alloc_pt: i64 = 0;
+let kern_low_pt: i64 = 0;
+
+fn pte_nx_bit() -> i64 {
+    let b = 1;
+    return b << 63;
+}
+
+fn low_pd_entry() -> i64 {
+    if (kern_low_pt == 0) { return 0x83; }
+    return kern_low_pt | 3;
+}
 
 fn cr3_root() -> i64 {
     return (read_cr3() >> 12) << 12;
@@ -88,7 +104,7 @@ fn demand_map(va: i64) -> i64 {
     let pa = alloc_high_page();
     if (pa == 0) { pa = alloc_page(); }
     if (pa == 0) { return 0; }
-    if (map_page(page, pa, 3) == 0) {
+    if (map_page(page, pa, 3 | pte_nx_bit()) == 0) {
         free_page(pa);
         return 0;
     }

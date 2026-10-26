@@ -1,9 +1,10 @@
 // Two user processes. Each has its own PML4. PML4[256..511] all point at
 // one shared kernel PDPT (the upper half, alias of the low 2MB at
-// 0xFFFF800000000000). PML4[0] is private: a supervisor 2MB identity page
-// so this kernel, linked at 0x10000, still executes, plus that process's
-// user pages. The bootloader cannot jump at a high address (the 512-byte
-// stub has no room), so the identity page stays in the lower half.
+// 0xFFFF800000000000). PML4[0] is private. PD[0] points at the kernel's
+// 4KB table for the low 2MB (the same one nx_init installed), so this
+// kernel, linked at 0x10000, still executes, plus that process's user
+// pages. The bootloader cannot jump at a high address (the 512-byte
+// stub has no room), so the identity map stays in the lower half.
 //
 // The PIT IRQ from ring 3 lands on TSS.rsp0. yield and the timer share
 // one iretq frame: 15 saved GPRs, then RIP, CS, RFLAGS, RSP, SS.
@@ -101,7 +102,7 @@ fn shared_init() -> i64 {
     let pdpt: *u64 = shared_pdpt as *u64;
     let pd: *u64 = shared_pd as *u64;
     pdpt[0] = shared_pd | 3;
-    pd[0] = 0x83;
+    pd[0] = low_pd_entry();
     return 1;
 }
 
@@ -329,7 +330,7 @@ fn alias_both() -> i64 {
 }
 
 fn paint_secret(pa: i64) -> i64 {
-    if (map_page(0x300000, pa, 3) == 0) { return 0; }
+    if (map_page(0x300000, pa, 3 | pte_nx_bit()) == 0) { return 0; }
     let created = last_alloc_pt;
     let b: *u8 = 0x300000;
     b[0] = 0xA5;
@@ -394,7 +395,7 @@ fn build_proc(pi: i64, src: i64, n: i64, secret: i64) -> i64 {
     let p2: *u64 = pd as *u64;
     p4[0] = pdpt | 7;
     p3[0] = pd | 7;
-    p2[0] = 0x83;
+    p2[0] = low_pd_entry();
     proc_pml4[pi] = pml4;
     attach_half(pml4);
     let code = take_page(pi, 0);
@@ -404,12 +405,12 @@ fn build_proc(pi: i64, src: i64, n: i64, secret: i64) -> i64 {
         zone_errno = 6;
         return 0;
     }
-    if (map_user(pi, 0x400000, code, 7) == 0) {
+    if (map_user(pi, 0x400000, code, 7 | pte_nx_bit()) == 0) {
         charge_zone = 0;
         zone_errno = 6;
         return 0;
     }
-    if (map_user(pi, 0x401000, stack, 7) == 0) {
+    if (map_user(pi, 0x401000, stack, 7 | pte_nx_bit()) == 0) {
         charge_zone = 0;
         zone_errno = 6;
         return 0;
@@ -426,7 +427,7 @@ fn build_proc(pi: i64, src: i64, n: i64, secret: i64) -> i64 {
             zone_errno = 6;
             return 0;
         }
-        if (map_user(pi, 0x500000, data, 7) == 0) {
+        if (map_user(pi, 0x500000, data, 7 | pte_nx_bit()) == 0) {
             charge_zone = 0;
             zone_errno = 6;
             return 0;
@@ -637,6 +638,8 @@ naked fn prog_b_end() {
 
 fn sched_demo() -> i64 {
     cli();
+    // `nx` también libera procesos. Esta línea es la de esta corrida.
+    released_ok = 0;
     build_zone = 0;
     charge_zone = 0;
     if (shared_init() == 0) {

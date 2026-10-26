@@ -18,7 +18,7 @@ Versión de kernel **0.8**. Experimental.
 | 1..8 | `stage2.lap`, `copihue --flat 0x8200` | `0x8200` |
 | 9.. | kernel, `copihue --flat 0x10000` | `0x10000` |
 
-La etapa 1 solo carga los 8 sectores de la etapa 2. La etapa 2 habilita A20, lee el kernel con INT 13h, guarda el mapa E820 en `0x8000` y entra en modo largo. La pila del kernel queda en `0x90000`. CR3 queda en `0x1000`, con PML4[0] `0x2003`, PDPT[0] `0x3003` y PD[0] `0x83`. El número de unidad del BIOS queda en `0x0500`.
+La etapa 1 solo carga los 8 sectores de la etapa 2. La etapa 2 habilita A20, lee el kernel con INT 13h, guarda el mapa E820 en `0x8000` y entra en modo largo. La pila del kernel queda en `0x90000`. CR3 queda en `0x1000`, con PML4[0] `0x2003`, PDPT[0] `0x3003` y PD[0] `0x83` (una página de 2 MiB). El kernel, si CPUID dice que hay NX, parte esa página en 4 KiB y prende EFER.NXE. El detalle está en [docs/nx.md](docs/nx.md). El número de unidad del BIOS queda en `0x0500`.
 
 El número de sectores del kernel no está fijo en el fuente. `stage2.lap` tiene el marcador `dw 0; // KERNEL_SECTORS`. `make` copia el archivo a `build/stage2.lap` y escribe ahí `ceil(kernel.bin / 512)`. Ese número es el total. La etapa 2 lo parte en paquetes de 128 sectores: un INT 13h con offset 0 no puede pasar de 64 KiB, porque el offset es de 16 bits. Cada paquete usa el segmento `0x1000`, `0x2000`, … y el LBA que sigue. `>` en modo real ensambla `setg` (con signo); con un total de hasta 32767 el corte en 128 sigue valiendo. El tope de `make` es 512.
 
@@ -30,24 +30,24 @@ En esta compilación (`copihue` v0.31.0, commit `495bb4b54d3fba77ed83aa51c0d2362
 |---|---|
 | `build/boot.bin` | 512 bytes, firma `55 aa`. El último byte distinto de cero antes de la firma está en el offset 168 |
 | `build/stage2.bin` | 1682 bytes (cabe en 8 × 512) |
-| `build/kernel.bin` | 136835 bytes → 268 sectores (LBA 9..276). La `.bss` mide 22060 bytes y `0x10000 + kernel.bin + .bss` termina en `0x36CAF` |
+| `build/kernel.bin` | 149053 bytes → 292 sectores (LBA 9..300). `make` suma 22124 bytes de `.bss` y escribe fin de imagen `0x39ca9`. `__bss_end` en el binario es `0x39cac` |
 | `src/bootloader/boot.lap` | 70 líneas, ninguna `asm("...")` |
-| `src/bootloader/stage2.lap` | 265 líneas, ninguna `asm("...")` |
-| `src/kernel/copihue/*.lap` | 5232 líneas, ninguna `asm("...")`. `exec_img.lap` y `zone_img.lap` los genera `mkaxe.sh` y no entran en ese conteo |
+| `src/bootloader/stage2.lap` | 267 líneas, ninguna `asm("...")` |
+| `src/kernel/copihue/*.lap` | 5903 líneas, ninguna `asm("...")`. `exec_img.lap` y `zone_img.lap` los genera `mkaxe.sh` y no entran en ese conteo. `nx.lap` son 625 de esas líneas |
 
-`copihue --help` en v0.31.0 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 0c 01 00 00 00 10 09 00 00 00 00 00 00 00`: 268 sectores (`0x010C`) desde LBA 9 hacia `0x1000:0`. 268 pasa de 128 dos veces, así que la etapa 2 manda 128, después 128 y al final 12. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt en un pin anterior: el segundo paquete no pisa el kernel. Esta corrida no repitió esa imagen.
+`copihue --help` en v0.31.0 no tiene un `-D` ni otro modo de inyectar el conteo. Por eso lo sustituye el Makefile. El binario de la etapa 2 lleva el paquete `10 00 24 01 00 00 00 10 09 00 00 00 00 00 00 00`: 292 sectores (`0x0124`) desde LBA 9 hacia `0x1000:0`. 292 pasa de 128 dos veces, así que la etapa 2 manda 128, después 128 y al final 36. Una imagen armada aparte, con el conteo en 129 y seis sectores de cero al final, también llegó al prompt en un pin anterior: el segundo paquete no pisa el kernel. Esta corrida no repitió esa imagen.
 
-El tope que aplica `make` es 512 sectores de `kernel.bin`. Sale de la memoria, no del disquete. La imagen tiene 2880 sectores; después del LBA 8 quedan 2871, y 512 caben (el kernel máximo terminaría en el LBA 520, y sobran 2359 sectores). 512 × 512 bytes terminan en `0x50000`. La reserva de 32 KiB para la `.bss` llega justo a `0x58000`, antes de la pila de `0x60000`. Esta imagen usa 268 de esos 512. La `.bss` real mide 22060 bytes, así que `0x10000 + kernel.bin + .bss` queda en `0x36CAF`, con 136017 bytes libres hasta `0x58000`. Si el archivo creciera hasta el tope de 512 y la `.bss` se quedara en 22060, el final sería `0x5562C`, todavía antes de `0x58000`. El otro freno es ese final: `make` falla si la suma pasa de `0x58000`, aunque el archivo quepa en 512 sectores. v0.30.0 mantiene el `push ebx` / `pop ebx` de v0.29.4 en cada comparación y en cada operador aritmético de `bits 16` y `bits 32`. `kernel.bin` pasa de 136535 bytes en v0.29.4 a 136835. `stage2.bin` pasa de 1678 bytes en v0.29.4 a 1682. v0.31.0 deja esos dos binarios en el mismo tamaño: los 75 `as` no agregan instrucciones y el banner solo cambia un dígito. En el ensamblado de esta etapa 2, CR3 es `mov eax, 4096` / `mov cr3, eax`, `[4096]` queda en 8195 (`0x2003`), `[8192]` en 12291 (`0x3003`), `[12288]` en 131 (`0x83`), `esp` y `rsp` en 589824 (`0x90000`) y el salto final es `jmp 0x10000`. El conteo E820 es la palabra en 32768 (`0x8000`), `di` arranca en 32772 (`0x8004`) y el tope es 33156 (`0x8184`). `make qemu-test` volvió a leer `cr3=0x1000` con PML4 `0x2023` y PDPT `0x3023`.
+El tope que aplica `make` es 512 sectores de `kernel.bin`. Sale de la memoria, no del disquete. La imagen tiene 2880 sectores; después del LBA 8 quedan 2871, y 512 caben (el kernel máximo terminaría en el LBA 520, y sobran 2359 sectores). 512 × 512 bytes terminan en `0x50000`. La reserva de 32 KiB para la `.bss` llega justo a `0x58000`, antes de la pila de `0x60000`. Esta imagen usa 292 de esos 512. `make` imprime el final `0x39ca9` (`0x10000 + kernel.bin +` la suma de `resb`/`resq`). Hasta `0x58000` quedan 123735 bytes con esa cuenta. `__bss_end` es `0x39cac`: entre `__data_end` (`0x3463d`) y `__bss_start` (`0x34640`) hay 3 bytes de alineación que esa suma no cuenta, y `0x39cac` también queda antes de `0x58000`. Si el archivo creciera hasta el tope de 512 y la `.bss` se quedara en 22124, el final de `make` sería `0x5566c`, todavía antes de `0x58000`. El otro freno es ese final: `make` falla si la suma pasa de `0x58000`, aunque el archivo quepa en 512 sectores. v0.30.0 y v0.31.0 mantienen el `push ebx` / `pop ebx` de v0.29.4 en cada comparación y en cada operador aritmético de `bits 16` y `bits 32`. Sin NX, v0.31.0 medía `kernel.bin` en 136835 bytes (268 sectores, LBA 9..276, paquete `10 00 0c 01 …`, `.bss` 22060, fin `0x36CAF`) y `stage2.bin` en 1682. La rama NX sobre v0.29.4 medía los mismos 149053 bytes y 292 sectores, con `stage2.bin` en 1678. Aquí la etapa 2 queda en 1682 por el `movzx eax, ax` del conteo E820; los 75 `as` no agregan instrucciones y el `as u8` de `nx.lap` es el `mov byte` del store. En el ensamblado de esta etapa 2, CR3 es `mov eax, 4096` / `mov cr3, eax`, `[4096]` queda en 8195 (`0x2003`), `[8192]` en 12291 (`0x3003`), `[12288]` en 131 (`0x83`), `esp` y `rsp` en 589824 (`0x90000`) y el salto final es `jmp 0x10000`. El conteo E820 es la palabra en 32768 (`0x8000`), `di` arranca en 32772 (`0x8004`) y el tope es 33156 (`0x8184`). El pin v0.31.0 y la rama NX volvieron a leer `cr3=0x1000` con PML4 `0x2023` y PDPT `0x3023`.
 
-Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, espera dos muestras del PIT y deja el shell `lapageria>`.
+Al arrancar, el kernel limpia la `.bss`, abre la consola VGA (el mismo texto sale por COM1), inicializa el asignador físico, carga su GDT e IDT, prende EFER.NXE y CR0.WP (`nx efer on`, `nx wp on`), espera dos muestras del PIT y deja el shell `lapageria>`.
 
-El shell responde a `help`, `echo`, `add`, `mul`, `clear`, `version`, `ticks`, `irqs`, `cr3`, `pf`, `pmm`, `user`, `sched`, `disk`, `fs`, `exec`, `zone`, `net`, `trace`, `ud2` y `reboot`. `disk` ejercita el disco de datos (ver [docs/disco.md](docs/disco.md)). `fs` es el sistema de archivos copy-on-write (ver [docs/fs.md](docs/fs.md)). `exec` carga un ejecutable plano del disco (ver [docs/exec.md](docs/exec.md)). `make qemu-test` escribe los comandos con el `sendkey` del monitor de QEMU y lee COM1. Esa prueba no escribe `reboot` (reinicia la máquina) ni `clear`.
+El shell responde a `help`, `echo`, `add`, `mul`, `clear`, `version`, `ticks`, `irqs`, `cr3`, `pf`, `nx`, `pmm`, `user`, `sched`, `disk`, `fs`, `exec`, `zone`, `net`, `trace`, `ud2` y `reboot`. `nx` recorre el bit NX y W^X (ver [docs/nx.md](docs/nx.md)). `disk` ejercita el disco de datos (ver [docs/disco.md](docs/disco.md)). `fs` es el sistema de archivos copy-on-write (ver [docs/fs.md](docs/fs.md)). `exec` carga un ejecutable plano del disco (ver [docs/exec.md](docs/exec.md)). `make qemu-test` escribe los comandos con el `sendkey` del monitor de QEMU y lee COM1. Esa prueba no escribe `reboot` (reinicia la máquina) ni `clear`.
 
 ![Shell de LapageriaOS en QEMU](docs/copihue-shell.png)
 
 Vídeo de unos 40 s: [docs/lapageriaos-copihue-demo.mp4](docs/lapageriaos-copihue-demo.mp4).
 
-`sched` construye dos espacios de direcciones y no reutiliza el PML4 del bootloader. Cada proceso tiene su PML4, su PDPT y su PD. PD[0] repite la página de identidad de 2 MB de supervisor (`0x83`), porque el kernel está enlazado en `0x10000` y la etapa 2 salta ahí. PML4[256..511] apuntan a un solo PDPT de kernel, sin bit de usuario. Ese PDPT mapea los primeros 2 MB en `0xFFFF800000000000`. El proceso A tiene una página de usuario en `0x500000`. El proceso B no. `exit` devuelve al asignador las páginas de cada proceso y no libera el PDPT compartido.
+`sched` construye dos espacios de direcciones y no reutiliza el PML4 del bootloader. Cada proceso tiene su PML4, su PDPT y su PD. PD[0] apunta a la tabla de 4 KiB con la que el kernel partió la página de 2 MiB, porque el kernel sigue enlazado en `0x10000` y la etapa 2 salta ahí. PML4[256..511] apuntan a un solo PDPT de kernel, sin bit de usuario. Ese PDPT mapea los primeros 2 MiB en `0xFFFF800000000000`. El proceso A tiene una página de usuario en `0x500000`. El proceso B no. `exit` devuelve al asignador las páginas de cada proceso y no libera el PDPT compartido.
 
 ## Qué comprueba `make qemu-test`
 
@@ -57,6 +57,7 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - `echo`, `add`, `mul`, `version`, `help` y un comando desconocido;
 - la IRQ1 del teclado, y `cr3` del bootloader (`0x1000`, con el bit de acceso en PML4 y PDPT);
 - un `#PF` de anillo 0 en `0x200000` que reserva un marco, lo pone a cero y reanuda;
+- `nx`: `nx efer on` y `nx wp on` al arrancar; un fetch a datos con el bit 4 del error (`0x11`), una escritura en `.text` (`0x03`), dos procesos que mueren al ejecutar pila y datos (`0x15`) con `nx ok sched` en medio, y una auditoría `wx=0` sin páginas de 2 MiB;
 - el resumen E820 y el asignador (`pmm`, `pmm high`);
 - `user`: el syscall imprime `user ok`, la lectura de `0x10000` desde anillo 3 produce `#PF` con `err=0x5`, el kernel escribe `user blocked` y vuelve al shell;
 - `sched`: dos PML4 distintos, la mitad alta compartida, `alias ok` dos veces, `pf-cross` de lectura y de escritura, `getpid 1` y `getpid 2`, letras `a`/`b` intercaladas, al menos un cambio por el PIT y uno por `yield`, y `exit` devolviendo todas las páginas contadas;
@@ -68,9 +69,13 @@ Los textos exactos están en `tests/qemu_shell_test.sh`. La prueba exige:
 - `net`: con `-nic none -netdev user,id=n0 -device e1000,netdev=n0`, el kernel pide ARP a `10.0.2.2` (`net arp ok`), manda ICMP echo a esa puerta (`net ping ok`) y descarta una trama cuyo largo IP no cabe en el buffer (`net drop ok`). Si QEMU no tiene esa red, el script falla al tiro y no espera el ping. Ver [docs/red.md](docs/red.md);
 - `trace`: los contadores de `#PF` y de `switch` coinciden con lo que imprimió `sched` (`trace counters ok`); `exec hola` con `sys-enter` y `sys-exit` deja las syscalls de «desde disco» en orden y con pid 1 (`trace syscall ok`); apagadas, otro `exec hola` no graba (`trace off ok`); `pit` llena el anillo, cuenta perdidos y el shell sigue (`trace overflow ok`). Ver [docs/trace.md](docs/trace.md).
 
-En QEMU 8.2.2, con el pin v0.31.0 y esta imagen (red, trazas y zonas), `make qemu-test` terminó en 0. El script imprimió: ticks 100 → 200 en 935 ms, ticks 200 → 417, `keyboard IRQ count=151`, `cr3=0x1000 pml4=0x2023 pdpt=0x3023`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `gdt ok`, `pmm ok, high page 0x00201000`, letras `babababababa`, `round-robin timer=29 yield=4`, `exit freed 7+6 pages, pmm back to 32473`, `trace counters ok`, `ata ok, blk ok, blk corrupt detected`, `trace syscall ok`, `trace off ok`, `exec desde disco, missing, bad magic, bad size, corrupt`, `zone fs, denied, syscall, quota mem 32473, escape`, `net arp, ping, drop`, `trace overflow ok`, `ud2 -> #UD`, y después del segundo arranque con el mismo `data.img` la línea `fs persist v2, snap v1, corrupt detected`. `version` coincidió con la palabra `Copihue`. `strings` de `kernel.bin` muestra `LapageriaOS 0.8 - kernel written in Copihue v0.31.0`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. `gdt ok`, el PIT, la IRQ1, el `#PF`, el `#UD`, el round-robin y la zona salen después de `lgdt(&gdtr)`, `lidt(&idtr)`, `save_context(&shell_ctx)` y `restore_context(&shell_ctx)`.
+En QEMU 8.2.2, con el pin v0.31.0 y la imagen sin NX (red, trazas y zonas), `make qemu-test` terminó en 0. El script imprimió: ticks 100 → 200 en 935 ms, ticks 200 → 417, `keyboard IRQ count=151`, `cr3=0x1000 pml4=0x2023 pdpt=0x3023`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `gdt ok`, `pmm ok, high page 0x00201000`, letras `babababababa`, `round-robin timer=29 yield=4`, `exit freed 7+6 pages, pmm back to 32473`, `trace counters ok`, `ata ok, blk ok, blk corrupt detected`, `trace syscall ok`, `trace off ok`, `exec desde disco, missing, bad magic, bad size, corrupt`, `zone fs, denied, syscall, quota mem 32473, escape`, `net arp, ping, drop`, `trace overflow ok`, `ud2 -> #UD`, y después del segundo arranque con el mismo `data.img` la línea `fs persist v2, snap v1, corrupt detected`. `version` coincidió con la palabra `Copihue`. `strings` de `kernel.bin` muestra `LapageriaOS 0.8 - kernel written in Copihue v0.31.0`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba. `gdt ok`, el PIT, la IRQ1, el `#PF`, el `#UD`, el round-robin y la zona salen después de `lgdt(&gdtr)`, `lidt(&idtr)`, `save_context(&shell_ctx)` y `restore_context(&shell_ctx)`.
 
-El humo de 10 segundos (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img -display none -no-reboot -serial file:…`, sin disco de datos) salió con código 124: el proceso seguía vivo. La serie mostró `e820 n=7`, las siete entradas, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `gdt load`, `gdt ok`, `timer: ticks=100`, `timer: ticks=200` y `lapageria>`. Esa corrida no escribe comandos. No se probó `reboot`, `clear`, el teclado a mano en `make qemu`, TCP, UDP, AHCI, NVMe, el bit NX ni un kernel enlazado en la mitad alta. `get_e820` escribe el token en `ebx`, sin copia. El detalle de lo que todavía deja `ebx` modificado está en [docs/PEDIDOS_COPIHUE.md](docs/PEDIDOS_COPIHUE.md).
+El humo de 10 segundos de ese pin (`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img -display none -no-reboot -serial file:…`, sin disco de datos y sin `-cpu qemu64`) salió con código 124: el proceso seguía vivo. La serie mostró `e820 n=7`, las siete entradas, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `gdt load`, `gdt ok`, `timer: ticks=100`, `timer: ticks=200` y `lapageria>`. Esa corrida no escribe comandos. No se probó `reboot`, `clear`, el teclado a mano en `make qemu`, TCP, UDP, AHCI, NVMe, el bit NX ni un kernel enlazado en la mitad alta.
+
+En QEMU 8.2.2, con el pin v0.29.4, `-cpu qemu64` y la imagen NX de esa rama (red, trazas y zonas), `make qemu-test` terminó en 0. El script imprimió: ticks 100 → 200 en 1037 ms, ticks 200 → 418, `keyboard IRQ count=151`, `cr3=0x1000 pml4=0x2023 pdpt=0x3023`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `ok   nx fetch=0x00000011 write=0x00000003 user=0x00000015 audit wx=0 leaves=513 code=35 nx=478`, `pmm ok, high page 0x00201000`, letras `baabaabababb`, `round-robin timer=28 yield=4`, `exit freed 7+6 pages, pmm back to 32472`, `trace counters ok`, `ata ok, blk ok, blk corrupt detected`, `trace syscall ok`, `trace off ok`, `exec desde disco, missing, bad magic, bad size, corrupt`, `zone fs, denied, syscall, quota mem 32472, escape`, `net arp, ping, drop`, `trace overflow ok`, `ud2 -> #UD`, y después del segundo arranque con el mismo `data.img` la línea `fs persist v2, snap v1, corrupt detected`. `version` coincidió con la palabra `Copihue`. El conteo del timer y el orden de las letras dependen del tiempo; el test no los fija más allá de lo dicho arriba.
+
+El humo de 10 segundos de esa rama (`timeout 10 qemu-system-x86_64 -cpu qemu64 -drive format=raw,file=build/lapageriaos.img -display none -no-reboot -serial file:…`, sin disco de datos) salió con código 124: el proceso seguía vivo. La serie mostró `e820 n=7`, las siete entradas, `pmm free=32480 base=0x0000000000100000 end=0x0000000007fe0000`, `nx efer on`, `nx wp on` y `lapageria>`. Esa corrida no escribe comandos. No se probó `reboot`, `clear`, el teclado a mano en `make qemu`, TCP, UDP, AHCI, NVMe ni un kernel enlazado en la mitad alta. `get_e820` escribe el token en `ebx`, sin copia. El detalle de lo que todavía deja `ebx` modificado está en [docs/PEDIDOS_COPIHUE.md](docs/PEDIDOS_COPIHUE.md).
 
 ## Cómo compilar y probar
 
@@ -93,13 +98,13 @@ make help
 La consola serie repite el texto de VGA. Con `-display none -serial stdio` se ve el registro de arranque. Las teclas de esa terminal no llegan al shell: el shell lee el controlador PS/2. Para escribir comandos a mano hace falta la pantalla de QEMU (`make qemu`). `make qemu-test` inyecta las teclas con `sendkey`.
 
 ```bash
-qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img -display none -serial stdio
+qemu-system-x86_64 -cpu qemu64 -drive format=raw,file=build/lapageriaos.img -display none -serial stdio
 ```
 
 `make qemu`, `make debug` y `make qemu-test` agregan el disco de datos. El arranque solo, como el humo de CI, no lo necesita: sin ese drive el comando `disk` imprime `ata fail 1` y vuelve al prompt.
 
 ```bash
-qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img \
+qemu-system-x86_64 -cpu qemu64 -drive format=raw,file=build/lapageriaos.img \
     -drive file=build/data.img,format=raw,if=ide,index=1 \
     -display none -serial stdio
 ```
@@ -112,7 +117,7 @@ make COPIHUE=/ruta/al/copihue all
 
 `make debug` abre el mismo QEMU y espera un gdb en `tcp::1234`. La imagen es un binario plano, sin tabla de símbolos ELF.
 
-CI (`.github/workflows/ci.yml`), en cada pull request: instala `nasm`, `qemu-system-x86` y `socat`, ejecuta `make all`, arranca la imagen 10 segundos (el proceso tiene que seguir vivo) y ejecuta `make qemu-test`.
+CI (`.github/workflows/ci.yml`), en cada pull request: instala `nasm`, `qemu-system-x86` y `socat`, ejecuta `make all`, arranca la imagen 10 segundos con `-cpu qemu64` (el proceso tiene que seguir vivo) y ejecuta `make qemu-test`.
 
 `scripts/pre-commit.sh` repite esas comprobaciones. `scripts/release.sh MAYOR.MENOR` ejecuta `make all` y `make qemu-test` y actualiza `VERSION` y el Makefile. No crea commits, etiquetas ni hace push.
 
@@ -136,6 +141,7 @@ src/kernel/copihue/
   gdt.lap                     GDT, TSS, ltr, vuelta del #PF de anillo 3
   sched.lap                   PML4 por proceso, round-robin, write/getpid/yield/exit
   usermode.lap                iretq, syscall, programa de anillo 3
+  nx.lap                      EFER.NXE, partición de la página de 2 MiB, comando nx
   ata.lap                     ATA PIO, canal primario, esclavo, LBA28
   blk.lap                     bloques de 512 B con CRC-32 en otro sector
   fs.lap                      archivos copy-on-write y snapshots
@@ -152,6 +158,7 @@ docs/fs.md                    sistema de archivos copy-on-write
 docs/exec.md                  ejecutable plano AXE1 y el comando exec
 docs/zonas.md                 zonas, prefijo de archivos y cuota de páginas
 docs/red.md                   e1000, ARP e ICMP en la red de usuario
+docs/nx.md                    bit NX, W^X y el comando nx
 docs/PEDIDOS_COPIHUE.md       arreglos que el compilador todavía no tiene
 scripts/run_lapageriaos.sh
 scripts/pre-commit.sh
@@ -178,12 +185,12 @@ IDT de 48 entradas. Las excepciones de CPU 0–31 imprimen su nombre; `#PF` tamb
 ### 3. Memoria virtual — parcial, en la imagen
 
 - Mapa E820 (como mucho 16 entradas) y un bitmap de marcos de 4 KB para la RAM tipo 1 usable, desde 1 MB y hasta 128 MB.
-- Tablas del bootloader: CR3 en `0x1000`, PML4, PDPT y PD. `PD[0]` es la página de identidad de 2 MB del kernel, de supervisor.
-- `map_page` y `unmap_page` crean tablas de 4 KB por encima de esa ventana.
-- Un `#PF` de anillo 0 por página no presente, con dirección por debajo de 128 MB, asigna un marco, lo mapea, lo pone a cero y reanuda.
-- `user` marca el bit de usuario en PML4[0] y PDPT[0] del bootloader, mapea código en `0x400000` y pila en `0x401000`.
-- `sched` crea dos PML4 propios. La mitad alta es un PDPT compartido. La mitad baja es privada.
-- Sigue pendiente en esta etapa: el bit NX (`EFER.NXE` queda en claro) y ejecutar el kernel desde la mitad alta. La etapa 2 sigue saltando a `0x10000`.
+- Tablas del bootloader: CR3 en `0x1000`, PML4, PDPT y PD. `PD[0]` arranca como la página de identidad de 2 MB. Con NX el kernel la sustituye por 512 páginas de 4 KiB.
+- `map_page` y `unmap_page` crean tablas de 4 KB. El código queda sin escritura. Datos, pilas, heap y `.bss` llevan el bit 63. La auditoría del comando `nx` exige cero páginas W+X.
+- Un `#PF` de anillo 0 por página no presente, con dirección por debajo de 128 MB, asigna un marco, lo mapea con NX, lo pone a cero y reanuda.
+- `user` marca el bit de usuario en PML4[0] y PDPT[0] del bootloader, mapea código ejecutable en `0x400000` y pila NX en `0x401000`.
+- `sched` crea dos PML4 propios. La mitad alta es un PDPT compartido. La mitad baja es privada y usa la misma tabla de 4 KiB del primer 2 MiB.
+- Sigue pendiente en esta etapa: ejecutar el kernel desde la mitad alta. La etapa 2 sigue saltando a `0x10000`. El bit NX ya está en la imagen; ver [docs/nx.md](docs/nx.md).
 
 ### 4. Procesos y syscalls — parcial, en la imagen
 

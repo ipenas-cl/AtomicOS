@@ -1,7 +1,7 @@
 // Ring 3. enter_user maps a code page at 0x400000 and a stack page at
 // 0x401000, both with the user bit, then iretq. The program writes
 // "user ok" through syscall/sysret and then reads 0x10000. That address
-// sits in the supervisor 2MB page, so the read must raise #PF and the
+// sits in a supervisor page of the low identity map, so the read must raise #PF and the
 // handler must not map it. resume_shell returns to the instruction
 // after iretq.
 
@@ -56,6 +56,11 @@ syscall fn sys_user(nr: i64, ch: i64) -> i64 {
         let r = zone_sys_set(ch);
         if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, r); }
         return r;
+    }
+    if (nr == 10) {
+        if (nx_user != 0) { puts("nx ok sched\n"); }
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
+        return 0;
     }
     if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
     return 0;
@@ -133,7 +138,7 @@ fn enter_user() -> i64 {
         puts("user fail alloc\n");
         return 0;
     }
-    if (map_page(0x400000, code, 7) == 0 || map_page(0x401000, stack, 7) == 0) {
+    if (map_page(0x400000, code, 3 | pte_nx_bit()) == 0 || map_page(0x401000, stack, 7 | pte_nx_bit()) == 0) {
         puts("user fail map\n");
         return 0;
     }

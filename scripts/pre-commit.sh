@@ -9,7 +9,8 @@ make clean
 make all
 
 code=0
-timeout 10 qemu-system-x86_64 \
+# -cpu qemu64: el mismo modelo que CI y el Makefile (bit NX).
+timeout 10 qemu-system-x86_64 -cpu qemu64 \
     -drive format=raw,file=build/lapageriaos.img \
     -display none -no-reboot || code=$?
 test "${code}" = "124"

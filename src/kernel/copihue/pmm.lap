@@ -189,7 +189,7 @@ fn pmm_test_high() -> i64 {
     let pa = alloc_high_page();
     if (pa == 0) { puts("pmm high fail alloc\n"); return 0; }
     if (pa < 0x200000) { puts("pmm high fail low\n"); return 0; }
-    if (map_page(0x300000, pa, 3) == 0) { puts("pmm high fail map\n"); return 0; }
+    if (map_page(0x300000, pa, 3 | pte_nx_bit()) == 0) { puts("pmm high fail map\n"); return 0; }
     let p: *u8 = 0x300000;
     p[0] = 0xAB;
     p[4095] = 0xCD;
