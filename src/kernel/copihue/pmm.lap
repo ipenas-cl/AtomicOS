@@ -91,7 +91,8 @@ fn pmm_mark_range(base: i64, len: i64) -> i64 {
 // rejects a kernel.bin past 512 sectors and an image+bss past 0x58000.
 fn pmm_reserve_image() -> i64 {
     let a = 0x10000;
-    let end = bss_end() as i64;
+    // bss_end es la dirección de enlace, en la mitad alta.
+    let end = hh_phys(bss_end() as i64);
     let b = ((end + 4095) >> 12) << 12;
     while (a < b) {
         pmm_take(a >> 12);

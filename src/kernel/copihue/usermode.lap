@@ -1,9 +1,9 @@
 // Ring 3. enter_user maps a code page at 0x400000 and a stack page at
 // 0x401000, both with the user bit, then iretq. The program writes
-// "user ok" through syscall/sysret and then reads 0x10000. That address
-// sits in a supervisor page of the low identity map, so the read must raise #PF and the
-// handler must not map it. resume_shell returns to the instruction
-// after iretq.
+// "user ok" through syscall/sysret and then reads 0x10000. That is a
+// kernel page whose low identity mapping was retired, so the read is a
+// not-present #PF from ring 3 (err bit 2 set, bit 0 clear). The handler
+// must not map it. resume_shell returns to the instruction after iretq.
 
 let user_ran: i64 = 0;
 
@@ -59,6 +59,11 @@ syscall fn sys_user(nr: i64, ch: i64) -> i64 {
     }
     if (nr == 10) {
         if (nx_user != 0) { puts("nx ok sched\n"); }
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
+        return 0;
+    }
+    if (nr == 11) {
+        if (hh_user != 0) { puts("hh ok sched\n"); }
         if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
         return 0;
     }

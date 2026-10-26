@@ -270,7 +270,12 @@ text_lo=$(($1)); text_hi=$(($2)); data_lo=$(($3)); data_hi=$(($4)); bss_lo=$(($5
 [ $((text_lo & 4095)) -eq 0 ] && [ $((text_hi & 4095)) -eq 0 ] || fail "nx text is not page aligned"
 [ "$text_hi" -gt "$text_lo" ] && [ "$text_hi" -le "$data_lo" ] || fail "nx text overlaps data"
 [ "$data_hi" -le "$bss_lo" ] && [ "$bss_hi" -gt "$bss_lo" ] || fail "nx data/bss range is wrong"
-[ "$bss_hi" -le $((0x200000)) ] || fail "nx bss extends past 2MB"
+# put_hex imprime 32 bits. 0xFFFFFFFF80010000 sale como 0x80010000.
+[ "$text_lo" -ge $((0x80000000)) ] && [ "$text_lo" -lt $((0x80200000)) ] || fail "nx text is not in the higher half"
+phys_text=$((text_lo - 0x80000000))
+phys_bss=$((bss_hi - 0x80000000))
+[ "$phys_text" -eq $((0x10000)) ] || fail "nx text is not physical 0x10000"
+[ "$phys_bss" -gt "$phys_text" ] && [ "$phys_bss" -le $((0x200000)) ] || fail "nx bss extends past 2MB"
 fetch=$(printf '%s\n' "$clean" | sed -n 's/^nx ok fetch err=\(0x[0-9a-f]*\) cr2=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
 write=$(printf '%s\n' "$clean" | sed -n 's/^nx ok write err=\(0x[0-9a-f]*\) cr2=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
 ustack=$(printf '%s\n' "$clean" | sed -n 's/^nx ok user stack err=\(0x[0-9a-f]*\) cr2=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
@@ -317,6 +322,52 @@ if ! printf '%s\n' "$clean" | awk '
 fi
 echo "ok   nx fetch=${fex} write=${wex} user=${uex} audit wx=0 leaves=${aleaves} code=${acode} nx=${anx}"
 
+# Mitad alta. `pf` y `nx` ya corrieron. La identidad del kernel está
+# retirada desde el arranque. El segundo proceso imprime `hh ok sched`
+# y después muere al escribir; el shell vuelve.
+typefs "hh"
+clean=$(tr -d '\r' < "$SERIAL")
+if printf '%s\n' "$clean" | grep -q '^hh fail'; then
+    fail "hh reported a failure"
+fi
+hhcpu=$(printf '%s\n' "$clean" | sed -n 's/^hh rip=\(0x[0-9a-f]*\) rsp=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+[ -n "${hhcpu:-}" ] || fail "no hh rip/rsp line"
+set -- $hhcpu
+hh_rip=$(($1)); hh_rsp=$(($2))
+hh_lo=$((0xFFFFFFFF80000000))
+hh_hi=$((0xFFFFFFFF80200000))
+[ "$hh_rip" -ge "$hh_lo" ] && [ "$hh_rip" -lt "$hh_hi" ] || fail "rip is not in the higher half"
+[ "$hh_rsp" -ge "$hh_lo" ] && [ "$hh_rsp" -lt "$hh_hi" ] || fail "rsp is not in the higher half"
+printf '%s\n' "$clean" | grep -qx "hh ok cpu" || fail "hh cpu check missing"
+printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=0x00000000 cr2=0x00010000" || fail "retired low kernel address did not #PF"
+printf '%s\n' "$clean" | grep -qx "hh ok low err=0x00000000 cr2=0x00010000" || fail "hh low probe mismatch"
+printf '%s\n' "$clean" | grep -qx "hh ok sched" || fail "scheduler did not continue after the user kernel read"
+hh_rd=$(printf '%s\n' "$clean" | sed -n 's/^hh ok read err=\(0x[0-9a-f]*\) cr2=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+hh_wr=$(printf '%s\n' "$clean" | sed -n 's/^hh ok write err=\(0x[0-9a-f]*\) cr2=\(0x[0-9a-f]*\)$/\1 \2/p' | head -1)
+[ -n "${hh_rd:-}" ] && [ -n "${hh_wr:-}" ] || fail "hh user fault lines missing"
+set -- $hh_rd; hh_re=$(($1)); hh_rc=$(($2))
+set -- $hh_wr; hh_we=$(($1)); hh_wc=$(($2))
+[ $((hh_re & 5)) -eq 5 ] && [ $((hh_re & 18)) -eq 0 ] || fail "user kernel read err is not a present user read"
+[ $((hh_we & 7)) -eq 7 ] && [ $((hh_we & 16)) -eq 0 ] || fail "user kernel write err is not a present user write"
+[ "$hh_rc" -eq $((0xFFFFFFFF80010000)) ] && [ "$hh_wc" -eq $((0xFFFFFFFF80010000)) ] || fail "user kernel cr2 is not the higher-half text"
+hha=$(printf '%s\n' "$clean" | sed -n 's/^hh ok audit wx=\([0-9][0-9]*\) leaves=\([0-9][0-9]*\) code=\([0-9][0-9]*\) nx=\([0-9][0-9]*\) huge=\([0-9][0-9]*\)$/\1 \2 \3 \4 \5/p' | head -1)
+[ -n "${hha:-}" ] || fail "hh audit line missing"
+set -- $hha; hhwx=$1; hhleaves=$2; hhcode=$3; hhnx=$4; hhhuge=$5
+[ "$hhwx" -eq 0 ] && [ "$hhhuge" -eq 0 ] || fail "hh audit has W+X or a huge page"
+[ "$hhcode" -ge 1 ] && [ "$hhnx" -ge 1 ] && [ "$hhleaves" -eq $((hhcode + hhnx)) ] || fail "hh audit leaves are not code+nx"
+if ! printf '%s\n' "$clean" | awk '
+    /^hh ok cpu$/ { if (!a) a=NR }
+    /^hh ok low err=/ { if (a && !b) b=NR }
+    /^hh ok sched$/ { if (b && !c) c=NR }
+    /^hh ok read err=/ { if (c && !d) d=NR }
+    /^hh ok write err=/ { if (d && !e) e=NR }
+    /^hh ok audit / { if (e && !f) f=NR }
+    END { exit !(a && b && c && d && e && f && a<b && b<c && c<d && d<e && e<f) }
+'; then
+    fail "hh lines were out of order"
+fi
+echo "ok   hh rip rsp low=#PF user wx=0 leaves=${hhleaves} code=${hhcode} nx=${hhnx}"
+
 typeline pmm
 sleep 0.4
 typeline user
@@ -328,13 +379,13 @@ high=$(printf '%s\n' "$clean" | sed -n 's/^pmm high ok \(0x[0-9a-f]*\)$/\1/p' | 
 [ $((high)) -ge $((0x200000)) ] || fail "pmm high page $high is below 2MB"
 echo "ok   pmm ok, high page $high"
 printf '%s\n' "$clean" | grep -qx "user ok" || fail "ring 3 syscall did not print user ok"
-printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=0x00000005 cr2=0x00010000" || fail "ring 3 kernel read did not #PF"
+printf '%s\n' "$clean" | grep -qx "exception: vector 14 #PF page fault err=0x00000004 cr2=0x00010000" || fail "ring 3 kernel read did not #PF"
 printf '%s\n' "$clean" | grep -qx "user blocked" || fail "user #PF was not reported"
 printf '%s\n' "$clean" | grep -qx "user returned" || fail "shell did not resume after user #PF"
 printf '%s\n' "$clean" | grep -qx "user leak" && fail "ring 3 read of kernel memory succeeded"
 if ! printf '%s\n' "$clean" | awk '
     /^user ok$/ { if (!a) a=NR }
-    /^exception: vector 14 #PF page fault err=0x00000005 cr2=0x00010000$/ { if (a && !b) b=NR }
+    /^exception: vector 14 #PF page fault err=0x00000004 cr2=0x00010000$/ { if (a && !b) b=NR }
     /^user blocked$/ { if (b && !c) c=NR }
     /^user returned$/ { if (c && !d) d=NR }
     END { exit !(a && b && c && d && a<b && b<c && c<d) }
@@ -377,7 +428,10 @@ set -- $low; la=$1; lb=$2
 [ "$pa" != "0x00001000" ] && [ "$pb" != "0x00001000" ] || fail "process PML4 is the bootloader table"
 [ "$cr3a" = "$pa" ] || fail "write_cr3(A) read back $cr3a, PML4 is $pa"
 [ "$cr3b" = "$pb" ] || fail "write_cr3(B) read back $cr3b, PML4 is $pb"
-[ "$ha" = "$hb" ] && [ "$ha" = "$sa" ] && [ "$ha" = "$sb" ] || fail "kernel half is not one shared entry (half $ha $hb span $sa $sb)"
+# PML4[256] y PML4[511] apuntan al mismo PDPT. El kernel corre por
+# la 511, así que el CPU deja ahí el bit de acceso (bit 5). La 256 no
+# se camina y ese bit sigue en 0. La página es la misma.
+[ $((ha & ~0x20)) -eq $((hb & ~0x20)) ] && [ $((ha & ~0x20)) -eq $((sa & ~0x20)) ] && [ $((ha & ~0x20)) -eq $((sb & ~0x20)) ] || fail "kernel half is not one shared entry (half $ha $hb span $sa $sb)"
 [ "$ha" != "0x00000000" ] || fail "kernel half entry is empty"
 [ "$la" != "$lb" ] || fail "lower-half PML4[0] is not per process"
 alias_n=$(printf '%s\n' "$clean" | grep -cx "alias ok")

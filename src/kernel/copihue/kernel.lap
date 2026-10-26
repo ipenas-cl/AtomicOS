@@ -1,6 +1,7 @@
-// LapageriaOS kernel entry. stage2.lap loads this flat image at 0x10000 and
-// jumps to its first byte in 64-bit long mode (stack at 0x90000).
-// Built with `copihue --flat 0x10000`, which places _start first.
+// LapageriaOS kernel entry. stage2.lap loads this flat image at physical
+// 0x10000 and jumps to its first byte in long mode. The link address is
+// 0xFFFFFFFF80010000 (`copihue --flat`), and the stack is the same
+// physical page seen at 0xFFFFFFFF80090000. _start is still the first byte.
 //
 // The imports are the rest of the kernel, in the order `cat` used to
 // concatenate. The path is relative to this file. One namespace, one
@@ -14,6 +15,7 @@ import "gdt.lap";
 import "sched.lap";
 import "usermode.lap";
 import "nx.lap";
+import "hh.lap";
 import "idt.lap";
 import "ata.lap";
 import "blk.lap";

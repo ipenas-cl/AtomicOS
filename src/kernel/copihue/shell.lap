@@ -63,6 +63,7 @@ fn cmd_help() -> i64 {
     puts("  cr3             CR3 and the bootloader page table\n");
     puts("  pf              read unmapped 0x200000\n");
     puts("  nx              bit NX, W^X y #PF de fetch\n");
+    puts("  hh              kernel en la mitad alta\n");
     puts("  pmm             allocate and free physical pages\n");
     puts("  user            enter ring 3 and syscall\n");
     puts("  sched           two processes, separate pages\n");
@@ -273,6 +274,7 @@ fn run_command() -> i64 {
         return 0;
     }
     if (cmd_is("nx")) { cmd_nx(); return 0; }
+    if (cmd_is("hh")) { cmd_hh(); return 0; }
     if (cmd_is("pf")) {
         puts("raising #PF\n");
         let p: *u8 = 0x200000;

@@ -465,3 +465,15 @@ devolvió `timer=29 yield=4` y la zona imprimió `zone fs, denied,
 syscall, quota mem 32473, escape`. Esos caminos pasan por
 `lidt(&idtr)`, `save_context(&shell_ctx)` y
 `restore_context(&shell_ctx)`. No queda un pedido nuevo.
+
+## Mitad alta, sin pedido nuevo
+
+`copihue --flat 0xFFFFFFFF80010000` en v0.31.0 emite `org` de esa
+dirección. NASM 2.16.01 `-f bin` no rellena el hueco: `kernel.bin`
+de esta imagen mide 157775 bytes y el primer byte es `_start`.
+`mov rax, símbolo` sale `mov rax, imm64` con la dirección canónica
+(`__bss_end` es `0xFFFFFFFF8003BEFC`). `section_start` / `section_end`
+devuelven esa misma dirección y `nx_ranges` las usa. Un `jmp`
+relativo desde la etapa 2 hasta ahí no cabe en rel32; el salto es
+`jmp rax`, que el lenguaje ya tenía. No hace falta `section @ addr`
+ni un caso mínimo nuevo.

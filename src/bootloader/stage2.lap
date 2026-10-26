@@ -23,8 +23,13 @@
 // What the kernel still requires from this file (qemu-test checks it):
 //   CR3 = 0x1000, PML4[0] = 0x2003, PDPT[0] = 0x3003, PD[0] = 0x83
 //   E820 count word at 0x8000, entries of 24 bytes at 0x8004
-//   GDT selectors 0x08/0x10 32-bit, 0x18/0x20 64-bit, stack 0x90000
-//   a far jump to 0x10000 in long mode
+//   GDT selectors 0x08/0x10 32-bit, 0x18/0x20 64-bit
+//   PML4[511] = 0x4003, PDPT[510] = 0x5003, HH PD[0] = 0x83
+//   stack 0xFFFFFFFF80090000, indirect jump to 0xFFFFFFFF80010000
+// The file is still loaded at physical 0x10000. The kernel is linked
+// at 0xFFFFFFFF80010000 (`--flat`), which is that frame plus the
+// higher-half base. A direct jmp does not reach: the displacement
+// does not fit in rel32. `jmp rax` does.
 // Do not add a `let` global here. --flat puts .bss before the address
 // calculation of an empty image only when it is empty; a global would
 // move _start off the first byte. Constants live in `data`.
@@ -227,6 +232,16 @@ bits 16 naked fn setup_page_tables() {
     // PD[0] = 0x83 es la página de 2MB. El kernel la parte en 4KB
     // cuando prende NX. Esta etapa no tiene el tamaño de .text.
     *(0x3000 as *u32) = 0x83;
+    // Mitad alta: 0xFFFFFFFF80000000. PML4[511] -> PDPT en 0x4000,
+    // PDPT[510] -> PD en 0x5000, PD[0] = la misma RAM física 0..2MB.
+    // Es otra tabla: retirar la identidad baja no la borra. El claro
+    // de arriba llega hasta 0x4FFF; 0x5000 va aparte.
+    di = 0x5000;
+    ecx = 1024;
+    rep_stosd();
+    *(0x1FF8 as *u32) = 0x4003;
+    *(0x4FF0 as *u32) = 0x5003;
+    *(0x5000 as *u32) = 0x83;
 }
 
 bits 16 naked fn disk_error() {
@@ -262,6 +277,17 @@ bits 64 naked fn long_mode() {
     fs = ax;
     gs = ax;
     ss = ax;
+    // La pila física sigue en 0x90000. El kernel ya está enlazado
+    // arriba, así que RSP tiene que ser esa misma página vista desde
+    // 0xFFFFFFFF80000000. El desplazamiento cabe en rax, no en un jmp
+    // relativo: desde aquí hasta 0xFFFFFFFF80010000 pasa de 2GB.
     rsp = 0x90000;
-    jmp 0x10000;
+    rax = 0xFFFFFFFF;
+    rax = rax << 32;
+    rax = rax | 0x80090000;
+    rsp = rax;
+    rax = 0xFFFFFFFF;
+    rax = rax << 32;
+    rax = rax | 0x80010000;
+    jmp rax;
 }

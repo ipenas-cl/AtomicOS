@@ -85,19 +85,41 @@ el `if (ebx == 0)`. El caso está en `docs/PEDIDOS_COPIHUE.md`.
 
 El arranque es `src/bootloader/boot.lap` (512 bytes, firma `55 aa`;
 el último byte distinto de cero antes de la firma está en el offset
-168) y `src/bootloader/stage2.lap` (en `0x8200`, 1682 bytes). La
+168) y `src/bootloader/stage2.lap` (en `0x8200`, 1789 bytes). La
 etapa 2 pide los sectores que ocupa `kernel.bin`, de a 128 por INT
-13h. En esta compilación `kernel.bin` mide 149053 bytes: 292
-sectores, LBA 9..300, paquete `10 00 24 01 00 00 00 10 09 00 00 00
-00 00 00 00`. `make` suma 22124 bytes de `.bss` y escribe fin de
-imagen `0x39ca9`. `__bss_end` es `0x39cac`. `stage2.bin` mide 1682
-bytes. El pin v0.31.0 sin NX medía 136835 bytes, 268 sectores, LBA
-9..276, paquete `10 00 0c 01 00 00 00 10 09 00 00 00 00 00 00 00`,
-`.bss` 22060 y fin `0x36CAF`, con esta misma etapa 2 de 1682. La
-rama NX sobre v0.29.4 medía los mismos 149053 bytes, 292 sectores y
-`__bss_end` `0x39cac`, y `stage2.bin` en 1678: v0.29.4 no tenía el
-`movzx eax, ax` del conteo E820. La palabra en `0x8000` es la misma.
-Los 75 `as` no agregan instrucciones. El `as u8` de `nx.lap` tampoco.
+13h. En esta compilación `kernel.bin` mide 157775 bytes: 309
+sectores, LBA 9..317, paquete `10 00 35 01 00 00 00 10 09 00 00 00
+00 00 00 00`. `make` suma 22188 bytes de `.bss` y escribe fin de
+imagen `0x3befb`. `__bss_end` es `0xFFFFFFFF8003BEFC` (físico
+`0x3BEFC`). `stage2.bin` mide 1789 bytes. El pin v0.31.0 sin NX
+medía 136835 bytes, 268 sectores, LBA 9..276, paquete `10 00 0c 01
+00 00 00 10 09 00 00 00 00 00 00 00`, `.bss` 22060 y fin `0x36CAF`,
+con la etapa 2 de 1682. La rama NX sobre v0.29.4 medía 149053 bytes,
+292 sectores y `__bss_end` `0x39cac`, y `stage2.bin` en 1678. La
+imagen NX de v0.31.0 todavía enlazada en `0x10000` medía los mismos
+149053 bytes, 292 sectores, paquete `10 00 24 01 …`, `.bss` 22124,
+fin `0x39ca9` y `stage2.bin` en 1682. Los 75 `as` no agregan
+instrucciones. El `as u8` de `nx.lap` tampoco.
+
+El kernel queda enlazado en `0xFFFFFFFF80010000`
+(`copihue --flat` de v0.31.0). NASM `-f bin` no rellena hasta esa
+dirección: el archivo empieza en `_start`. La etapa 2 arma la
+identidad baja y la ventana `0xFFFFFFFF80000000` (PML4[511] =
+`0x4003`, PDPT[510] = `0x5003`, PD en `0x5000`), pone RSP en
+`0xFFFFFFFF80090000` y salta con `jmp rax` (`FF E0`). `nx_init`
+parte las dos páginas de 2 MiB. `.text` (`0x10000`..`0x35000`, 37
+páginas) queda ejecutable y sin escritura en las dos tablas; el
+resto lleva el bit 63. `hh_retire` borra de la tabla baja las
+páginas `0x10000`..`0x3C000`. VGA, E820, las tablas y las pilas de
+`0x60000` para arriba siguen en identidad. GDT, IDT y TSS viven en
+la `.bss`, así que después de eso solo se alcanzan por la ventana
+alta. El PDPT compartido de cada proceso apunta su slot 510 a la PD
+`0x5000`, sin bit de usuario. El comando `hh` comprueba RIP, RSP, el
+`#PF` de `0x10000` y el de anillo 3 sobre `0xFFFFFFFF80010000`. La
+auditoría sigue en `wx=0`: `leaves=981 code=37 nx=944`. El comando
+`user` ve `err=0x4` en `0x10000`, porque esa página ya no está. El
+detalle está en `docs/higher-half.md`. No hubo pedido nuevo a
+Copihue: `--flat` con esa dirección basta.
 
 El archivo puede pasar de `0x20000`; imagen y `.bss` tienen que
 terminar antes de `0x58000` (la pila de `0x60000` crece hacia abajo).
@@ -156,32 +178,47 @@ entradas, `pmm free=32480`, `nx efer on`, `nx wp on` y `lapageria>`.
 No se probó `reboot`, `clear`, el teclado a mano, TCP, UDP, AHCI,
 NVMe ni un kernel en la mitad alta.
 
-En esta imagen (v0.31.0 y NX), tres `make qemu-test` seguidos en
-QEMU 8.2.2 con `-cpu qemu64` terminaron en 0. La línea NX fue la
-misma las tres veces: `ok   nx fetch=0x00000011 write=0x00000003
-user=0x00000015 audit wx=0 leaves=513 code=35 nx=478`. También
+En la imagen anterior (v0.31.0 y NX, kernel en `0x10000`), tres
+`make qemu-test` seguidos en QEMU 8.2.2 con `-cpu qemu64` terminaron
+en 0. La línea NX fue la misma las tres veces: `ok   nx
+fetch=0x00000011 write=0x00000003 user=0x00000015 audit wx=0
+leaves=513 code=35 nx=478`. También coincidieron `keyboard IRQ
+count=151`, `cr3=0x1000 pml4=0x2023 pdpt=0x3023`, `e820 n=7`, `pmm
+free=32480`, `exit freed 7+6 pages, pmm back to 32472` y `zone quota
+mem 32472`. Lo que cambió entre corridas: ticks 100 → 200 en 935 ms,
+934 ms y 946 ms; ticks 200 → 416, 418 y 419; letras `abbaababbaab`,
+`babababababa` y `abababababba`; `round-robin timer=38`, `27` y
+`29`, las tres con `yield=4`. El humo de esa imagen salió 124 y
+mostró `nx efer on` y `nx wp on`, sin `hh on`.
+
+En esta imagen, tres `make COPIHUE=/tmp/copihue qemu-test` seguidos
+en QEMU 8.2.2 con `-cpu qemu64` terminaron en 0. Las dos líneas
+estables fueron `ok   nx fetch=0x00000011 write=0x00000003
+user=0x00000015 audit wx=0 leaves=981 code=37 nx=944` y `ok   hh rip
+rsp low=#PF user wx=0 leaves=981 code=37 nx=944`. También
 coincidieron `keyboard IRQ count=151`, `cr3=0x1000 pml4=0x2023
 pdpt=0x3023`, `e820 n=7`, `pmm free=32480 base=0x0000000000100000
 end=0x0000000007fe0000`, `gdt ok`, `pmm ok, high page 0x00201000`,
-`exit freed 7+6 pages, pmm back to 32472`, `trace counters ok`,
+`exit freed 7+6 pages, pmm back to 32471`, `trace counters ok`,
 `ata ok, blk ok, blk corrupt detected`, `trace syscall ok`, `trace
 off ok`, `exec desde disco, missing, bad magic, bad size, corrupt`,
-`zone fs, denied, syscall, quota mem 32472, escape`, `net arp, ping,
+`zone fs, denied, syscall, quota mem 32471, escape`, `net arp, ping,
 drop`, `trace overflow ok`, `ud2 -> #UD` y, en el segundo arranque,
 `fs persist v2, snap v1, corrupt detected`. Lo que cambió entre
-corridas: ticks 100 → 200 en 935 ms, 934 ms y 946 ms; ticks 200 →
-416, 418 y 419; letras `abbaababbaab`, `babababababa` y
-`abababababba`; `round-robin timer=38`, `27` y `29`, las tres con
-`yield=4`. No apareció `released=` distinto de la suma de los dos
-`exit`. El humo de 10 s (`timeout 10 qemu-system-x86_64 -cpu qemu64
--drive format=raw,file=build/lapageriaos.img -display none -no-reboot
--serial file:…`, sin disco de datos) salió 124. La serie mostró
-`e820 n=7`, las siete entradas (la usable de 1 MB termina en
+corridas: ticks 100 → 200 en 935 ms, 938 ms y 1035 ms; ticks 200 →
+415, 419 y 418; letras `babababababa`, `abbababababa` y
+`babababababa`; `round-robin timer=25`, `33` y `27`, las tres con
+`yield=4`. El humo de 10 s (`timeout 10 qemu-system-x86_64 -cpu
+qemu64 -drive format=raw,file=build/lapageriaos.img -display none
+-no-reboot -serial file:…`, sin disco de datos) salió 124. La serie
+mostró `e820 n=7`, las siete entradas (la usable de 1 MB termina en
 `0x7fe0000`), `pmm free=32480`, `gdt load`, `gdt ok`, `nx efer on`,
-`nx wp on`, `timer: ticks=100`, `timer: ticks=200` y `lapageria>`.
-Esa corrida no escribe comandos. No se probó `reboot`, `clear`, el
-teclado a mano, TCP, UDP, AHCI, NVMe ni un kernel en la mitad alta.
-El borde `gen == 0xFFFFFFFF` de `fs_commit` no se ejecutó.
+`nx wp on`, `hh on text=0xffffffff80010000`, `timer: ticks=100`,
+`timer: ticks=200` y `lapageria>`. Esa corrida no escribe comandos.
+No se probó `reboot`, `clear`, el teclado a mano, TCP, UDP, AHCI ni
+NVMe. El borde `gen == 0xFFFFFFFF` de `fs_commit` no se ejecutó. El
+`make` de esta sesión usó un `copihue` ya compilado de ese commit;
+no clonó `build/copihue`.
 
 El esclavo IDE (`build/data.img`, QEMU index=1) tiene driver ATA PIO
 LBA28 y bloques de 512 B con CRC-32 en un sector de metadatos. `disk`

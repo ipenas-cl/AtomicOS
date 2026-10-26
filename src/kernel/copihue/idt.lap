@@ -130,10 +130,21 @@ interrupt fn exc14(frame: *PfFrame) {
     if (nx_probe != 0 && (frame.error_code & 4) == 0) {
         if (nx_kernel_fault(frame) != 0) { return; }
     }
+    // Lectura de anillo 0 a una página baja del kernel ya retirada.
+    // No se demanda: la identidad no vuelve.
+    if (hh_probe != 0 && (frame.error_code & 4) == 0) {
+        hh_kernel_fault(frame);
+        return;
+    }
     // Anillo 3 ejecutando pila o datos durante `nx`: el proceso muere
     // y el otro (o el shell) sigue. No se parchea rip.
     if (sched_on != 0 && nx_user != 0 && (frame.error_code & 4) != 0 && (frame.error_code & 16) != 0) {
         nx_user_fault(frame);
+        return;
+    }
+    // Anillo 3 leyendo o escribiendo el kernel en la mitad alta.
+    if (sched_on != 0 && hh_user != 0 && (frame.error_code & 4) != 0) {
+        hh_user_fault(frame);
         return;
     }
     if (sched_on != 0 && (frame.error_code & 4) != 0) {

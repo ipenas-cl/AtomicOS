@@ -1,10 +1,11 @@
 // Two user processes. Each has its own PML4. PML4[256..511] all point at
-// one shared kernel PDPT (the upper half, alias of the low 2MB at
-// 0xFFFF800000000000). PML4[0] is private. PD[0] points at the kernel's
-// 4KB table for the low 2MB (the same one nx_init installed), so this
-// kernel, linked at 0x10000, still executes, plus that process's user
-// pages. The bootloader cannot jump at a high address (the 512-byte
-// stub has no room), so the identity map stays in the lower half.
+// one shared kernel PDPT, without the user bit. Slot 0 of that PDPT is
+// the old alias of the low 2MB at 0xFFFF800000000000 (whatever
+// kern_low_pt still maps; the kernel image is gone from it). Slot 510
+// is the higher-half window at 0xFFFFFFFF80000000, the same PD the
+// bootloader built at physical 0x5000. The kernel runs there. PML4[0]
+// is private. Its PD[0] still points at kern_low_pt so a process can
+// use the low half; ring 3 does not see the kernel pages.
 //
 // The PIT IRQ from ring 3 lands on TSS.rsp0. yield and the timer share
 // one iretq frame: 15 saved GPRs, then RIP, CS, RFLAGS, RSP, SS.
@@ -23,6 +24,9 @@ let volatile uctx_rsp: i64 = 0;
 let volatile uctx_rfl: i64 = 0;
 let volatile alias_ptr: i64 = 0;
 let volatile alias_byte: i64 = 0;
+let alias_b0: i64 = 0;
+let alias_b1: i64 = 0;
+let alias_b7: i64 = 0;
 
 let proc_pid: [i64; 2];
 let proc_state: [i64; 2];
@@ -43,14 +47,6 @@ let shared_pdpt: i64 = 0;
 let shared_pd: i64 = 0;
 let sched_base: i64 = 0;
 let released_ok: i64 = 0;
-
-fn half_base() -> i64 {
-    let v = 0xFFFF;
-    v = v << 16;
-    v = v | 0x8000;
-    v = v << 32;
-    return v;
-}
 
 fn track(pi: i64, pa: i64) -> i64 {
     if (pa == 0) { return 0; }
@@ -103,6 +99,8 @@ fn shared_init() -> i64 {
     let pd: *u64 = shared_pd as *u64;
     pdpt[0] = shared_pd | 3;
     pd[0] = low_pd_entry();
+    // Misma PD física que PML4[511] del arranque. Sin bit de usuario.
+    pdpt[510] = 0x5000 | 3;
     return 1;
 }
 
@@ -297,22 +295,30 @@ naked fn resume_frame() {
     iretq();
 }
 
+fn alias_capture() -> i64 {
+    let p: *u8 = (hh_base() + 0x10000) as *u8;
+    alias_b0 = p[0];
+    alias_b1 = p[1];
+    alias_b7 = p[7];
+    return 1;
+}
+
 fn alias_at(off: i64) -> i64 {
-    alias_ptr = half_base() + 0x10000 + off;
+    alias_ptr = hh_base() + 0x10000 + off;
     let p: *u8 = alias_ptr as *u8;
     alias_byte = p[0];
     return alias_byte;
 }
 
 fn alias_ok() -> i64 {
-    let lo: *u8 = 0x10000;
-    if (alias_at(0) != lo[0]) { return 0; }
-    if (alias_at(1) != lo[1]) { return 0; }
-    if (alias_at(7) != lo[7]) { return 0; }
+    if (alias_at(0) != alias_b0) { return 0; }
+    if (alias_at(1) != alias_b1) { return 0; }
+    if (alias_at(7) != alias_b7) { return 0; }
     return 1;
 }
 
 fn alias_both() -> i64 {
+    if (alias_capture() == 0) { puts("alias fail\n"); return 0; }
     write_cr3(proc_pml4[0]);
     puts("cr3 a=");
     put_hex(read_cr3());

@@ -15,7 +15,8 @@
 # Disco (imagen cruda de FLOPPY_SECTORS sectores de 512 bytes):
 #   LBA 0                         etapa 1 (boot.lap, copihue --boot, 512 bytes)
 #   LBA 1 .. STAGE2_SECTORS       etapa 2 en STAGE2_ORG
-#   LBA KERNEL_LBA ..             kernel en 0x10000
+#   LBA KERNEL_LBA ..             kernel cargado en físico 0x10000,
+#                                 enlazado en 0xFFFFFFFF80010000
 # KERNEL_LBA es 1 + STAGE2_SECTORS. boot.lap tiene que contener los mismos
 # STAGE2_SECTORS y STAGE2_ORG, y el salto a STAGE2_ORG. stage2.lap contiene
 # `dq KERNEL_LBA` y el marcador `dw 0; // KERNEL_SECTORS`. La regla de la
@@ -28,7 +29,8 @@
 # KERNEL_SECTORS, escrito por make.
 #
 # El tope no es el disquete (FLOPPY_SECTORS - KERNEL_LBA da 2871 y eso
-# pasaría de 1 MB). El kernel entra en 0x10000. La .bss no va en
+# pasaría de 1 MB). El archivo del kernel entra en físico 0x10000
+# (el enlace es 0xFFFFFFFF80010000). La .bss no va en
 # kernel.bin: _start la limpia justo después del archivo. La primera
 # pila fija es proc_rsp0 del proceso 0, en 0x60000, y crece hacia abajo.
 # Entre topes de pila hay 32 KiB, así que imagen + .bss tienen que
@@ -96,6 +98,7 @@ COPIHUE_KERNEL_SRC = $(KERNEL_SRC)/copihue/console.lap \
                      $(KERNEL_SRC)/copihue/sched.lap \
                      $(KERNEL_SRC)/copihue/usermode.lap \
                      $(KERNEL_SRC)/copihue/nx.lap \
+                     $(KERNEL_SRC)/copihue/hh.lap \
                      $(KERNEL_SRC)/copihue/idt.lap \
                      $(KERNEL_SRC)/copihue/ata.lap \
                      $(KERNEL_SRC)/copihue/blk.lap \
@@ -173,7 +176,7 @@ $(KERNEL): $(COPIHUE_KERNEL_SRC) $(COPIHUE) | $(BUILD_DIR)
 	    test "$$line" -gt "$$prev" || { echo "import $$base is out of order in $$root"; exit 1; }; \
 	    prev=$$line; \
 	  done
-	$(abspath $(COPIHUE)) --flat 0x10000 -S -o $(BUILD_DIR)/kernel.asm $(KERNEL_SRC)/copihue/kernel.lap
+	$(abspath $(COPIHUE)) --flat 0xFFFFFFFF80010000 -S -o $(BUILD_DIR)/kernel.asm $(KERNEL_SRC)/copihue/kernel.lap
 	nasm -f bin -o $@ $(BUILD_DIR)/kernel.asm
 	@set -eu; \
 	  size=$$(stat -c %s $@); \

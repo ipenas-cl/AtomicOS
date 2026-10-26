@@ -4,20 +4,20 @@ QEMU arranca con `-cpu qemu64` (`make qemu`, `make debug`, `make qemu-test`, el 
 
 `nx_init` corre después de la IDT. Lee el bit, prende EFER.NXE (MSR `0xC0000080`, bit 11) y lo vuelve a leer. En el humo de 10 s y en `make qemu-test` la serie dice `nx efer on`.
 
-La etapa 2 deja PD[0] en `0x83`: una página de 2 MiB, presente y escribible, que cubre código y datos. Con NXE prendido el kernel la parte. Pide un marco entre 1 MiB y 2 MiB, escribe 512 entradas de 4 KiB y guarda `tabla|3` en PD[0]. El bit 63 va solo en las hojas. Un directorio con ese bit ensuciaría la dirección, porque `>>` es aritmético. Después pone CR0.WP (bit 16) y recarga CR3. La serie dice `nx wp on`.
+La etapa 2 deja dos PD[0] en `0x83`: la identidad baja y la ventana `0xFFFFFFFF80000000`. Cada una es una página de 2 MiB, presente y escribible, que cubre código y datos. Con NXE prendido el kernel parte las dos. Pide dos marcos entre 1 MiB y 2 MiB, escribe 512 entradas de 4 KiB en cada tabla y guarda `tabla|3` en PD[0] (`0x3000`) y en la PD alta (`0x5000`). El bit 63 va solo en las hojas. Un directorio con ese bit ensuciaría la dirección, porque `>>` es aritmético. Después pone CR0.WP (bit 16), recarga CR3 y retira la identidad de la imagen. La serie dice `nx wp on` y `hh on text=0xffffffff80010000`.
 
-`.text` termina alineado a 4096 (`data nx_text_pad { align 4096; }`). En este binario, con Copihue v0.31.0, `_start` carga `__bss_start` `0x34640` y `__bss_end` `0x39cac`, y `kernel.bin` termina en `0x3463d`. Los inmediatos de `nx_ranges` son:
+`.text` termina alineado a 4096 (`data nx_text_pad { align 4096; }`). En este binario el enlace es `0xFFFFFFFF80010000`. `_start` carga `__bss_start` `0xFFFFFFFF80036850` y `__bss_end` `0xFFFFFFFF8003BEFC`. `kernel.bin` termina en el físico `0x3684F`. `nx_ranges` resta `0xFFFFFFFF80000000` y trabaja con el físico:
 
-| Símbolo | Dirección |
-|---|---|
-| `__text_start` | `0x10000` |
-| `__text_end` | `0x33000` |
-| `__data_start` | `0x33000` |
-| `__data_end` | `0x3463d` |
-| `__bss_start` | `0x34640` |
-| `__bss_end` | `0x39cac` |
+| Símbolo | Virtual | Físico |
+|---|---|---|
+| `__text_start` | `0xFFFFFFFF80010000` | `0x10000` |
+| `__text_end` | `0xFFFFFFFF80035000` | `0x35000` |
+| `__data_start` | `0xFFFFFFFF80035000` | `0x35000` |
+| `__data_end` | `0xFFFFFFFF8003684F` | `0x3684F` |
+| `__bss_start` | `0xFFFFFFFF80036850` | `0x36850` |
+| `__bss_end` | `0xFFFFFFFF8003BEFC` | `0x3BEFC` |
 
-Las páginas completas dentro de `[0x10000, 0x33000)` quedan presentes, sin escritura y ejecutables (35 páginas). El resto del primer 2 MiB lleva el bit 63: datos, `.bss`, pilas, VGA, tablas y los huecos. `.data` y `.bss` comparten la página `0x34000`. Las dos son NX. No queda ninguna hoja de 2 MiB: la auditoría imprimió `huge=0`.
+Hay dos tablas de 4 KiB. Las páginas cuyo físico cae entero en `[0x10000, 0x35000)` quedan presentes, sin escritura y ejecutables en las dos (37 páginas). El resto de esos 2 MiB lleva el bit 63. Después de CR0.WP, `hh_retire` borra de la tabla baja `0x10000`..`0x3C000`. La auditoría clasifica por el físico de la hoja, así que `.text` cuenta una vez. `.data` y `.bss` comparten la página física `0x36000`. Las dos son NX. No queda ninguna hoja de 2 MiB: la auditoría imprimió `huge=0`. La imagen anterior, enlazada en `0x10000`, tenía `__text_end` `0x33000` (35 páginas) y `__bss_end` `0x39cac`.
 
 El código de usuario en `0x400000` queda presente, de usuario, sin escritura y sin NX. La pila (`0x401000`), la página privada (`0x500000`), el heap de la zona y el MMIO de la red llevan el bit 63. Durante la copia el código está NX; al terminar se remapea sin escritura y sin NX.
 
@@ -43,6 +43,8 @@ El fetch es de una página presente (bit 0) y de instrucción (bit 4). La escrit
 
 Esa corrida de `make qemu-test` imprimió `ok   nx fetch=0x00000011 write=0x00000003 user=0x00000015 audit wx=0 leaves=513 code=35 nx=478`.
 
-En esta imagen, tres `make qemu-test` seguidos terminaron en 0 e imprimieron la misma línea: `ok   nx fetch=0x00000011 write=0x00000003 user=0x00000015 audit wx=0 leaves=513 code=35 nx=478`. El humo de 10 s con `-cpu qemu64` salió 124 y mostró `nx efer on` y `nx wp on`.
+En la imagen anterior (v0.31.0, kernel en `0x10000`), tres `make qemu-test` seguidos terminaron en 0 e imprimieron la misma línea: `ok   nx fetch=0x00000011 write=0x00000003 user=0x00000015 audit wx=0 leaves=513 code=35 nx=478`.
+
+En esta imagen la cuenta cambia porque la ventana alta suma otras 512 hojas y `hh_retire` saca las 44 de la imagen en la tabla baja: 512 − 44 + 512 + la página de `pf` = 981, y 37 de ellas son código. Tres `make qemu-test` seguidos terminaron en 0 e imprimieron `ok   nx fetch=0x00000011 write=0x00000003 user=0x00000015 audit wx=0 leaves=981 code=37 nx=944`. `put_hex` sigue mostrando 32 bits, así que el mapa sale con `0x80010000` y `0x80035000`; la prueba resta `0x80000000` y exige físico `0x10000`. El humo de 10 s con `-cpu qemu64` salió 124 y mostró `nx efer on`, `nx wp on` y `hh on text=0xffffffff80010000`.
 
 Copihue v0.31.0 alcanza para esto: `cpuid` / `cpuid_edx`, `rdmsr` / `wrmsr`, `read_cr0` / `write_cr0`, `read_cr2` y un `<<` de 63 bits guardado en 8 bytes (`mov qword`). El único `as` nuevo de este archivo es `p[0] = (old) as u8`: el byte de `.text` que la sonda iba a escribir. El bit 63 no pasa por ese `as`. No se agregó un pedido ni un `asm()`.
