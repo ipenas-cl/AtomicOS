@@ -48,7 +48,7 @@ fn pmm_set_free(page: i64) -> i64 {
     let mask = pmm_mask(page);
     let cur = pmm_bitmap[bi];
     if ((cur & mask) != 0) { return 0; }
-    pmm_bitmap[bi] = cur | mask;
+    pmm_bitmap[bi] = (cur | mask) as u8;
     pmm_free = pmm_free + 1;
     let pa = page << 12;
     if (pmm_lo == 0 || pa < pmm_lo) { pmm_lo = pa; }
@@ -62,7 +62,7 @@ fn pmm_take(page: i64) -> i64 {
     let mask = pmm_mask(page);
     let cur = pmm_bitmap[bi];
     if ((cur & mask) == 0) { return 0; }
-    pmm_bitmap[bi] = cur & ~mask;
+    pmm_bitmap[bi] = (cur & ~mask) as u8;
     pmm_free = pmm_free - 1;
     return 1;
 }

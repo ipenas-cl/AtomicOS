@@ -73,8 +73,8 @@ fn blk_put_meta(n: i64, sum: i64) -> i64 {
     m.magic[1] = 0x42;
     m.magic[2] = 0x4C;
     m.magic[3] = 0x4B;
-    m.block = n;
-    m.crc = sum;
+    m.block = n as u32;
+    m.crc = sum as u32;
     return 0;
 }
 
@@ -135,7 +135,7 @@ fn disk_test() -> i64 {
 
     let i = 0;
     while (i < 512) {
-        ata_id[i] = (i + 0x3C) & 255;
+        ata_id[i] = ((i + 0x3C) & 255) as u8;
         i = i + 1;
     }
     let wr = ata_write(2, ata_id);
@@ -165,7 +165,7 @@ fn disk_test() -> i64 {
 
     i = 0;
     while (i < 512) {
-        blk_data[i] = (i + 0xA5) & 255;
+        blk_data[i] = ((i + 0xA5) & 255) as u8;
         i = i + 1;
     }
     let bw = blk_write(0);

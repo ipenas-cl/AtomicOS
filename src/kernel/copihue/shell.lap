@@ -27,7 +27,7 @@ fn read_line() -> i64 {
             continue;
         }
         if (line_len < 79) {
-            line[line_len] = c;
+            line[line_len] = c as u8;
             line_len++;
             putc(c);
         }
@@ -241,7 +241,7 @@ fn run_command() -> i64 {
     }
     if (cmd_is("clear")) { con_clear(); return 0; }
     if (cmd_is("version")) {
-        puts("LapageriaOS 0.8 - kernel written in Copihue v0.30.0\n");
+        puts("LapageriaOS 0.8 - kernel written in Copihue v0.31.0\n");
         return 0;
     }
     if (cmd_is("ticks")) {

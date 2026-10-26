@@ -16,7 +16,7 @@
 //
 // `dw 8`, `dw 0x8200` and `jmp 0x8200` are checked against the Makefile.
 //
-// Copihue v0.30.0. lodsb avanza si solo con DF en claro. clear_df
+// Copihue v0.31.0. lodsb avanza si solo con DF en claro. clear_df
 // lo apaga con cld() antes de leer el disco. Las llamadas de aquí
 // no llevan argumentos.
 
@@ -38,13 +38,13 @@ bits 16 naked fn clear_df() {
 bits 16 naked fn load_fail() {
     si = fail_msg;
     lodsb();
-    let c: u8 = al;
+    let c: u8 = al as u8;
     while (c != 0) {
         al = c;
         ah = 0x0E;
         int(0x10);
         lodsb();
-        c = al;
+        c = al as u8;
     }
     while (1) { hlt(); }
 }
@@ -56,7 +56,7 @@ bits 16 naked fn _start() {
     es = ax;
     ss = ax;
     sp = 0x7C00;
-    *(0x0500 as *u8) = dl;
+    *(0x0500 as *u8) = dl as u8;
     clear_df();
     si = packet;
     dl = *(0x0500 as *u8);

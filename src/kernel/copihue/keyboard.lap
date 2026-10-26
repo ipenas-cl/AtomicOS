@@ -42,7 +42,7 @@ fn kbd_translate(sc: i64) -> i64 {
 fn kbd_push(c: i64) -> i64 {
     let next = (kbd_head + 1) & 127;
     if (next != kbd_tail) {
-        kbd_buf[kbd_head] = c;
+        kbd_buf[kbd_head] = c as u8;
         kbd_head = next;
     }
     return 0;

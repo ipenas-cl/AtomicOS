@@ -50,13 +50,13 @@ struct Ctx {
 let shell_ctx: Ctx;
 
 fn gdt_seg(off: i64, limit_lo: i64, access: i64, flags: i64) -> i64 {
-    gdt[off] = limit_lo & 255;
-    gdt[off + 1] = (limit_lo >> 8) & 255;
+    gdt[off] = (limit_lo & 255) as u8;
+    gdt[off + 1] = ((limit_lo >> 8) & 255) as u8;
     gdt[off + 2] = 0;
     gdt[off + 3] = 0;
     gdt[off + 4] = 0;
-    gdt[off + 5] = access;
-    gdt[off + 6] = flags;
+    gdt[off + 5] = access as u8;
+    gdt[off + 6] = flags as u8;
     gdt[off + 7] = 0;
     return 0;
 }
@@ -64,16 +64,16 @@ fn gdt_seg(off: i64, limit_lo: i64, access: i64, flags: i64) -> i64 {
 fn gdt_tss(off: i64, base: i64) -> i64 {
     gdt[off] = 103;
     gdt[off + 1] = 0;
-    gdt[off + 2] = base & 255;
-    gdt[off + 3] = (base >> 8) & 255;
-    gdt[off + 4] = (base >> 16) & 255;
+    gdt[off + 2] = (base & 255) as u8;
+    gdt[off + 3] = ((base >> 8) & 255) as u8;
+    gdt[off + 4] = ((base >> 16) & 255) as u8;
     gdt[off + 5] = 0x89;
     gdt[off + 6] = 0;
-    gdt[off + 7] = (base >> 24) & 255;
-    gdt[off + 8] = (base >> 32) & 255;
-    gdt[off + 9] = (base >> 40) & 255;
-    gdt[off + 10] = (base >> 48) & 255;
-    gdt[off + 11] = (base >> 56) & 255;
+    gdt[off + 7] = ((base >> 24) & 255) as u8;
+    gdt[off + 8] = ((base >> 32) & 255) as u8;
+    gdt[off + 9] = ((base >> 40) & 255) as u8;
+    gdt[off + 10] = ((base >> 48) & 255) as u8;
+    gdt[off + 11] = ((base >> 56) & 255) as u8;
     gdt[off + 12] = 0;
     gdt[off + 13] = 0;
     gdt[off + 14] = 0;

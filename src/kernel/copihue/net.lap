@@ -166,7 +166,7 @@ fn e_rd(off: i64) -> i64 {
 
 fn e_wr(off: i64, v: i64) -> i64 {
     let p: *volatile u32 = (net_mmio + off) as *volatile u32;
-    p[0] = v;
+    p[0] = v as u32;
     return 0;
 }
 
@@ -311,12 +311,12 @@ fn net_mac_ok() -> i64 {
 }
 
 fn net_mac_from(w0: i64, w1: i64, w2: i64) -> i64 {
-    net_mac[0] = w0 & 255;
-    net_mac[1] = (w0 >> 8) & 255;
-    net_mac[2] = w1 & 255;
-    net_mac[3] = (w1 >> 8) & 255;
-    net_mac[4] = w2 & 255;
-    net_mac[5] = (w2 >> 8) & 255;
+    net_mac[0] = (w0 & 255) as u8;
+    net_mac[1] = ((w0 >> 8) & 255) as u8;
+    net_mac[2] = (w1 & 255) as u8;
+    net_mac[3] = ((w1 >> 8) & 255) as u8;
+    net_mac[4] = (w2 & 255) as u8;
+    net_mac[5] = ((w2 >> 8) & 255) as u8;
     return 0;
 }
 
@@ -328,12 +328,12 @@ fn net_read_mac() -> i64 {
     if (net_mac_ok() == 0) {
         let ral = e_rd(0x5400);
         let rah = e_rd(0x5404);
-        net_mac[0] = ral & 255;
-        net_mac[1] = (ral >> 8) & 255;
-        net_mac[2] = (ral >> 16) & 255;
-        net_mac[3] = (ral >> 24) & 255;
-        net_mac[4] = rah & 255;
-        net_mac[5] = (rah >> 8) & 255;
+        net_mac[0] = (ral & 255) as u8;
+        net_mac[1] = ((ral >> 8) & 255) as u8;
+        net_mac[2] = ((ral >> 16) & 255) as u8;
+        net_mac[3] = ((ral >> 24) & 255) as u8;
+        net_mac[4] = (rah & 255) as u8;
+        net_mac[5] = ((rah >> 8) & 255) as u8;
     }
     if (net_mac_ok() == 0) { return net_fail("net fail mac\n"); }
     let ral = (net_mac[0] & 255) | (((net_mac[1] & 255) as i64) << 8) | (((net_mac[2] & 255) as i64) << 16) | (((net_mac[3] & 255) as i64) << 24);
@@ -443,7 +443,7 @@ fn net_tx(len: i64) -> i64 {
     let i = net_tx_i;
     let d: *TxD = (net_tx_ring + i * sizeof(TxD)) as *TxD;
     d->addr = net_tx_pa;
-    d->len = len;
+    d->len = len as u16;
     d->cso = 0;
     d->cmd = 0x0B;
     d->status = 0;
@@ -585,8 +585,8 @@ fn net_send_ping() -> i64 {
     ip.dip[2] = 2;
     ip.dip[3] = 2;
     let c = net_csum(p, offsetof(IpPkt, vihl), 20);
-    ip.sum_hi = (c >> 8) & 255;
-    ip.sum_lo = c & 255;
+    ip.sum_hi = ((c >> 8) & 255) as u8;
+    ip.sum_lo = (c & 255) as u8;
     if ((ip.sum_hi & 255) != 0x62 || (ip.sum_lo & 255) != 0xCC) { return 2; }
     let ic: *IcmpEcho = (p as i64 + sizeof(IpPkt)) as *IcmpEcho;
     ic.typ = 8;
@@ -598,8 +598,8 @@ fn net_send_ping() -> i64 {
     ic.data[2] = 0x4F;
     ic.data[3] = 0x4D;
     c = net_csum(p, sizeof(IpPkt), 12);
-    ic.sum_hi = (c >> 8) & 255;
-    ic.sum_lo = c & 255;
+    ic.sum_hi = ((c >> 8) & 255) as u8;
+    ic.sum_lo = (c & 255) as u8;
     if ((ic.sum_hi & 255) != 0x25 || (ic.sum_lo & 255) != 0x1B) { return 2; }
     return net_tx(60);
 }
@@ -638,13 +638,13 @@ fn net_send_echo_reply(src: *u8, hw: i64, ihl: i64, total: i64) -> i64 {
     ic.sum_hi = 0;
     ic.sum_lo = 0;
     let c = net_csum(p, icmp, total - ihl);
-    ic.sum_hi = (c >> 8) & 255;
-    ic.sum_lo = c & 255;
+    ic.sum_hi = ((c >> 8) & 255) as u8;
+    ic.sum_lo = (c & 255) as u8;
     ip.sum_hi = 0;
     ip.sum_lo = 0;
     c = net_csum(p, offsetof(IpPkt, vihl), ihl);
-    ip.sum_hi = (c >> 8) & 255;
-    ip.sum_lo = c & 255;
+    ip.sum_hi = ((c >> 8) & 255) as u8;
+    ip.sum_lo = (c & 255) as u8;
     return net_tx(n);
 }
 

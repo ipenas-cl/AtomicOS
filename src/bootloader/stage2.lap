@@ -29,7 +29,7 @@
 // calculation of an empty image only when it is empty; a global would
 // move _start off the first byte. Constants live in `data`.
 //
-// Copihue v0.30.0. lodsb y rep_stosd usan el índice tal como está DF,
+// Copihue v0.31.0. lodsb y rep_stosd usan el índice tal como está DF,
 // así que clear_df lo deja en claro con cld(). El token de INT 15h
 // vive en ebx. Un while, un if y un + de bits 16 lo restauran
 // (push/pop alrededor del operador). get_e820 lo escribe directo:
@@ -124,13 +124,13 @@ bits 16 naked fn _start() {
 
 bits 16 naked fn print_string() {
     lodsb();
-    let c: u8 = al;
+    let c: u8 = al as u8;
     while (c != 0) {
         al = c;
         ah = 0x0E;
         int(0x10);
         lodsb();
-        c = al;
+        c = al as u8;
     }
 }
 
@@ -178,7 +178,7 @@ bits 16 naked fn get_e820() {
         if carry {
             cont = 0;
         } else {
-            sig = eax;
+            sig = eax as u32;
             if (sig != 0x534D4150) {
                 cont = 0;
             } else {

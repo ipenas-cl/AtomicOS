@@ -36,7 +36,7 @@ fn con_clear() -> i64 {
     let vga: *u16 = 0xB8000;
     let i = 0;
     while (i < 80 * 25) {
-        vga[i] = (con_attr << 8) | ' ';
+        vga[i] = ((con_attr << 8) | ' ') as u16;
         i++;
     }
     con_row = 0;
@@ -53,7 +53,7 @@ fn con_scroll() -> i64 {
         i++;
     }
     while (i < 80 * 25) {
-        vga[i] = (con_attr << 8) | ' ';
+        vga[i] = ((con_attr << 8) | ' ') as u16;
         i++;
     }
     con_row = 24;
@@ -77,11 +77,11 @@ fn putc(c: i64) -> i64 {
     } else if (c == 8) {
         if (con_col > 0) {
             con_col--;
-            vga[con_row * 80 + con_col] = (con_attr << 8) | ' ';
+            vga[con_row * 80 + con_col] = ((con_attr << 8) | ' ') as u16;
             serial_putc(8); serial_putc(' '); serial_putc(8);
         }
     } else {
-        vga[con_row * 80 + con_col] = (con_attr << 8) | c;
+        vga[con_row * 80 + con_col] = ((con_attr << 8) | c) as u16;
         serial_putc(c);
         con_col++;
         if (con_col >= 80) { con_newline(); }
@@ -105,7 +105,7 @@ fn put_int(n: i64) -> i64 {
     let count = 0;
     if (n == 0) { digits[0] = '0'; count = 1; }
     while (n > 0) {
-        digits[count] = '0' + n % 10;
+        digits[count] = ('0' + n % 10) as u8;
         n = n / 10;
         count++;
     }

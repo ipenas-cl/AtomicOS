@@ -93,8 +93,8 @@ fn ata_pio_in(dst: *u8) -> i64 {
     cli();
     while (i < 256) {
         let w = inw(0x1F0);
-        dst[i * 2] = w & 255;
-        dst[i * 2 + 1] = (w >> 8) & 255;
+        dst[i * 2] = (w & 255) as u8;
+        dst[i * 2 + 1] = ((w >> 8) & 255) as u8;
         i = i + 1;
     }
     sti();

@@ -177,12 +177,12 @@ interrupt fn irq_slave() {
 }
 
 fn set_gate(n: i64, handler: i64) -> i64 {
-    idt[n].off_lo = handler & 0xFFFF;
+    idt[n].off_lo = (handler & 0xFFFF) as u16;
     idt[n].sel = 0x18;
     idt[n].ist = 0;
     idt[n].typ = 0x8E;
-    idt[n].off_mid = (handler >> 16) & 0xFFFF;
-    idt[n].off_hi = handler >> 32;
+    idt[n].off_mid = ((handler >> 16) & 0xFFFF) as u16;
+    idt[n].off_hi = (handler >> 32) as u32;
     idt[n].zero = 0;
     return 0;
 }
@@ -257,7 +257,7 @@ fn idt_init() -> i64 {
     while (i < 40) { set_gate(i, &irq_master); i = i + 1; }
     while (i < 48) { set_gate(i, &irq_slave); i = i + 1; }
     let idtr: DescPtr;
-    idtr.limit = 48 * 16 - 1;
+    idtr.limit = (48 * 16 - 1) as u16;
     idtr.base = idt as u64;
     lidt(&idtr);
     ltr(0x40);
