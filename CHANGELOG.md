@@ -8,11 +8,23 @@ para ese commit es `legacy-tempo`.
 
 ## 0.8
 
-Kernel en Copihue v0.30.0 (commit
-`899dc7de7ce362e61dd4fa3ae384f64176a64a86`). `git ls-remote` devuelve
-ese commit para el tag y para `HEAD`. `git -C build/copihue rev-parse
-HEAD` después del `make` también, y `copihue --version` imprime
-`Copihue 0.30.0`. v0.30.0 recorta `u8`/`u16`/`u32` después de cada
+Kernel en Copihue v0.31.0 (commit
+`495bb4b54d3fba77ed83aa51c0d2362ea9ebd621`). `git ls-remote` devuelve
+ese commit para el tag, para `HEAD` y para `refs/heads/main`. `git -C
+build/copihue rev-parse HEAD` después del `make` también, y
+`copihue --version` imprime `Copihue 0.31.0`. v0.31.0 rechaza un
+entero más ancho en un campo, un elemento, un store, un argumento o
+un `return` sin `as`. El lado derecho va entre paréntesis. Este árbol
+agrega 75, los que lista el CHANGELOG de Copihue para estos archivos.
+Son el store que ya recortaba v0.30.0: la celda VGA, el dígito, la
+tecla, los bytes de la GDT y de la MAC, los campos `u32` del disco y
+del CRC-32, los bytes del checksum, el `u16` del descriptor de envío
+y el límite de la IDT (767, cabe en 16 bits). El ensamblado del
+kernel coincide con v0.30.0 salvo el dígito del banner. `boot.bin` y
+`stage2.bin` coinciden byte a byte con ese pin, y también `hola.bin`
+y `zona.bin`. No apareció otra conversión implícita que faltara.
+
+v0.30.0, incluido en este pin, recorta `u8`/`u16`/`u32` después de cada
 operador y `volatile` forma parte del tipo del puntero. Un
 `(byte & 255) << 8` quedaba en 0: `ata_id_word`, la MAC del e1000, el
 ethertype, el largo y el fragmento IP, el id y la secuencia ICMP, el
@@ -55,8 +67,10 @@ etapa 2 pide los sectores que ocupa `kernel.bin`, de a 128 por INT
 13h. En esta compilación `kernel.bin` mide 136835 bytes: 268
 sectores, LBA 9..276, paquete `10 00 0c 01 00 00 00 10 09 00 00 00
 00 00 00 00`. La `.bss` mide 22060 bytes y `0x10000 + kernel.bin +
-.bss` termina en `0x36CAF`. `stage2.bin` crece 4 bytes por el
-`movzx eax, ax` del conteo E820; la palabra en `0x8000` es la misma.
+.bss` termina en `0x36CAF`. v0.31.0 no mueve esos tamaños: los
+`as` no agregan instrucciones. `stage2.bin` crece 4 bytes, desde
+v0.29.4, por el `movzx eax, ax` del conteo E820; la palabra en
+`0x8000` es la misma.
 
 El archivo puede pasar de `0x20000`; imagen y `.bss` tienen que
 terminar antes de `0x58000` (la pila de `0x60000` crece hacia abajo).
@@ -75,21 +89,26 @@ constante no pasa por `rax`. `src/user/zona.lap` pide la cuota con
 ensamblado está en `docs/PEDIDOS_COPIHUE.md`.
 
 En QEMU 8.2.2, `make qemu-test` de esta imagen terminó en 0. El
-script imprimió ticks 100 → 200 en 1043 ms, ticks 200 → 423,
+script imprimió ticks 100 → 200 en 935 ms, ticks 200 → 417,
 `keyboard IRQ count=151`, `cr3=0x1000 pml4=0x2023 pdpt=0x3023`,
 `e820 n=7`, `pmm free=32480 base=0x0000000000100000
-end=0x0000000007fe0000`, `pmm ok, high page 0x00201000`, letras
-`babababababa`, `round-robin timer=27 yield=4`, `exit freed 7+6
-pages, pmm back to 32473`, `trace counters ok`, `ata ok, blk ok,
+end=0x0000000007fe0000`, `gdt ok`, `pmm ok, high page 0x00201000`,
+letras `babababababa`, `round-robin timer=29 yield=4`, `exit freed
+7+6 pages, pmm back to 32473`, `trace counters ok`, `ata ok, blk ok,
 blk corrupt detected`, `trace syscall ok`, `trace off ok`, `exec
 desde disco, missing, bad magic, bad size, corrupt`, `zone fs,
 denied, syscall, quota mem 32473, escape`, `net arp, ping, drop`,
 `trace overflow ok`, `ud2 -> #UD`, y en el segundo arranque `fs
-persist v2, snap v1, corrupt detected`. El humo de 10 s
-(`timeout 10 qemu-system-x86_64 -drive format=raw,file=build/lapageriaos.img
--display none -no-reboot -serial file:…`, sin disco de datos) salió
-124. La serie mostró `e820 n=7`, las siete entradas, `pmm free=32480`
-y `lapageria>`. Esa corrida no escribe comandos. No se probó
+persist v2, snap v1, corrupt detected`. `gdt load` y después `gdt ok`
+salen también en el humo: `lgdt(&gdtr)` corre en QEMU. El PIT, la
+IRQ1, el `#PF` y el `#UD` salen con la IDT cargada por `lidt`. El
+round-robin, el retorno de `user` y la zona usan `save_context` y
+`restore_context`. El humo de 10 s (`timeout 10 qemu-system-x86_64
+-drive format=raw,file=build/lapageriaos.img -display none -no-reboot
+-serial file:…`, sin disco de datos) salió 124. La serie mostró
+`e820 n=7`, las siete entradas, `pmm free=32480`, `gdt load`, `gdt
+ok`, `timer: ticks=100`, `timer: ticks=200` y `lapageria>`. Esa
+corrida no escribe comandos. No se probó
 `reboot`, `clear`, el teclado a mano, TCP, UDP, AHCI, NVMe, el bit
 NX ni un kernel en la mitad alta. El borde `gen == 0xFFFFFFFF` de
 `fs_commit` no se ejecutó.

@@ -2,11 +2,12 @@
 
 Lapageria rosea es el nombre científico del copihue; antes AtomicOS.
 
-Compilador fijado en el Makefile: v0.30.0, commit
-`899dc7de7ce362e61dd4fa3ae384f64176a64a86`. El tag es ligero: `git
-ls-remote` devuelve ese commit para `refs/tags/v0.30.0` y para
-`HEAD`. `git -C build/copihue rev-parse HEAD` después del `make`
-también, y `copihue --version` imprime `Copihue 0.30.0`.
+Compilador fijado en el Makefile: v0.31.0, commit
+`495bb4b54d3fba77ed83aa51c0d2362ea9ebd621`. El tag es ligero: `git
+ls-remote` devuelve ese commit para `refs/tags/v0.31.0`, para `HEAD`
+y para `refs/heads/main`. `git -C build/copihue rev-parse HEAD`
+después del `make` también, y `copihue --version` imprime `Copihue
+0.31.0`.
 
 ## Cerrado en v0.27.0 y v0.27.1
 
@@ -388,7 +389,7 @@ páginas y las PTE se mueven en `i64` / `u64`. No hay un `<<` de un
 
 ## Para v0.31.0: conversiones implícitas puntero/entero
 
-El chequeo de este pin ya separa puntero de entero. Lo que sigue
+El chequeo de v0.30.0 (`899dc7de`) ya separa puntero de entero. Lo que sigue
 acepta sin `as` es lo que este árbol usa. Se listó compilando boot,
 stage2, kernel y los dos programas de usuario con el fuente de
 `899dc7de`, anotando cada permiso de `check_types` y cada `+`/`-`
@@ -436,3 +437,31 @@ implícito: `i64` a `*T` y a `*volatile u32`, puntero a `i64`/`u64`
 antes de sumar (`p as i64 + n`, `gdt as u64`, `idt as u64`), `*u8` a
 un puntero de struct, y `(byte & 255) as i64` antes de un `<<`. Una
 cadena literal ya es `*u8`; no es un entero.
+
+## Cerrado en v0.31.0: el estrechamiento y `&struct` en QEMU
+
+v0.31.0 pide `as` para meter un entero más ancho en un campo, un
+elemento, un store, un argumento o un `return`. Este árbol agrega los
+75 que lista el CHANGELOG de Copihue. Después de eso, `boot.lap`,
+`stage2.lap`, `kernel.lap` y los dos programas de usuario compilan
+sin otro error. Las conversiones de la sección anterior siguen
+implícitas: no salió un diagnóstico nuevo en un literal a puntero, en
+`bss_end() - bss_start()`, ni en `lgdt` / `lidt` / `save_context` /
+`restore_context`.
+
+El ensamblado `-S` del kernel coincide con v0.30.0 salvo el dígito
+del banner. `boot.bin` y `stage2.bin` (con el marcador de sectores en
+0) coinciden byte a byte. Un `as` de esos 75 no agrega una máscara
+que el store de v0.30.0 no tuviera. El límite de la IDT es 767 y cabe
+en el `u16`. El largo del descriptor de envío queda entre 60 y 2048
+antes del `as u16`. El CRC-32 ya vuelve enmascarado a 32 bits.
+
+En QEMU 8.2.2 el humo de 10 s mostró `gdt load` y después `gdt ok`,
+y llegó a `lapageria>`. Ese prompt sale después del `lgdt` de la
+etapa 2 y del `lgdt(&gdtr)` del kernel. `make qemu-test` terminó en
+0: el PIT avanzó (ticks 100 → 200 en 935 ms), la IRQ1 contó 151
+teclas, el `#PF` y el `#UD` imprimieron su línea, el round-robin
+devolvió `timer=29 yield=4` y la zona imprimió `zone fs, denied,
+syscall, quota mem 32473, escape`. Esos caminos pasan por
+`lidt(&idtr)`, `save_context(&shell_ctx)` y
+`restore_context(&shell_ctx)`. No queda un pedido nuevo.
