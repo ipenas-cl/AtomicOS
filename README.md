@@ -2,11 +2,11 @@
 
 <p align="center"><img src="docs/branding/lapageriaos-banner.jpg" alt="LapageriaOS: seguro por diseño, observable, escrito por un copihue" width="720"></p>
 
-Sistema operativo x86-64 seguro por diseño: privilegios mínimos, memoria protegida (NX y W^X, kernel en la mitad alta), aislamiento por zonas, trazas integradas y sistema de archivos con checksums y snapshots. El kernel y el arranque están escritos en [Copihue](https://github.com/ipenas-cl/copihue), un lenguaje propio, sin ensamblador en línea. Lapageria rosea es el nombre científico del copihue, la flor nacional de Chile. Antes se llamó AtomicOS; las URL del repositorio siguen igual.
+Sistema operativo x86-64 seguro por diseño: privilegios mínimos, memoria protegida (NX y W^X, kernel en la mitad alta), aislamiento por zonas, trazas integradas y sistema de archivos con checksums y snapshots. El kernel y el arranque están escritos en [Copihue](https://github.com/ipenas-cl/copihue), un lenguaje propio, sin ensamblador en línea. Lapageria rosea es el nombre científico del copihue, la flor nacional de Chile. Antes se llamó AtomicOS.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.8-green)](VERSION)
-[![CI](https://github.com/ipenas-cl/AtomicOS/actions/workflows/ci.yml/badge.svg)](https://github.com/ipenas-cl/AtomicOS/actions/workflows/ci.yml)
+[![CI](https://github.com/ipenas-cl/LapageriaOS/actions/workflows/ci.yml/badge.svg)](https://github.com/ipenas-cl/LapageriaOS/actions/workflows/ci.yml)
 
 Versión de kernel **0.8**, en desarrollo activo. Cada cambio arranca en QEMU y pasa `make qemu-test` en CI. Lo que ya está y lo que falta de cada etapa está en la [hoja de ruta](#hoja-de-ruta).
 
