@@ -47,6 +47,9 @@ El shell responde a `help`, `echo`, `add`, `mul`, `clear`, `version`, `ticks`, `
 
 ![Shell de LapageriaOS en QEMU](docs/copihue-shell.png)
 
+<video src="docs/lapageriaos-demo.mp4" controls width="720"></video>
+
+Consola `lapageria>` en QEMU: la imagen se construye con `make` y el shell muestra memoria, disco, zonas, trazas y red.
 
 `sched` construye dos espacios de direcciones y no reutiliza el PML4 del bootloader. Cada proceso tiene su PML4, su PDPT y su PD. PD[0] apunta a la tabla baja de 4 KiB: ahí la imagen del kernel ya no está. PML4[256..511] apuntan a un solo PDPT de kernel, sin bit de usuario. Ese PDPT mapea los primeros 2 MiB en `0xFFFF800000000000` y, en el slot 510, la PD de `0x5000`, que es por donde el kernel corre en `0xFFFFFFFF80000000`. El proceso A tiene una página de usuario en `0x500000`. El proceso B no. `exit` devuelve al asignador las páginas de cada proceso y no libera el PDPT compartido. PML4[511] queda con el bit de acceso; la prueba enmascara ese bit al comparar la mitad compartida.
 
@@ -174,7 +177,9 @@ scripts/run_lapageriaos.sh
 scripts/pre-commit.sh
 scripts/release.sh
 scripts/mkaxe.sh              cabecera AXE1 y bytes embebidos, sin Python
+scripts/record_demo.sh        regenera docs/lapageriaos-demo.mp4 (bash, make, ffmpeg)
 docs/copihue-shell.png
+docs/lapageriaos-demo.mp4
 ```
 
 `make` compila `src/kernel/copihue/kernel.lap`. Ese archivo importa el resto, en el orden de `COPIHUE_KERNEL_SRC`, y Copihue los junta en un solo espacio de nombres. `build/` no se versiona.
