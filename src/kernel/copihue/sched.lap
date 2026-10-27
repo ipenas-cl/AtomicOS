@@ -1,0 +1,677 @@
+// Two user processes. Each has its own PML4. PML4[256..511] all point at
+// one shared kernel PDPT, without the user bit. Slot 0 of that PDPT is
+// the old alias of the low 2MB at 0xFFFF800000000000 (whatever
+// kern_low_pt still maps; the kernel image is gone from it). Slot 510
+// is the higher-half window at 0xFFFFFFFF80000000, the same PD the
+// bootloader built at physical 0x5000. The kernel runs there. PML4[0]
+// is private. Its PD[0] still points at kern_low_pt so a process can
+// use the low half; ring 3 does not see the kernel pages.
+//
+// The PIT IRQ from ring 3 lands on TSS.rsp0. yield and the timer share
+// one iretq frame: 15 saved GPRs, then RIP, CS, RFLAGS, RSP, SS.
+
+extern __syscall_rsp;
+
+let volatile sched_on: i64 = 0;
+let volatile cur_i: i64 = 0;
+let volatile saved_cs: i64 = 0;
+let volatile saved_ksp: i64 = 0;
+let volatile patch_rip: i64 = 0;
+let volatile nswitch_timer: i64 = 0;
+let volatile nswitch_yield: i64 = 0;
+let volatile uctx_rip: i64 = 0;
+let volatile uctx_rsp: i64 = 0;
+let volatile uctx_rfl: i64 = 0;
+let volatile alias_ptr: i64 = 0;
+let volatile alias_byte: i64 = 0;
+let alias_b0: i64 = 0;
+let alias_b1: i64 = 0;
+let alias_b7: i64 = 0;
+
+let proc_pid: [i64; 2];
+let proc_state: [i64; 2];
+let proc_pml4: [i64; 2];
+let proc_rsp0: [i64; 2];
+let proc_ksp: [i64; 2];
+let proc_sys: [i64; 2];
+let proc_npages: [i64; 2];
+let proc_freed: [i64; 2];
+let proc_pages: [i64; 32];
+let proc_rec0: [i64; 2];
+let proc_rec1: [i64; 2];
+let proc_faults: [i64; 2];
+let proc_zone: [i64; 2];
+let proc_held: [i64; 2];
+let proc_uva: [i64; 2];
+let shared_pdpt: i64 = 0;
+let shared_pd: i64 = 0;
+let sched_base: i64 = 0;
+let released_ok: i64 = 0;
+
+fn track(pi: i64, pa: i64) -> i64 {
+    if (pa == 0) { return 0; }
+    let n = proc_npages[pi];
+    if (n < 0 || n >= 16) { return 0; }
+    proc_pages[pi * 16 + n] = pa;
+    proc_npages[pi] = n + 1;
+    return pa;
+}
+
+fn take_page(pi: i64, low: i64) -> i64 {
+    let pa = 0;
+    if (low != 0) { pa = alloc_low_page(); } else { pa = alloc_high_page(); }
+    if (pa == 0) { return 0; }
+    if (track(pi, pa) == 0) {
+        free_page(pa);
+        return 0;
+    }
+    return pa;
+}
+
+fn take_table(pi: i64) -> i64 {
+    let pa = take_page(pi, 1);
+    if (pa == 0) { return 0; }
+    zero_va(pa);
+    return pa;
+}
+
+fn map_user(pi: i64, va: i64, pa: i64, flags: i64) -> i64 {
+    if (map_in(proc_pml4[pi], va, pa, flags) == 0) { return 0; }
+    if (last_alloc_pt != 0) {
+        if (track(pi, last_alloc_pt) == 0) { return 0; }
+    }
+    return 1;
+}
+
+fn pml4_slot(pi: i64, i: i64) -> i64 {
+    let p: *u64 = proc_pml4[pi] as *u64;
+    return p[i];
+}
+
+fn shared_init() -> i64 {
+    if (shared_pdpt != 0) { return 1; }
+    shared_pdpt = alloc_low_page();
+    shared_pd = alloc_low_page();
+    if (shared_pdpt == 0 || shared_pd == 0) { return 0; }
+    zero_va(shared_pdpt);
+    zero_va(shared_pd);
+    let pdpt: *u64 = shared_pdpt as *u64;
+    let pd: *u64 = shared_pd as *u64;
+    pdpt[0] = shared_pd | 3;
+    pd[0] = low_pd_entry();
+    // Misma PD física que PML4[511] del arranque. Sin bit de usuario.
+    pdpt[510] = 0x5000 | 3;
+    return 1;
+}
+
+fn attach_half(pml4pa: i64) -> i64 {
+    let p: *u64 = pml4pa as *u64;
+    let i = 256;
+    while (i < 512) {
+        p[i] = shared_pdpt | 3;
+        i = i + 1;
+    }
+    return p[256];
+}
+
+fn other_runnable(me: i64) -> i64 {
+    let i = 0;
+    while (i < 2) {
+        if (i != me && (proc_state[i] == 1 || proc_state[i] == 2)) { return i; }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// rsp0 is the empty kernel stack. The interrupt epilogue pops 15 GPRs
+// and iretq's, which is 160 bytes below that top.
+fn forge(pi: i64, rip: i64, rsp: i64, rfl: i64) -> i64 {
+    let base = proc_rsp0[pi] - 160;
+    let s: *u64 = base as *u64;
+    let i = 0;
+    while (i < 15) {
+        s[i] = 0;
+        i = i + 1;
+    }
+    s[15] = rip;
+    s[16] = 0x3B;
+    s[17] = rfl;
+    s[18] = rsp;
+    s[19] = 0x33;
+    proc_ksp[pi] = base;
+    return base;
+}
+
+fn switch_to(n: i64) -> i64 {
+    let from = proc_pid[cur_i];
+    let to = proc_pid[n];
+    proc_state[cur_i] = 1;
+    proc_state[n] = 2;
+    cur_i = n;
+    tss.rsp0 = proc_rsp0[n];
+    set_syscall_stack(proc_sys[n]);
+    write_cr3(proc_pml4[n]);
+    saved_ksp = proc_ksp[n];
+    // switch: el proceso es el que deja la CPU; argumentos, origen y destino.
+    if (tr_en[2] != 0) { trace_hit(2, from, from, to); }
+    return 0;
+}
+
+fn timer_should_switch() -> i64 {
+    if (sched_on == 0) { return 0; }
+    if ((saved_cs & 3) != 3) { return 0; }
+    let n = other_runnable(cur_i);
+    if (n < 0) { return 0; }
+    if (proc_ksp[n] == 0) { return 0; }
+    proc_ksp[cur_i] = saved_ksp;
+    switch_to(n);
+    nswitch_timer = nswitch_timer + 1;
+    return 1;
+}
+
+fn read_user_ctx() -> i64 {
+    let p = __syscall_rsp;
+    uctx_rsp = *(p - 8);
+    uctx_rip = *(p - 16);
+    uctx_rfl = *(p - 24);
+    return 0;
+}
+
+fn yield_current() -> i64 {
+    let n = other_runnable(cur_i);
+    if (n < 0 || proc_ksp[n] == 0) { return 0; }
+    read_user_ctx();
+    uctx_rfl = uctx_rfl | 0x202;
+    forge(cur_i, uctx_rip, uctx_rsp, uctx_rfl);
+    switch_to(n);
+    nswitch_yield = nswitch_yield + 1;
+    resume_frame();
+    return 0;
+}
+
+fn release_proc(pi: i64) -> i64 {
+    let z = proc_zone[pi];
+    charge_zone = z;
+    let n = proc_npages[pi];
+    let f = 0;
+    let i = 0;
+    while (i < n) {
+        let pa = proc_pages[pi * 16 + i];
+        if (free_page(pa) != 0 && page_is_free(pa) != 0) {
+            f = f + 1;
+            released_ok = released_ok + 1;
+        }
+        i = i + 1;
+    }
+    charge_zone = 0;
+    proc_npages[pi] = 0;
+    proc_freed[pi] = f;
+    proc_state[pi] = 0;
+    if (proc_held[pi] != 0) {
+        zone_release(z);
+        proc_held[pi] = 0;
+    }
+    proc_zone[pi] = 0;
+    proc_uva[pi] = 0;
+    return f;
+}
+
+fn exit_log(me: i64) -> i64 {
+    putc('\n');
+    puts("exit pid=");
+    put_int(proc_pid[me]);
+    puts(" freed=");
+    put_int(proc_freed[me]);
+    puts("\n");
+    return 0;
+}
+
+fn exit_current() -> i64 {
+    let me = cur_i;
+    proc_state[me] = 3;
+    let n = other_runnable(me);
+    if (n >= 0 && proc_ksp[n] != 0) {
+        proc_state[n] = 2;
+        cur_i = n;
+        tss.rsp0 = proc_rsp0[n];
+        set_syscall_stack(proc_sys[n]);
+        write_cr3(proc_pml4[n]);
+        saved_ksp = proc_ksp[n];
+        release_proc(me);
+        exit_log(me);
+        resume_frame();
+    } else {
+        write_cr3(0x1000);
+        release_proc(me);
+        exit_log(me);
+        sched_on = 0;
+        tss.rsp0 = 0x86000;
+        set_syscall_stack(0x81000);
+        resume_shell();
+    }
+    return 0;
+}
+
+fn note_user_fault(err: i64) -> i64 {
+    let addr = read_cr2();
+    if (proc_faults[cur_i] == 0) { patch_rip = proc_rec0[cur_i]; }
+    else { patch_rip = proc_rec1[cur_i]; }
+    proc_faults[cur_i] = proc_faults[cur_i] + 1;
+    putc('\n');
+    puts("pf-cross ");
+    if ((err & 2) != 0) { puts("W"); } else { puts("R"); }
+    puts(" pid=");
+    put_int(proc_pid[cur_i]);
+    puts(" cr2=");
+    put_hex(addr);
+    puts(" err=");
+    put_hex(err);
+    puts("\n");
+    if (patch_rip == 0) {
+        puts("pf-cross norec\n");
+        while (1) { hlt(); }
+    }
+    return 0;
+}
+
+naked fn resume_frame() {
+    rbp = saved_ksp;
+    rsp = rbp;
+    pop(r15);
+    pop(r14);
+    pop(r13);
+    pop(r12);
+    pop(r11);
+    pop(r10);
+    pop(r9);
+    pop(r8);
+    pop(rdi);
+    pop(rsi);
+    pop(rbp);
+    pop(rbx);
+    pop(rdx);
+    pop(rcx);
+    pop(rax);
+    iretq();
+}
+
+fn alias_capture() -> i64 {
+    let p: *u8 = (hh_base() + 0x10000) as *u8;
+    alias_b0 = p[0];
+    alias_b1 = p[1];
+    alias_b7 = p[7];
+    return 1;
+}
+
+fn alias_at(off: i64) -> i64 {
+    alias_ptr = hh_base() + 0x10000 + off;
+    let p: *u8 = alias_ptr as *u8;
+    alias_byte = p[0];
+    return alias_byte;
+}
+
+fn alias_ok() -> i64 {
+    if (alias_at(0) != alias_b0) { return 0; }
+    if (alias_at(1) != alias_b1) { return 0; }
+    if (alias_at(7) != alias_b7) { return 0; }
+    return 1;
+}
+
+fn alias_both() -> i64 {
+    if (alias_capture() == 0) { puts("alias fail\n"); return 0; }
+    write_cr3(proc_pml4[0]);
+    puts("cr3 a=");
+    put_hex(read_cr3());
+    puts("\n");
+    if (alias_ok() == 0) { puts("alias fail\n"); return 0; }
+    puts("alias ok\n");
+    write_cr3(proc_pml4[1]);
+    puts("cr3 b=");
+    put_hex(read_cr3());
+    puts("\n");
+    if (alias_ok() == 0) { puts("alias fail\n"); return 0; }
+    puts("alias ok\n");
+    write_cr3(0x1000);
+    return 1;
+}
+
+fn paint_secret(pa: i64) -> i64 {
+    if (map_page(0x300000, pa, 3 | pte_nx_bit()) == 0) { return 0; }
+    let created = last_alloc_pt;
+    let b: *u8 = 0x300000;
+    b[0] = 0xA5;
+    unmap_page(0x300000);
+    if (created != 0) {
+        let root = cr3_root();
+        let pml4: *u64 = root as *u64;
+        let e = pml4[(0x300000 >> 39) & 511];
+        let pdpt: *u64 = ((e >> 12) << 12) as *u64;
+        e = pdpt[(0x300000 >> 30) & 511];
+        let pd: *u64 = ((e >> 12) << 12) as *u64;
+        pd[(0x300000 >> 21) & 511] = 0;
+        invlpg(0x300000);
+        free_page(created);
+    }
+    return 1;
+}
+
+fn copy_user(pi: i64, src: i64, n: i64, code: i64) -> i64 {
+    if (n <= 0 || n > 4096) { return 0; }
+    write_cr3(proc_pml4[pi]);
+    zero_va(0x400000);
+    zero_va(0x401000);
+    let dst: *u8 = 0x400000;
+    let s: *u8 = src as *u8;
+    let i = 0;
+    while (i < n) {
+        dst[i] = s[i];
+        i = i + 1;
+    }
+    write_cr3(0x1000);
+    if (map_in(proc_pml4[pi], 0x400000, code, 5) == 0) { return 0; }
+    return 1;
+}
+
+fn build_proc(pi: i64, src: i64, n: i64, secret: i64) -> i64 {
+    if (pi == 0) {
+        proc_pid[0] = 1;
+        proc_rsp0[0] = 0x60000;
+        proc_sys[0] = 0x70000;
+    } else {
+        proc_pid[1] = 2;
+        proc_rsp0[1] = 0x68000;
+        proc_sys[1] = 0x78000;
+    }
+    proc_uva[pi] = 0;
+    proc_held[pi] = 0;
+    proc_zone[pi] = build_zone;
+    if (zone_acquire(build_zone) != 0) { return 0; }
+    proc_held[pi] = 1;
+    charge_zone = build_zone;
+    let pml4 = take_table(pi);
+    let pdpt = take_table(pi);
+    let pd = take_table(pi);
+    if (pml4 == 0 || pdpt == 0 || pd == 0) {
+        charge_zone = 0;
+        zone_errno = 6;
+        return 0;
+    }
+    let p4: *u64 = pml4 as *u64;
+    let p3: *u64 = pdpt as *u64;
+    let p2: *u64 = pd as *u64;
+    p4[0] = pdpt | 7;
+    p3[0] = pd | 7;
+    p2[0] = low_pd_entry();
+    proc_pml4[pi] = pml4;
+    attach_half(pml4);
+    let code = take_page(pi, 0);
+    let stack = take_page(pi, 0);
+    if (code == 0 || stack == 0) {
+        charge_zone = 0;
+        zone_errno = 6;
+        return 0;
+    }
+    if (map_user(pi, 0x400000, code, 7 | pte_nx_bit()) == 0) {
+        charge_zone = 0;
+        zone_errno = 6;
+        return 0;
+    }
+    if (map_user(pi, 0x401000, stack, 7 | pte_nx_bit()) == 0) {
+        charge_zone = 0;
+        zone_errno = 6;
+        return 0;
+    }
+    if (secret != 0) {
+        let data = take_page(pi, 0);
+        if (data == 0) {
+            charge_zone = 0;
+            zone_errno = 6;
+            return 0;
+        }
+        if (paint_secret(data) == 0) {
+            charge_zone = 0;
+            zone_errno = 6;
+            return 0;
+        }
+        if (map_user(pi, 0x500000, data, 7 | pte_nx_bit()) == 0) {
+            charge_zone = 0;
+            zone_errno = 6;
+            return 0;
+        }
+    }
+    if (copy_user(pi, src, n, code) == 0) {
+        charge_zone = 0;
+        zone_errno = 6;
+        return 0;
+    }
+    forge(pi, 0x400000, 0x402000, 0x202);
+    proc_state[pi] = 1;
+    charge_zone = 0;
+    return 1;
+}
+
+fn dump_tables() -> i64 {
+    puts("pml4 a=");
+    put_hex(proc_pml4[0]);
+    puts(" b=");
+    put_hex(proc_pml4[1]);
+    puts("\n");
+    puts("half a=");
+    put_hex(pml4_slot(0, 256));
+    puts(" b=");
+    put_hex(pml4_slot(1, 256));
+    puts("\n");
+    puts("span a=");
+    put_hex(pml4_slot(0, 511));
+    puts(" b=");
+    put_hex(pml4_slot(1, 511));
+    puts("\n");
+    puts("low a=");
+    put_hex(pml4_slot(0, 0));
+    puts(" b=");
+    put_hex(pml4_slot(1, 0));
+    puts("\n");
+    puts("rec r=");
+    put_hex(proc_rec0[1]);
+    puts(" w=");
+    put_hex(proc_rec1[1]);
+    puts("\n");
+    return 0;
+}
+
+fn sched_go() -> i64 {
+    cli();
+    // save_context devuelve 0. Se pisa rip con la etiqueta: resume_shell
+    // vuelve ahí, con este marco, y save_context no devuelve 1.
+    if (save_context(&shell_ctx) == 0) {
+        shell_ctx.rip = label_addr(after_sched);
+        cur_i = 0;
+        proc_state[0] = 2;
+        tss.rsp0 = proc_rsp0[0];
+        set_syscall_stack(proc_sys[0]);
+        write_cr3(proc_pml4[0]);
+        saved_ksp = proc_ksp[0];
+        puts("run begin\n");
+        sched_on = 1;
+        resume_frame();
+    }
+    label after_sched;
+    shell_ctx.rip = 0;
+    sched_on = 0;
+    write_cr3(0x1000);
+    tss.rsp0 = 0x86000;
+    set_syscall_stack(0x81000);
+    sti();
+    putc('\n');
+    puts("run end\n");
+    return 0;
+}
+
+fn sched_summary() -> i64 {
+    puts("switch timer=");
+    put_int(nswitch_timer);
+    puts(" yield=");
+    put_int(nswitch_yield);
+    puts("\n");
+    puts("sched base=");
+    put_int(sched_base);
+    puts(" back=");
+    put_int(pmm_free);
+    puts("\n");
+    puts("sched released=");
+    put_int(released_ok);
+    puts("\n");
+    if (page_is_free(shared_pdpt) == 0 && page_is_free(shared_pd) == 0) {
+        puts("half kept\n");
+    }
+    if (page_is_free(proc_pml4[0]) != 0 && page_is_free(proc_pml4[1]) != 0) {
+        puts("pml4 free\n");
+    }
+    puts("sched ok\n");
+    return 0;
+}
+
+// Process A. Reads its private page, prints, yields, then spins in ring 3
+// so the PIT can preempt it. Copied to 0x400000; the trailing ret the
+// compiler adds is not executed. No naked local: that slot lives in the
+// kernel image and ring 3 cannot read it. The round counter is rbp.
+// while uses rbx as scratch, and forge() resumes a yield with every GPR
+// cleared, so rbp is set after the yields. syscall's leave restores rbp.
+naked fn prog_a() {
+    al = *(0x500000 as *u8);
+    if (al == 0xA5) {
+        rax = 1;
+        rdi = 77;
+        syscall();
+        rax = 1;
+        rdi = 10;
+        syscall();
+    }
+    rax = 1;
+    rdi = 65;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    rax = 3;
+    syscall();
+    rdi = rax + 48;
+    rax = 1;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    rax = 4;
+    syscall();
+    rax = 1;
+    rdi = 65;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    rax = 4;
+    syscall();
+    rbp = 6;
+    while (rbp != 0) {
+        ecx = 4000000;
+        while (ecx != 0) { ecx = ecx - 1; }
+        rax = 1;
+        rdi = 97;
+        syscall();
+        rbp = rbp - 1;
+    }
+    rax = 5;
+    syscall();
+    hlt();
+}
+
+naked fn prog_a_end() {
+    hlt();
+}
+
+// Process B. The read and the write of 0x500000 are the last instruction
+// of their own naked functions; #PF resumes at the next one.
+naked fn prog_b() {
+    rax = 1;
+    rdi = 66;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    rax = 3;
+    syscall();
+    rdi = rax + 48;
+    rax = 1;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    al = *(0x500000 as *u8);
+}
+
+naked fn prog_b_ar() {
+    *(0x500000 as *u8) = 90;
+}
+
+naked fn prog_b_aw() {
+    rax = 1;
+    rdi = 66;
+    syscall();
+    rax = 4;
+    syscall();
+    rax = 1;
+    rdi = 66;
+    syscall();
+    rax = 4;
+    syscall();
+    rbp = 6;
+    while (rbp != 0) {
+        ecx = 4000000;
+        while (ecx != 0) { ecx = ecx - 1; }
+        rax = 1;
+        rdi = 98;
+        syscall();
+        rbp = rbp - 1;
+    }
+    rax = 5;
+    syscall();
+    hlt();
+}
+
+naked fn prog_b_end() {
+    hlt();
+}
+
+fn sched_demo() -> i64 {
+    cli();
+    // `nx` también libera procesos. Esta línea es la de esta corrida.
+    released_ok = 0;
+    build_zone = 0;
+    charge_zone = 0;
+    if (shared_init() == 0) {
+        sti();
+        puts("sched fail\n");
+        return 0;
+    }
+    sched_base = pmm_free;
+    let na = &prog_a_end - &prog_a;
+    let nb = &prog_b_end - &prog_b;
+    if (build_proc(0, &prog_a, na, 1) == 0 || build_proc(1, &prog_b, nb, 0) == 0) {
+        write_cr3(0x1000);
+        sti();
+        puts("sched fail\n");
+        return 0;
+    }
+    proc_rec0[1] = 0x400000 + (&prog_b_ar - &prog_b);
+    proc_rec1[1] = 0x400000 + (&prog_b_aw - &prog_b);
+    dump_tables();
+    if (alias_both() == 0) {
+        write_cr3(0x1000);
+        sti();
+        puts("sched fail\n");
+        return 0;
+    }
+    sched_go();
+    sched_summary();
+    return 0;
+}

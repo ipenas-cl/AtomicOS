@@ -1,0 +1,174 @@
+// Programa de anillo 3 para la zona. copihue --flat 0x400000.
+// No arma el prefijo: el kernel lo agrega. El nombre va en 0x401800
+// (16 bytes) y los datos en 0x401C00. rdi es el largo. Syscall 1
+// escribe un carácter; 5 sale.
+
+naked fn emit(c: i64) {
+    rax = 1;
+    syscall();
+}
+
+naked fn say_fs_ok() {
+    emit(122);
+    emit(111);
+    emit(110);
+    emit(101);
+    emit(32);
+    emit(102);
+    emit(115);
+    emit(32);
+    emit(111);
+    emit(107);
+    emit(10);
+}
+
+naked fn say_fs_denied() {
+    emit(122);
+    emit(111);
+    emit(110);
+    emit(101);
+    emit(32);
+    emit(102);
+    emit(115);
+    emit(32);
+    emit(100);
+    emit(101);
+    emit(110);
+    emit(105);
+    emit(101);
+    emit(100);
+    emit(10);
+}
+
+naked fn say_sys() {
+    emit(122);
+    emit(111);
+    emit(110);
+    emit(101);
+    emit(32);
+    emit(115);
+    emit(121);
+    emit(115);
+    emit(99);
+    emit(97);
+    emit(108);
+    emit(108);
+    emit(32);
+    emit(100);
+    emit(101);
+    emit(110);
+    emit(105);
+    emit(101);
+    emit(100);
+    emit(10);
+}
+
+naked fn say_quota() {
+    emit(122);
+    emit(111);
+    emit(110);
+    emit(101);
+    emit(32);
+    emit(113);
+    emit(117);
+    emit(111);
+    emit(116);
+    emit(97);
+    emit(32);
+    emit(111);
+    emit(107);
+    emit(10);
+}
+
+naked fn say_escape() {
+    emit(122);
+    emit(111);
+    emit(110);
+    emit(101);
+    emit(32);
+    emit(101);
+    emit(115);
+    emit(99);
+    emit(97);
+    emit(112);
+    emit(101);
+    emit(32);
+    emit(100);
+    emit(101);
+    emit(110);
+    emit(105);
+    emit(101);
+    emit(100);
+    emit(10);
+}
+
+// r vive en la pila de 0x402000. Un let de _start naked caería en la
+// página de código, y el kernel la deja solo lectura.
+fn zone_pages() {
+    let r: i64 = 0;
+    let n: i64 = 0;
+    while (r == 0 && n <= 8) {
+        r = syscall(8);
+        if (r == 0) { n = n + 1; }
+    }
+    if (r == 0 - 1) { say_quota(); }
+}
+
+naked fn _start() {
+    *(0x401800 as *u8) = 110;
+    *(0x401801 as *u8) = 0;
+    *(0x401802 as *u8) = 0;
+    *(0x401803 as *u8) = 0;
+    *(0x401C00 as *u8) = 90;
+    *(0x401700 as *u8) = 0;
+    rax = 6;
+    rdi = 1;
+    syscall();
+    if (rax == 0) { *(0x401700 as *u8) = 1; }
+
+    rax = 7;
+    rdi = 8;
+    syscall();
+    if (rax == 1) {
+        rbp = *(0x401C00 as *u8);
+        if (rbp == 90) {
+            if (*(0x401700 as *u8) == 1) { say_fs_ok(); }
+        }
+    }
+
+    *(0x401708 as *u8) = 0;
+    *(0x401800 as *u8) = 99;
+    *(0x401801 as *u8) = 0;
+    *(0x401802 as *u8) = 0;
+    *(0x401803 as *u8) = 0;
+    rax = 7;
+    rdi = 8;
+    syscall();
+    if (rax == 0 - 12) { *(0x401708 as *u8) = 1; }
+
+    *(0x401800 as *u8) = 122;
+    *(0x401801 as *u8) = 98;
+    *(0x401802 as *u8) = 0;
+    *(0x401803 as *u8) = 0;
+    rax = 7;
+    rdi = 8;
+    syscall();
+    if (rax == 0 - 12) {
+        if (*(0x401708 as *u8) == 1) { say_fs_denied(); }
+    }
+
+    rax = 2;
+    syscall();
+    if (rax == 0 - 1) { say_sys(); }
+
+    zone_pages();
+
+    rax = 9;
+    rdi = 0;
+    syscall();
+    if (rax == 0 - 2) { say_escape(); }
+
+    rax = 5;
+    syscall();
+    hlt();
+}

@@ -11,11 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y nasm qemu-system-x86 socat
-      - name: Build image (fetches Copihue at the commit pinned in the Makefile)
+      - name: Build image (fetches Copihue at the tag pinned in the Makefile)
         run: make all
       - name: Boot smoke test in QEMU (10s)
         run: |
-          timeout 10 qemu-system-x86_64 -drive format=raw,file=build/atomicos.img -display none -no-reboot || code=$?
+          # -cpu qemu64: CPUID 0x80000001 EDX bit 20 (NX). Igual que el Makefile.
+          timeout 10 qemu-system-x86_64 -cpu qemu64 -drive format=raw,file=build/lapageriaos.img -display none -no-reboot || code=$?
           # 124 = still running after 10s; anything else is a crash/reset
           test "${code:-0}" = "124"
       - name: Shell test (types commands with QEMU sendkey, checks serial output)

@@ -1,0 +1,678 @@
+// Bit NX y W^X. EFER.NXE (MSR 0xC0000080, bit 11) se prende si CPUID
+// 0x80000001 EDX bit 20 está puesto. La página de 2MB del arranque se
+// parte en 4KB: .text queda presente, sin escritura y ejecutable; el
+// resto de los 2MB bajos (datos, .bss, pilas, VGA, tablas) lleva el
+// bit 63. CR0.WP hace que el núcleo tampoco escriba el código.
+//
+// >> es aritmético. El bit 63 solo va en hojas. Un directorio con NX
+// ensuciaría la dirección física en (e >> 12) << 12.
+
+let nx_on: i64 = 0;
+let nx_probe: i64 = 0;
+let nx_user: i64 = 0;
+let nx_target: i64 = 0;
+let nx_text_lo: i64 = 0;
+let nx_text_hi: i64 = 0;
+let nx_data_lo: i64 = 0;
+let nx_data_hi: i64 = 0;
+let nx_bss_lo: i64 = 0;
+let nx_bss_hi: i64 = 0;
+let nx_last_kind: i64 = 0;
+let nx_last_err: i64 = 0;
+let nx_last_cr2: i64 = 0;
+let nx_un: i64 = 0;
+let nx_uerr0: i64 = 0;
+let nx_uerr1: i64 = 0;
+let nx_ucr20: i64 = 0;
+let nx_ucr21: i64 = 0;
+let nx_wx: i64 = 0;
+let nx_leaves: i64 = 0;
+let nx_code: i64 = 0;
+let nx_nxpages: i64 = 0;
+let nx_huge: i64 = 0;
+let nx_miss: i64 = 0;
+let nx_code_bad: i64 = 0;
+let nx_ctx: Ctx;
+
+fn nx_cpu_ok() -> i64 {
+    let top = cpuid(0x80000000);
+    if ((top & 0x80000000) == 0) { return 0; }
+    if (top < 0x80000001) { return 0; }
+    let bit = 1;
+    bit = bit << 20;
+    if ((cpuid_edx(0x80000001) & bit) == 0) { return 0; }
+    return 1;
+}
+
+fn nx_efer_on() -> i64 {
+    let bit = 1;
+    bit = bit << 11;
+    if ((rdmsr(0xC0000080) & bit) == 0) { return 0; }
+    return 1;
+}
+
+fn nx_wp_on() -> i64 {
+    let bit = 1;
+    bit = bit << 16;
+    if ((read_cr0() & bit) == 0) { return 0; }
+    return 1;
+}
+
+fn nx_ranges() -> i64 {
+    nx_text_lo = section_start(".text");
+    nx_text_hi = section_end(".text");
+    nx_data_lo = section_start(".data");
+    nx_data_hi = section_end(".data");
+    nx_bss_lo = section_start(".bss");
+    nx_bss_hi = section_end(".bss");
+    // El enlace es la mitad alta. El físico es esa dirección menos
+    // 0xFFFFFFFF80000000, y tiene que seguir cabiendo en los 2MB.
+    if (hh_window(nx_text_lo) == 0) { return 0; }
+    if (hh_window(nx_bss_hi - 1) == 0) { return 0; }
+    let tlo = hh_phys(nx_text_lo);
+    let thi = hh_phys(nx_text_hi);
+    let dlo = hh_phys(nx_data_lo);
+    let dhi = hh_phys(nx_data_hi);
+    let blo = hh_phys(nx_bss_lo);
+    let bhi = hh_phys(nx_bss_hi);
+    if ((tlo & 4095) != 0) { return 0; }
+    if ((thi & 4095) != 0) { return 0; }
+    if (thi <= tlo) { return 0; }
+    if (thi > dlo) { return 0; }
+    if (dhi > blo) { return 0; }
+    if (bhi <= blo) { return 0; }
+    if (tlo != 0x10000) { return 0; }
+    if (bhi > 0x200000) { return 0; }
+    return 1;
+}
+
+fn nx_phys(e: i64) -> i64 {
+    return (e >> 12) << 12;
+}
+
+fn nx_split() -> i64 {
+    if (nx_ranges() == 0) { return 0; }
+    let pt = alloc_low_page();
+    let hpt = alloc_low_page();
+    if (pt == 0 || hpt == 0) { return 0; }
+    zero_va(pt);
+    zero_va(hpt);
+    let nx = pte_nx_bit();
+    let p: *u64 = pt as *u64;
+    let h: *u64 = hpt as *u64;
+    let tlo = hh_phys(nx_text_lo);
+    let thi = hh_phys(nx_text_hi);
+    let i = 0;
+    while (i < 512) {
+        let a = i << 12;
+        let flags = 3 | nx;
+        if (a >= tlo && a + 4096 <= thi) { flags = 1; }
+        p[i] = a | flags;
+        h[i] = a | flags;
+        i = i + 1;
+    }
+    kern_low_pt = pt;
+    kern_hh_pt = hpt;
+    let pd: *u64 = 0x3000;
+    pd[0] = pt | 3;
+    // PD de la mitad alta, armado por la etapa 2 en 0x5000.
+    let hpd: *u64 = 0x5000;
+    hpd[0] = hpt | 3;
+    write_cr3(read_cr3());
+    return 1;
+}
+
+// Quita de la tabla baja las páginas de la imagen (.text, .data, .bss).
+// La tabla alta las conserva. VGA, tablas, E820 y las pilas de 0x60000
+// para arriba siguen en la identidad: no son esa imagen.
+fn hh_retire() -> i64 {
+    if (kern_low_pt == 0 || kern_hh_pt == 0) { return 0; }
+    let lo = hh_phys(nx_text_lo);
+    let hi = hh_phys(nx_bss_hi);
+    if (lo != 0x10000 || hi <= lo || hi > 0x200000) { return 0; }
+    hi = ((hi + 4095) >> 12) << 12;
+    let p: *u64 = kern_low_pt as *u64;
+    let a = lo;
+    while (a < hi) {
+        p[(a >> 12) & 511] = 0;
+        invlpg(a);
+        a = a + 4096;
+    }
+    write_cr3(read_cr3());
+    return 1;
+}
+
+fn nx_init() -> i64 {
+    cli();
+    if (nx_cpu_ok() == 0) {
+        puts("nx fail cpuid\n");
+        sti();
+        return 0;
+    }
+    let nxe = 1;
+    nxe = nxe << 11;
+    wrmsr(0xC0000080, rdmsr(0xC0000080) | nxe);
+    if (nx_efer_on() == 0) {
+        puts("nx fail efer\n");
+        sti();
+        return 0;
+    }
+    puts("nx efer on\n");
+    if (nx_split() == 0) {
+        puts("nx fail split\n");
+        sti();
+        return 0;
+    }
+    let wp = 1;
+    wp = wp << 16;
+    write_cr0(read_cr0() | wp);
+    write_cr3(read_cr3());
+    if (nx_wp_on() == 0) {
+        puts("nx fail wp\n");
+        sti();
+        return 0;
+    }
+    puts("nx wp on\n");
+    if (hh_retire() == 0) {
+        puts("hh fail\n");
+        sti();
+        return 0;
+    }
+    puts("hh on text=");
+    put_hex64(nx_text_lo);
+    puts("\n");
+    nx_on = 1;
+    sti();
+    return 1;
+}
+
+fn nx_report(err: i64, cr2: i64) -> i64 {
+    puts("exception: vector 14 #PF page fault err=");
+    put_hex(err);
+    puts(" cr2=");
+    put_hex(cr2);
+    puts("\n");
+    return 0;
+}
+
+fn nx_kernel_fault(frame: *PfFrame) -> i64 {
+    let err = frame.error_code;
+    let kind = 0;
+    if ((err & 16) != 0) { kind = 1; }
+    if ((err & 2) != 0 && (err & 16) == 0) { kind = 2; }
+    if (kind == 0) { return 0; }
+    nx_last_err = err;
+    nx_last_cr2 = read_cr2();
+    nx_last_kind = kind;
+    nx_probe = 0;
+    nx_report(err, nx_last_cr2);
+    restore_context(&nx_ctx);
+    return 1;
+}
+
+fn nx_user_fault(frame: *PfFrame) -> i64 {
+    let err = frame.error_code;
+    let addr = read_cr2();
+    if (nx_un == 0) {
+        nx_uerr0 = err;
+        nx_ucr20 = addr;
+    } else {
+        nx_uerr1 = err;
+        nx_ucr21 = addr;
+    }
+    nx_un = nx_un + 1;
+    nx_report(err, addr);
+    let me = cur_i;
+    let n = other_runnable(me);
+    if (n >= 0 && proc_ksp[n] != 0) {
+        switch_to(n);
+        proc_state[me] = 0;
+        resume_frame();
+    }
+    proc_state[me] = 0;
+    write_cr3(0x1000);
+    sched_on = 0;
+    nx_user = 0;
+    tss.rsp0 = 0x86000;
+    set_syscall_stack(0x81000);
+    resume_shell();
+    return 0;
+}
+
+naked fn nx_goto() {
+    jmp [nx_target];
+}
+
+fn nx_err_fetch(err: i64) -> i64 {
+    if ((err & 1) == 0) { return 0; }
+    if ((err & 2) != 0) { return 0; }
+    if ((err & 4) != 0) { return 0; }
+    if ((err & 8) != 0) { return 0; }
+    if ((err & 16) == 0) { return 0; }
+    return 1;
+}
+
+fn nx_err_write(err: i64) -> i64 {
+    if ((err & 1) == 0) { return 0; }
+    if ((err & 2) == 0) { return 0; }
+    if ((err & 4) != 0) { return 0; }
+    if ((err & 8) != 0) { return 0; }
+    if ((err & 16) != 0) { return 0; }
+    return 1;
+}
+
+fn nx_err_user(err: i64) -> i64 {
+    if ((err & 1) == 0) { return 0; }
+    if ((err & 2) != 0) { return 0; }
+    if ((err & 4) == 0) { return 0; }
+    if ((err & 8) != 0) { return 0; }
+    if ((err & 16) == 0) { return 0; }
+    return 1;
+}
+
+fn nx_ok_fault(tag: *u8, err: i64, cr2: i64) -> i64 {
+    puts("nx ok ");
+    puts(tag);
+    puts(" err=");
+    put_hex(err);
+    puts(" cr2=");
+    put_hex(cr2);
+    puts("\n");
+    return 0;
+}
+
+fn nx_leaf(root: i64, va: i64) -> i64 {
+    if (root <= 0) { return 0; }
+    if (va < 0 && hh_window(va) == 0) { return 0; }
+    let pml4: *u64 = root as *u64;
+    let e = pml4[(va >> 39) & 511];
+    if ((e & 1) == 0) { return 0; }
+    let pdpt: *u64 = nx_phys(e) as *u64;
+    e = pdpt[(va >> 30) & 511];
+    if ((e & 1) == 0) { return 0; }
+    if ((e & 128) != 0) { return e; }
+    let pd: *u64 = nx_phys(e) as *u64;
+    e = pd[(va >> 21) & 511];
+    if ((e & 1) == 0) { return 0; }
+    if ((e & 128) != 0) { return e; }
+    let pt: *u64 = nx_phys(e) as *u64;
+    return pt[(va >> 12) & 511];
+}
+
+fn nx_probe_fetch() -> i64 {
+    let page = nx_data_lo;
+    if (nx_data_lo == nx_data_hi) { page = nx_bss_lo; }
+    page = (page >> 12) << 12;
+    if (page < nx_text_hi) {
+        puts("nx fail fetch\n");
+        return 0;
+    }
+    let e = nx_leaf(cr3_root(), page);
+    if ((e & 1) == 0 || (e & 2) == 0 || (e >> 63) == 0) {
+        puts("nx fail fetch\n");
+        return 0;
+    }
+    nx_target = page;
+    nx_last_kind = 0;
+    nx_last_err = 0;
+    nx_last_cr2 = 0;
+    cli();
+    if (save_context(&nx_ctx) == 0) {
+        nx_ctx.rip = label_addr(after_nx_fetch);
+        nx_probe = 1;
+        nx_goto();
+    }
+    label after_nx_fetch;
+    nx_probe = 0;
+    sti();
+    if (nx_last_kind != 1 || nx_err_fetch(nx_last_err) == 0 || nx_last_cr2 != page) {
+        puts("nx fail fetch\n");
+        return 0;
+    }
+    nx_ok_fault("fetch", nx_last_err, nx_last_cr2);
+    return 1;
+}
+
+fn nx_probe_write() -> i64 {
+    if (nx_wp_on() == 0) {
+        puts("nx fail write\n");
+        return 0;
+    }
+    let e = nx_leaf(cr3_root(), nx_text_lo);
+    if ((e & 1) == 0 || (e & 2) != 0 || (e >> 63) != 0) {
+        puts("nx fail write\n");
+        return 0;
+    }
+    let p: *u8 = nx_text_lo as *u8;
+    // `p[0]` es u8 y el `let` lo ensancha a i64. El `as` devuelve ese
+    // byte. No es una PTE: el bit 63 no se recorta aquí.
+    let old = p[0];
+    nx_last_kind = 0;
+    nx_last_err = 0;
+    nx_last_cr2 = 0;
+    cli();
+    if (save_context(&nx_ctx) == 0) {
+        nx_ctx.rip = label_addr(after_nx_write);
+        nx_probe = 1;
+        p[0] = 0x90;
+    }
+    label after_nx_write;
+    nx_probe = 0;
+    sti();
+    if (nx_last_kind != 2 || nx_err_write(nx_last_err) == 0 || nx_last_cr2 != nx_text_lo) {
+        p[0] = (old) as u8;
+        puts("nx fail write\n");
+        return 0;
+    }
+    nx_ok_fault("write", nx_last_err, nx_last_cr2);
+    return 1;
+}
+
+fn nx_user_code(root: i64) -> i64 {
+    let e = nx_leaf(root, 0x400000);
+    if ((e & 1) == 0 || (e & 4) == 0) { return 0; }
+    if ((e & 2) != 0 || (e >> 63) != 0) { return 0; }
+    return 1;
+}
+
+fn nx_user_rw(root: i64, va: i64) -> i64 {
+    let e = nx_leaf(root, va);
+    if ((e & 1) == 0 || (e & 2) == 0 || (e & 4) == 0) { return 0; }
+    if ((e >> 63) == 0) { return 0; }
+    return 1;
+}
+
+fn nx_proc_low(root: i64) -> i64 {
+    let pml4: *u64 = root as *u64;
+    let e = pml4[0];
+    if ((e & 1) == 0) { return 0; }
+    let pdpt: *u64 = nx_phys(e) as *u64;
+    e = pdpt[0];
+    if ((e & 1) == 0) { return 0; }
+    let pd: *u64 = nx_phys(e) as *u64;
+    e = pd[0];
+    if ((e & 1) == 0 || (e & 128) != 0) { return 0; }
+    if (nx_phys(e) != kern_low_pt) { return 0; }
+    return 1;
+}
+
+naked fn nx_prog_stack() {
+    rax = 0x401000;
+    jmp rax;
+}
+
+naked fn nx_prog_stack_end() {
+    hlt();
+}
+
+naked fn nx_prog_data() {
+    rax = 10;
+    syscall();
+    rax = 0x500000;
+    jmp rax;
+}
+
+naked fn nx_prog_data_end() {
+    hlt();
+}
+
+fn nx_clear_if(ksp: i64) -> i64 {
+    let s: *u64 = ksp as *u64;
+    s[17] = 2;
+    return 0;
+}
+
+fn nx_wx_low(root: i64) -> i64 {
+    nx_audit_reset();
+    if (root <= 0) { return 1; }
+    let pml4: *u64 = root as *u64;
+    let e = pml4[0];
+    if ((e & 1) == 0) { return 1; }
+    nx_walk_pdpt(nx_phys(e), 0);
+    return nx_wx;
+}
+
+fn nx_test_user() -> i64 {
+    build_zone = 0;
+    charge_zone = 0;
+    if (shared_init() == 0) {
+        puts("nx fail user\n");
+        return 0;
+    }
+    let mem = pmm_free;
+    nx_un = 0;
+    let ns = &nx_prog_stack_end - &nx_prog_stack;
+    let nd = &nx_prog_data_end - &nx_prog_data;
+    if (build_proc(0, &nx_prog_stack, ns, 0) == 0) {
+        puts("nx fail user\n");
+        return 0;
+    }
+    if (build_proc(1, &nx_prog_data, nd, 1) == 0) {
+        release_proc(0);
+        puts("nx fail user\n");
+        return 0;
+    }
+    if (nx_proc_low(proc_pml4[0]) == 0 || nx_proc_low(proc_pml4[1]) == 0) {
+        release_proc(0);
+        release_proc(1);
+        puts("nx fail user\n");
+        return 0;
+    }
+    if (nx_user_code(proc_pml4[0]) == 0 || nx_user_rw(proc_pml4[0], 0x401000) == 0) {
+        release_proc(0);
+        release_proc(1);
+        puts("nx fail user\n");
+        return 0;
+    }
+    if (nx_user_code(proc_pml4[1]) == 0 || nx_user_rw(proc_pml4[1], 0x401000) == 0 || nx_user_rw(proc_pml4[1], 0x500000) == 0) {
+        release_proc(0);
+        release_proc(1);
+        puts("nx fail user\n");
+        return 0;
+    }
+    if (nx_wx_low(proc_pml4[0]) != 0 || nx_wx_low(proc_pml4[1]) != 0) {
+        release_proc(0);
+        release_proc(1);
+        puts("nx fail user\n");
+        return 0;
+    }
+    nx_clear_if(proc_ksp[0]);
+    nx_clear_if(proc_ksp[1]);
+    cli();
+    if (save_context(&shell_ctx) == 0) {
+        shell_ctx.rip = label_addr(after_nx_user);
+        cur_i = 0;
+        proc_state[0] = 2;
+        proc_state[1] = 1;
+        tss.rsp0 = proc_rsp0[0];
+        set_syscall_stack(proc_sys[0]);
+        write_cr3(proc_pml4[0]);
+        saved_ksp = proc_ksp[0];
+        sched_on = 1;
+        nx_user = 1;
+        resume_frame();
+    }
+    label after_nx_user;
+    shell_ctx.rip = 0;
+    sched_on = 0;
+    nx_user = 0;
+    write_cr3(0x1000);
+    tss.rsp0 = 0x86000;
+    set_syscall_stack(0x81000);
+    sti();
+    release_proc(0);
+    release_proc(1);
+    if (pmm_free != mem) {
+        puts("nx fail leak\n");
+        return 0;
+    }
+    if (nx_un != 2) {
+        puts("nx fail user\n");
+        return 0;
+    }
+    if (nx_err_user(nx_uerr0) == 0 || nx_ucr20 != 0x401000) {
+        puts("nx fail user\n");
+        return 0;
+    }
+    if (nx_err_user(nx_uerr1) == 0 || nx_ucr21 != 0x500000) {
+        puts("nx fail user\n");
+        return 0;
+    }
+    nx_ok_fault("user stack", nx_uerr0, nx_ucr20);
+    nx_ok_fault("user data", nx_uerr1, nx_ucr21);
+    return 1;
+}
+
+fn nx_note(va: i64, e: i64, huge: i64) -> i64 {
+    // `va` ya no clasifica: la misma física está en dos ventanas.
+    if (va == 0 && (e & 1) == 0) { return 0; }
+    if ((e & 1) == 0) { return 0; }
+    nx_leaves = nx_leaves + 1;
+    if (huge != 0) { nx_huge = nx_huge + 1; }
+    if ((e & 2) != 0 && (e >> 63) == 0) { nx_wx = nx_wx + 1; }
+    if (huge != 0) { return 0; }
+    // El código está mapeado en la mitad alta. La hoja dice la física;
+    // la virtual ya no coincide con .text.
+    let pa = nx_phys(e);
+    let tlo = hh_phys(nx_text_lo);
+    let thi = hh_phys(nx_text_hi);
+    if (pa >= tlo && pa + 4096 <= thi) {
+        if ((e & 2) != 0 || (e >> 63) != 0) { nx_code_bad = nx_code_bad + 1; }
+        else { nx_code = nx_code + 1; }
+        return 0;
+    }
+    if ((e >> 63) == 0) { nx_miss = nx_miss + 1; }
+    else { nx_nxpages = nx_nxpages + 1; }
+    return 0;
+}
+
+fn nx_walk_pt(pt: i64, base: i64) -> i64 {
+    let p: *u64 = pt as *u64;
+    let i = 0;
+    while (i < 512) {
+        let e = p[i];
+        if ((e & 1) != 0) { nx_note(base + (i << 12), e, 0); }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn nx_walk_pd(pd: i64, base: i64) -> i64 {
+    let p: *u64 = pd as *u64;
+    let i = 0;
+    while (i < 512) {
+        let e = p[i];
+        if ((e & 1) != 0) {
+            let va = base + (i << 21);
+            if ((e & 128) != 0) { nx_note(va, e, 1); }
+            else { nx_walk_pt(nx_phys(e), va); }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn nx_walk_pdpt(pdpt: i64, base: i64) -> i64 {
+    let p: *u64 = pdpt as *u64;
+    let i = 0;
+    while (i < 512) {
+        let e = p[i];
+        if ((e & 1) != 0) {
+            let va = base + (i << 30);
+            if ((e & 128) != 0) { nx_note(va, e, 1); }
+            else { nx_walk_pd(nx_phys(e), va); }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn nx_audit_reset() -> i64 {
+    nx_wx = 0;
+    nx_leaves = 0;
+    nx_code = 0;
+    nx_nxpages = 0;
+    nx_huge = 0;
+    nx_miss = 0;
+    nx_code_bad = 0;
+    return 0;
+}
+
+fn nx_audit() -> i64 {
+    nx_audit_reset();
+    let root = cr3_root();
+    let pml4: *u64 = root as *u64;
+    let i = 0;
+    while (i < 512) {
+        let e = pml4[i];
+        if ((e & 1) != 0) {
+            nx_walk_pdpt(nx_phys(e), i << 39);
+        }
+        i = i + 1;
+    }
+    return nx_wx;
+}
+
+fn nx_print_audit(ok: i64) -> i64 {
+    if (ok != 0) { puts("nx ok audit"); }
+    else { puts("nx fail audit"); }
+    puts(" wx=");
+    put_int(nx_wx);
+    puts(" leaves=");
+    put_int(nx_leaves);
+    puts(" code=");
+    put_int(nx_code);
+    puts(" nx=");
+    put_int(nx_nxpages);
+    puts(" huge=");
+    put_int(nx_huge);
+    puts("\n");
+    return 0;
+}
+
+fn nx_map_line() -> i64 {
+    puts("nx map text ");
+    put_hex(nx_text_lo);
+    putc(' ');
+    put_hex(nx_text_hi);
+    puts(" data ");
+    put_hex(nx_data_lo);
+    putc(' ');
+    put_hex(nx_data_hi);
+    puts(" bss ");
+    put_hex(nx_bss_lo);
+    putc(' ');
+    put_hex(nx_bss_hi);
+    puts("\n");
+    return 0;
+}
+
+fn cmd_nx() -> i64 {
+    if (nx_on == 0 || kern_low_pt == 0) {
+        puts("nx fail init\n");
+        return 0;
+    }
+    nx_map_line();
+    if (nx_efer_on() == 0) {
+        puts("nx fail efer\n");
+        return 0;
+    }
+    puts("nx ok efer\n");
+    if (nx_wp_on() == 0) {
+        puts("nx fail wp\n");
+        return 0;
+    }
+    puts("nx ok wp\n");
+    nx_probe_fetch();
+    nx_probe_write();
+    nx_test_user();
+    nx_audit();
+    let ok = 0;
+    if (nx_wx == 0 && nx_huge == 0 && nx_miss == 0 && nx_code_bad == 0) {
+        if (nx_code >= 1 && nx_nxpages >= 1 && nx_leaves == nx_code + nx_nxpages) {
+            ok = 1;
+        }
+    }
+    nx_print_audit(ok);
+    return 0;
+}

@@ -1,0 +1,182 @@
+// Ring 3. enter_user maps a code page at 0x400000 and a stack page at
+// 0x401000, both with the user bit, then iretq. The program writes
+// "user ok" through syscall/sysret and then reads 0x10000. That is a
+// kernel page whose low identity mapping was retired, so the read is a
+// not-present #PF from ring 3 (err bit 2 set, bit 0 clear). The handler
+// must not map it. resume_shell returns to the instruction after iretq.
+
+let user_ran: i64 = 0;
+
+syscall fn sys_user(nr: i64, ch: i64) -> i64 {
+    // sys-enter: número y argumento. sys-exit: número y resultado.
+    // yield y exit no vuelven, así que no hay sys-exit de esas dos.
+    if (tr_en[0] != 0) { trace_hit(0, proc_pid[cur_i], nr, ch); }
+    let g = zone_gate(nr);
+    if (g != 0) {
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, g); }
+        return g;
+    }
+    if (nr == 1) {
+        putc(ch);
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
+        return 0;
+    }
+    if (nr == 2) {
+        puts("user leak\n");
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
+        return 0;
+    }
+    if (nr == 3) {
+        putc('\n');
+        puts("getpid ");
+        put_int(proc_pid[cur_i]);
+        puts("\n");
+        let r = proc_pid[cur_i];
+        if (tr_en[1] != 0) { trace_hit(1, r, nr, r); }
+        return r;
+    }
+    if (nr == 4) { return yield_current(); }
+    if (nr == 5) { return exit_current(); }
+    if (nr == 6) {
+        let r = zone_sys_write(ch);
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, r); }
+        return r;
+    }
+    if (nr == 7) {
+        let r = zone_sys_read(ch);
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, r); }
+        return r;
+    }
+    if (nr == 8) {
+        let r = zone_sys_alloc();
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, r); }
+        return r;
+    }
+    if (nr == 9) {
+        let r = zone_sys_set(ch);
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, r); }
+        return r;
+    }
+    if (nr == 10) {
+        if (nx_user != 0) { puts("nx ok sched\n"); }
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
+        return 0;
+    }
+    if (nr == 11) {
+        if (hh_user != 0) { puts("hh ok sched\n"); }
+        if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
+        return 0;
+    }
+    if (tr_en[1] != 0) { trace_hit(1, proc_pid[cur_i], nr, 0); }
+    return 0;
+}
+
+fn program_syscall() -> i64 {
+    set_syscall_stack(0x81000);
+    let efer = rdmsr(0xC0000080);
+    wrmsr(0xC0000080, efer | 1);
+    wrmsr(0xC0000081, 0x0028001800000000);
+    wrmsr(0xC0000082, &sys_user);
+    wrmsr(0xC0000084, 0x200);
+    return 0;
+}
+
+// Imagen de anillo 3, copiada hasta user_prog_end. Sin locales: un let
+// naked es un hueco de la imagen del núcleo y en anillo 3 esa dirección
+// es de supervisor. La lectura de 0x10000 es la que tiene que fallar.
+naked fn user_prog() {
+    rax = 1;
+    rdi = 117;
+    syscall();
+    rax = 1;
+    rdi = 115;
+    syscall();
+    rax = 1;
+    rdi = 101;
+    syscall();
+    rax = 1;
+    rdi = 114;
+    syscall();
+    rax = 1;
+    rdi = 32;
+    syscall();
+    rax = 1;
+    rdi = 111;
+    syscall();
+    rax = 1;
+    rdi = 107;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    al = *(0x10000 as *u8);
+    rax = 2;
+    syscall();
+}
+
+naked fn user_prog_end() {
+    hlt();
+}
+
+fn copy_user_page() -> i64 {
+    let src: *u8 = &user_prog as *u8;
+    let n = &user_prog_end - &user_prog;
+    if (n <= 0 || n > 4096) { return 0; }
+    zero_va(0x400000);
+    let dst: *u8 = 0x400000;
+    let i = 0;
+    while (i < n) {
+        dst[i] = src[i];
+        i = i + 1;
+    }
+    return n;
+}
+
+fn enter_user() -> i64 {
+    if (user_ran != 0) {
+        puts("user already\n");
+        return 0;
+    }
+    let code = alloc_high_page();
+    let stack = alloc_high_page();
+    if (code == 0 || stack == 0) {
+        puts("user fail alloc\n");
+        return 0;
+    }
+    if (map_page(0x400000, code, 3 | pte_nx_bit()) == 0 || map_page(0x401000, stack, 7 | pte_nx_bit()) == 0) {
+        puts("user fail map\n");
+        return 0;
+    }
+    let n = copy_user_page();
+    if (n == 0) {
+        puts("user fail copy\n");
+        return 0;
+    }
+    zero_va(0x401000);
+    map_page(0x400000, code, 5);
+    puts("user bytes=");
+    put_int(n);
+    puts("\n");
+    let pml4: *u64 = 0x1000;
+    pml4[0] = pml4[0] | 4;
+    let pdpt: *u64 = 0x2000;
+    pdpt[0] = pdpt[0] | 4;
+    write_cr3(read_cr3());
+    user_ran = 1;
+    cli();
+    // Mismo truco que sched_go: la etiqueta es el regreso del #PF.
+    if (save_context(&shell_ctx) == 0) {
+        shell_ctx.rip = label_addr(after_user);
+        push(0x33);
+        push(0x402000);
+        push(0x2);
+        push(0x3B);
+        push(0x400000);
+        iretq();
+    }
+    label after_user;
+    shell_ctx.rip = 0;
+    sti();
+    puts("user returned\n");
+    return 0;
+}

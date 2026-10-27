@@ -1,0 +1,293 @@
+// LapageriaOS stage 2. Stage 1 loads this image at 0x8200 and jumps to it
+// in real mode. `copihue --flat 0x8200` (Makefile STAGE2_ORG). The kernel
+// is read from LBA 9 (`dq 9` = 1 + STAGE2_SECTORS) to 0x10000.
+// `dw 0; // KERNEL_SECTORS` is a marker, not the count that boots.
+// The Makefile copies this file to build/stage2.lap and writes
+// ceil(kernel.bin / 512) there. That word is the total.
+//
+// One INT 13h packet, offset 0, holds 128 sectors (64 KiB). The 16-bit
+// offset wraps after that, so load_kernel repeats the read: segment
+// 0x1000, then 0x2000, and so on, and the LBA low word advances. The
+// high bytes of the `dq` stay 0. `>` compiles to setg (signed); the
+// total has to stay <= 32767 for the 128-sector cap to apply. make's
+// cap is 512, and 9 + 512 still fits in that low word.
+//
+// The file may pass 0x20000. .bss is not in kernel.bin; the kernel
+// zeros it after the file. The first fixed stack is proc_rsp0 of
+// process 0 at 0x60000 and it grows down. Stack tops are 32 KiB apart,
+// so the image and .bss must end before 0x58000. make reserves 32 KiB
+// for .bss and rejects a kernel.bin past 512 sectors (ends at 0x50000).
+// The floppy still has 2871 sectors after LBA 9; that is not the cap,
+// because it would run through those stacks and past 1MB.
+//
+// What the kernel still requires from this file (qemu-test checks it):
+//   CR3 = 0x1000, PML4[0] = 0x2003, PDPT[0] = 0x3003, PD[0] = 0x83
+//   E820 count word at 0x8000, entries of 24 bytes at 0x8004
+//   GDT selectors 0x08/0x10 32-bit, 0x18/0x20 64-bit
+//   PML4[511] = 0x4003, PDPT[510] = 0x5003, HH PD[0] = 0x83
+//   stack 0xFFFFFFFF80090000, indirect jump to 0xFFFFFFFF80010000
+// The file is still loaded at physical 0x10000. The kernel is linked
+// at 0xFFFFFFFF80010000 (`--flat`), which is that frame plus the
+// higher-half base. A direct jmp does not reach: the displacement
+// does not fit in rel32. `jmp rax` does.
+// Do not add a `let` global here. --flat puts .bss before the address
+// calculation of an empty image only when it is empty; a global would
+// move _start off the first byte. Constants live in `data`.
+//
+// Copihue v0.31.0. lodsb y rep_stosd usan el índice tal como está DF,
+// así que clear_df lo deja en claro con cld(). El token de INT 15h
+// vive en ebx. Un while, un if y un + de bits 16 lo restauran
+// (push/pop alrededor del operador). get_e820 lo escribe directo:
+// ebx = 0 antes del primer int 0x15, y if (ebx == 0) cierra el mapa.
+// Entre ese int y el if no hay un store cuya dirección no sea número,
+// registro desnudo o reg±disp, ni lgdt/lidt/invlpg de un puntero que
+// no sea etiqueta. *((di + 20) as *u32) = 1 es [di+20] y va antes del
+// int. *(0x8000 as *u16) es un número. Los stores de kern_packet+N
+// pasan por ebx, y están en load_kernel, antes de get_e820. lgdt(&gdtr)
+// es la etiqueta gdtr y va después. check_long_mode sigue usando
+// pushfd/popfd: ahí se prueba el bit ID, no se limpia DF. Las llamadas
+// de aquí no tienen argumentos.
+
+data kern_packet {
+    db 0x10, 0;
+    dw 0; // KERNEL_SECTORS
+    dw 0, 0x1000;
+    dq 9;
+}
+
+data boot_msg {
+    db "LapageriaOS 0.8 64-bit", 13, 10, 0;
+}
+
+data disk_err_msg {
+    db "Disk error!", 13, 10, 0;
+}
+
+data no_lm_msg {
+    db "No64", 13, 10, 0;
+}
+
+data gdt {
+    dq 0;
+    dw 0xFFFF;
+    dw 0;
+    db 0;
+    db 0x9A;
+    db 0xCF;
+    db 0;
+    dw 0xFFFF;
+    dw 0;
+    db 0;
+    db 0x92;
+    db 0xCF;
+    db 0;
+    dw 0;
+    dw 0;
+    db 0;
+    db 0x9A;
+    db 0xAF;
+    db 0;
+    dw 0;
+    dw 0;
+    db 0;
+    db 0x92;
+    db 0;
+    db 0;
+}
+
+data gdtr {
+    dw 39;
+    dd gdt;
+}
+
+bits 16 naked fn clear_df() {
+    cld();
+}
+
+bits 16 naked fn _start() {
+    cli();
+    ax = 0;
+    ds = ax;
+    es = ax;
+    ss = ax;
+    sp = 0x7C00;
+    clear_df();
+    ax = 0x0003;
+    int(0x10);
+    si = boot_msg;
+    print_string();
+    enable_a20();
+    load_kernel();
+    get_e820();
+    check_long_mode();
+    setup_page_tables();
+    cli();
+    lgdt(&gdtr);
+    write_cr0(read_cr0() | 1);
+    ljmp(0x08, protected_mode);
+}
+
+bits 16 naked fn print_string() {
+    lodsb();
+    let c: u8 = al as u8;
+    while (c != 0) {
+        al = c;
+        ah = 0x0E;
+        int(0x10);
+        lodsb();
+        c = al as u8;
+    }
+}
+
+bits 16 naked fn enable_a20() {
+    outb(0x92, inb(0x92) | 2);
+}
+
+bits 16 naked fn load_kernel() {
+    let total: u16 = *((kern_packet + 2) as *u16);
+    let lba: u16 = 9;
+    let seg: u16 = 0x1000;
+    while (total != 0) {
+        let n: u16 = total;
+        if (n > 128) { n = 128; }
+        *((kern_packet + 2) as *u16) = n;
+        *((kern_packet + 4) as *u16) = 0;
+        *((kern_packet + 6) as *u16) = seg;
+        *((kern_packet + 8) as *u16) = lba;
+        si = kern_packet;
+        dl = *(0x0500 as *u8);
+        ah = 0x42;
+        int(0x13);
+        if (int_carry() != 0) {
+            jmp disk_error;
+        }
+        total = total - n;
+        lba = lba + n;
+        seg = seg + 0x1000;
+    }
+}
+
+bits 16 naked fn get_e820() {
+    di = 0x8004;
+    es = ds;
+    *(0x8000 as *u16) = 0;
+    let cont: u16 = 1;
+    let sig: u32 = 0;
+    ebx = 0;
+    while (cont != 0) {
+        ecx = 24;
+        edx = 0x534D4150;
+        *((di + 20) as *u32) = 1;
+        eax = 0xE820;
+        int(0x15);
+        if carry {
+            cont = 0;
+        } else {
+            sig = eax as u32;
+            if (sig != 0x534D4150) {
+                cont = 0;
+            } else {
+                *(0x8000 as *u16) = *(0x8000 as *u16) + 1;
+                di = di + 24;
+                if (di >= 0x8184) {
+                    cont = 0;
+                } else {
+                    if (ebx == 0) { cont = 0; }
+                }
+            }
+        }
+    }
+}
+
+bits 16 naked fn check_long_mode() {
+    pushfd();
+    pop(eax);
+    ecx = eax;
+    eax = eax ^ 0x200000;
+    push(eax);
+    popfd();
+    pushfd();
+    pop(eax);
+    push(ecx);
+    popfd();
+    if (eax == ecx) { jmp no_long_mode; }
+    // `<` ensambla setl (con signo). 0x80000000 comparado así no es el jb
+    // del manual. El AND previo descarta un leaf básico (bit 31 en claro);
+    // en el rango 0x80000000..0xFFFFFFFF el orden con signo coincide con
+    // el orden sin signo. cpuid(0x80000000) es idempotente.
+    if ((cpuid(0x80000000) & 0x80000000) == 0) { jmp no_long_mode; }
+    if (cpuid(0x80000000) < 0x80000001) { jmp no_long_mode; }
+    if ((cpuid_edx(0x80000001) & (1 << 29)) == 0) { jmp no_long_mode; }
+}
+
+bits 16 naked fn setup_page_tables() {
+    write_cr3(0x1000);
+    clear_df();
+    eax = 0;
+    di = 0x1000;
+    ecx = 4096;
+    rep_stosd();
+    *(0x1000 as *u32) = 0x2003;
+    *(0x2000 as *u32) = 0x3003;
+    // PD[0] = 0x83 es la página de 2MB. El kernel la parte en 4KB
+    // cuando prende NX. Esta etapa no tiene el tamaño de .text.
+    *(0x3000 as *u32) = 0x83;
+    // Mitad alta: 0xFFFFFFFF80000000. PML4[511] -> PDPT en 0x4000,
+    // PDPT[510] -> PD en 0x5000, PD[0] = la misma RAM física 0..2MB.
+    // Es otra tabla: retirar la identidad baja no la borra. El claro
+    // de arriba llega hasta 0x4FFF; 0x5000 va aparte.
+    di = 0x5000;
+    ecx = 1024;
+    rep_stosd();
+    *(0x1FF8 as *u32) = 0x4003;
+    *(0x4FF0 as *u32) = 0x5003;
+    *(0x5000 as *u32) = 0x83;
+}
+
+bits 16 naked fn disk_error() {
+    si = disk_err_msg;
+    print_string();
+    while (1) { hlt(); }
+}
+
+bits 16 naked fn no_long_mode() {
+    si = no_lm_msg;
+    print_string();
+    while (1) { hlt(); }
+}
+
+bits 32 naked fn protected_mode() {
+    ax = 0x10;
+    ds = ax;
+    es = ax;
+    fs = ax;
+    gs = ax;
+    ss = ax;
+    esp = 0x90000;
+    write_cr4(read_cr4() | 32);
+    wrmsr(0xC0000080, rdmsr(0xC0000080) | 0x100);
+    write_cr0(read_cr0() | 0x80000000);
+    ljmp(0x18, long_mode);
+}
+
+bits 64 naked fn long_mode() {
+    ax = 0x20;
+    ds = ax;
+    es = ax;
+    fs = ax;
+    gs = ax;
+    ss = ax;
+    // La pila física sigue en 0x90000. El kernel ya está enlazado
+    // arriba, así que RSP tiene que ser esa misma página vista desde
+    // 0xFFFFFFFF80000000. El desplazamiento cabe en rax, no en un jmp
+    // relativo: desde aquí hasta 0xFFFFFFFF80010000 pasa de 2GB.
+    rsp = 0x90000;
+    rax = 0xFFFFFFFF;
+    rax = rax << 32;
+    rax = rax | 0x80090000;
+    rsp = rax;
+    rax = 0xFFFFFFFF;
+    rax = rax << 32;
+    rax = rax | 0x80010000;
+    jmp rax;
+}

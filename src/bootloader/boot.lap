@@ -1,0 +1,70 @@
+// LapageriaOS stage 1. BIOS enters the first byte at 0x7C00 in real mode.
+//
+// The 512-byte sector only loads stage 2. There is no room left in a
+// sector for the E820 map, the page tables and the long-mode switch
+// once they are written with Copihue's codegen (the previous NASM
+// stub, boot64.asm, had 10 bytes free). Stage 2 is Copihue too.
+//
+// Disk layout (1.44MB raw image, QEMU presents it as a hard disk):
+//   LBA 0        this sector
+//   LBA 1..8     stage 2, loaded at 0x8200 (Makefile STAGE2_SECTORS)
+//   LBA 9..      kernel at 0x10000. Stage 2's sector count is the size
+//                of kernel.bin, written by the Makefile into its DAP.
+// The BIOS drive number is saved at 0x0500 before any interrupt.
+// 0x0500 is the first free byte past the BIOS data area. The stack
+// grows down from 0x7C00 and does not reach it.
+//
+// `dw 8`, `dw 0x8200` and `jmp 0x8200` are checked against the Makefile.
+//
+// Copihue v0.31.0. lodsb avanza si solo con DF en claro. clear_df
+// lo apaga con cld() antes de leer el disco. Las llamadas de aquí
+// no llevan argumentos.
+
+data packet {
+    db 0x10, 0;
+    dw 8;
+    dw 0x8200, 0;
+    dq 1;
+}
+
+data fail_msg {
+    db "Disk", 13, 10, 0;
+}
+
+bits 16 naked fn clear_df() {
+    cld();
+}
+
+bits 16 naked fn load_fail() {
+    si = fail_msg;
+    lodsb();
+    let c: u8 = al as u8;
+    while (c != 0) {
+        al = c;
+        ah = 0x0E;
+        int(0x10);
+        lodsb();
+        c = al as u8;
+    }
+    while (1) { hlt(); }
+}
+
+bits 16 naked fn _start() {
+    cli();
+    ax = 0;
+    ds = ax;
+    es = ax;
+    ss = ax;
+    sp = 0x7C00;
+    *(0x0500 as *u8) = dl as u8;
+    clear_df();
+    si = packet;
+    dl = *(0x0500 as *u8);
+    ah = 0x42;
+    int(0x13);
+    if carry {
+        jmp load_fail;
+    } else {
+        jmp 0x8200;
+    }
+}

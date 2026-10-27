@@ -1,0 +1,256 @@
+// Kernel en la mitad alta. La etapa 2 salta a 0xFFFFFFFF80010000 con
+// RSP en 0xFFFFFFFF80090000 y deja las dos tablas: la identidad baja y
+// una PD aparte en 0x5000. nx_init parte las dos en 4KB y hh_retire
+// borra de la tabla baja las páginas de la imagen. Este comando
+// comprueba RIP/RSP, el #PF de esa dirección baja, y que un proceso
+// de anillo 3 no puede leer ni escribir el kernel arriba.
+
+let hh_probe: i64 = 0;
+let hh_user: i64 = 0;
+let hh_miss: i64 = 0;
+let hh_last_err: i64 = 0;
+let hh_last_cr2: i64 = 0;
+let hh_un: i64 = 0;
+let hh_uerr0: i64 = 0;
+let hh_uerr1: i64 = 0;
+let hh_ucr20: i64 = 0;
+let hh_ucr21: i64 = 0;
+let hh_ctx: Ctx;
+
+fn hh_kernel_fault(frame: *PfFrame) -> i64 {
+    hh_last_err = frame.error_code;
+    hh_last_cr2 = read_cr2();
+    hh_probe = 0;
+    nx_report(hh_last_err, hh_last_cr2);
+    restore_context(&hh_ctx);
+    return 0;
+}
+
+fn hh_user_fault(frame: *PfFrame) -> i64 {
+    let err = frame.error_code;
+    let addr = read_cr2();
+    if (hh_un == 0) {
+        hh_uerr0 = err;
+        hh_ucr20 = addr;
+    } else {
+        hh_uerr1 = err;
+        hh_ucr21 = addr;
+    }
+    hh_un = hh_un + 1;
+    nx_report(err, addr);
+    let me = cur_i;
+    let n = other_runnable(me);
+    if (n >= 0 && proc_ksp[n] != 0) {
+        switch_to(n);
+        proc_state[me] = 0;
+        resume_frame();
+    }
+    proc_state[me] = 0;
+    write_cr3(0x1000);
+    sched_on = 0;
+    hh_user = 0;
+    tss.rsp0 = 0x86000;
+    set_syscall_stack(0x81000);
+    resume_shell();
+    return 0;
+}
+
+fn hh_cpu() -> i64 {
+    let c: Ctx;
+    save_context(&c);
+    puts("hh rip=");
+    put_hex64(c.rip);
+    puts(" rsp=");
+    put_hex64(c.rsp);
+    puts("\n");
+    if (hh_window(c.rip) == 0 || hh_window(c.rsp) == 0) {
+        puts("hh fail cpu\n");
+        return 0;
+    }
+    puts("hh ok cpu\n");
+    return 1;
+}
+
+fn hh_probe_low() -> i64 {
+    let e = nx_leaf(cr3_root(), 0x10000);
+    if ((e & 1) != 0) {
+        puts("hh fail low\n");
+        return 0;
+    }
+    let hi = nx_leaf(cr3_root(), hh_base() + 0x10000);
+    if ((hi & 1) == 0 || (hi & 2) != 0 || (hi & 4) != 0 || (hi >> 63) != 0) {
+        puts("hh fail low\n");
+        return 0;
+    }
+    hh_miss = 1;
+    hh_last_err = 0 - 1;
+    hh_last_cr2 = 0;
+    cli();
+    if (save_context(&hh_ctx) == 0) {
+        hh_ctx.rip = label_addr(after_hh_low);
+        hh_probe = 1;
+        let p: *u8 = 0x10000;
+        let b = p[0];
+        hh_miss = 0;
+        hh_last_err = b;
+    }
+    label after_hh_low;
+    hh_probe = 0;
+    sti();
+    if (hh_miss == 0 || hh_last_err != 0 || hh_last_cr2 != 0x10000) {
+        puts("hh fail low\n");
+        return 0;
+    }
+    puts("hh ok low err=");
+    put_hex(hh_last_err);
+    puts(" cr2=");
+    put_hex(hh_last_cr2);
+    puts("\n");
+    return 1;
+}
+
+// La dirección absoluta viaja con los bytes copiados a 0x400000.
+// No es relativa a RIP: en anillo 3 sigue siendo el kernel.
+naked fn hh_prog_read() {
+    al = *(0xFFFFFFFF80010000 as *u8);
+    rax = 2;
+    syscall();
+}
+
+naked fn hh_prog_read_end() {
+    hlt();
+}
+
+naked fn hh_prog_write() {
+    rax = 11;
+    syscall();
+    *(0xFFFFFFFF80010000 as *u8) = 0x90;
+    rax = 2;
+    syscall();
+}
+
+naked fn hh_prog_write_end() {
+    hlt();
+}
+
+fn hh_err_read(err: i64) -> i64 {
+    if ((err & 1) == 0) { return 0; }
+    if ((err & 2) != 0) { return 0; }
+    if ((err & 4) == 0) { return 0; }
+    if ((err & 16) != 0) { return 0; }
+    return 1;
+}
+
+fn hh_err_write(err: i64) -> i64 {
+    if ((err & 1) == 0) { return 0; }
+    if ((err & 2) == 0) { return 0; }
+    if ((err & 4) == 0) { return 0; }
+    if ((err & 16) != 0) { return 0; }
+    return 1;
+}
+
+fn hh_user_test() -> i64 {
+    build_zone = 0;
+    charge_zone = 0;
+    if (shared_init() == 0) {
+        puts("hh fail user\n");
+        return 0;
+    }
+    let mem = pmm_free;
+    hh_un = 0;
+    let nr = &hh_prog_read_end - &hh_prog_read;
+    let nw = &hh_prog_write_end - &hh_prog_write;
+    if (build_proc(0, &hh_prog_read, nr, 0) == 0) {
+        puts("hh fail user\n");
+        return 0;
+    }
+    if (build_proc(1, &hh_prog_write, nw, 0) == 0) {
+        release_proc(0);
+        puts("hh fail user\n");
+        return 0;
+    }
+    nx_clear_if(proc_ksp[0]);
+    nx_clear_if(proc_ksp[1]);
+    cli();
+    if (save_context(&shell_ctx) == 0) {
+        shell_ctx.rip = label_addr(after_hh_user);
+        cur_i = 0;
+        proc_state[0] = 2;
+        proc_state[1] = 1;
+        tss.rsp0 = proc_rsp0[0];
+        set_syscall_stack(proc_sys[0]);
+        write_cr3(proc_pml4[0]);
+        saved_ksp = proc_ksp[0];
+        sched_on = 1;
+        hh_user = 1;
+        resume_frame();
+    }
+    label after_hh_user;
+    shell_ctx.rip = 0;
+    sched_on = 0;
+    hh_user = 0;
+    write_cr3(0x1000);
+    tss.rsp0 = 0x86000;
+    set_syscall_stack(0x81000);
+    sti();
+    release_proc(0);
+    release_proc(1);
+    if (pmm_free != mem) {
+        puts("hh fail leak\n");
+        return 0;
+    }
+    if (hh_un != 2) {
+        puts("hh fail user\n");
+        return 0;
+    }
+    if (hh_err_read(hh_uerr0) == 0 || hh_ucr20 != hh_base() + 0x10000) {
+        puts("hh fail user\n");
+        return 0;
+    }
+    if (hh_err_write(hh_uerr1) == 0 || hh_ucr21 != hh_base() + 0x10000) {
+        puts("hh fail user\n");
+        return 0;
+    }
+    puts("hh ok read err=");
+    put_hex(hh_uerr0);
+    puts(" cr2=");
+    put_hex64(hh_ucr20);
+    puts("\n");
+    puts("hh ok write err=");
+    put_hex(hh_uerr1);
+    puts(" cr2=");
+    put_hex64(hh_ucr21);
+    puts("\n");
+    return 1;
+}
+
+fn cmd_hh() -> i64 {
+    if (nx_on == 0 || kern_hh_pt == 0) {
+        puts("hh fail init\n");
+        return 0;
+    }
+    if (hh_cpu() == 0) { return 0; }
+    if (hh_probe_low() == 0) { return 0; }
+    if (hh_user_test() == 0) { return 0; }
+    nx_audit();
+    let ok = 0;
+    if (nx_wx == 0 && nx_huge == 0 && nx_miss == 0 && nx_code_bad == 0) {
+        if (nx_code >= 1 && nx_nxpages >= 1 && nx_leaves == nx_code + nx_nxpages) {
+            ok = 1;
+        }
+    }
+    if (ok != 0) { puts("hh ok audit"); }
+    else { puts("hh fail audit"); }
+    puts(" wx=");
+    put_int(nx_wx);
+    puts(" leaves=");
+    put_int(nx_leaves);
+    puts(" code=");
+    put_int(nx_code);
+    puts(" nx=");
+    put_int(nx_nxpages);
+    puts(" huge=");
+    put_int(nx_huge);
+    puts("\n");
+    return 0;
+}

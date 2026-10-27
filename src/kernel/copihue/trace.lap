@@ -1,0 +1,328 @@
+// Trazas mínimas, al estilo de una sonda estática.
+//
+// Cada sonda tiene id, nombre, contador e indicador. Apagada, el
+// llamador solo compara el indicador: no entra a trace_hit.
+//
+// El anillo es fijo, 32 registros (potencia de 2), sin asignación.
+// Cada registro guarda tick, id de sonda, proceso y dos argumentos.
+// Al llenarse pisa el más viejo y sube `tr_lost`.
+//
+// Dentro de una interrupción no se puede hacer sti() a ciegas: el
+// syscall llega con IF en 0 (SFMASK) y el PIT también. trace_save_if
+// hace pushfd (en 64 bits es pushfq), cli y recién ahí pop, y
+// trace_restore_if devuelve esos flags. Un anidamiento (una #PF en
+// medio del registro) deja los flags en una pila corta y, si el
+// anillo ya está tomado, cuenta el evento como perdido y sale. No
+// hay espera: no se cuelga. El registro es TrEv; trace_layout exige
+// 40 bytes y los campos en 0, 8, 16, 24 y 32.
+
+// 0 sys-enter  1 sys-exit  2 switch  3 pf       4 pit
+// 5 pg-alloc   6 pg-free   7 blk-read 8 blk-write
+// 9 net-rx    10 net-tx
+struct TrEv {
+    time: i64,
+    id: i64,
+    pid: i64,
+    a0: i64,
+    a1: i64
+}
+
+let tr_ring: [TrEv; 32];
+let tr_en: [i64; 11];
+let tr_count: [i64; 11];
+let tr_show: [i64; 160];
+let tr_word: [u8; 16];
+let tr_fl_stk: [i64; 4];
+let volatile tr_fl_tmp: i64 = 0;
+let volatile tr_fl_sp: i64 = 0;
+let volatile tr_busy: i64 = 0;
+let volatile tr_head: i64 = 0;
+let volatile tr_used: i64 = 0;
+let volatile tr_lost: i64 = 0;
+
+naked fn trace_save_if() {
+    pushfd();
+    cli();
+    pop(rax);
+    tr_fl_tmp = rax;
+}
+
+naked fn trace_restore_if() {
+    rax = tr_fl_tmp;
+    push(rax);
+    popfd();
+}
+
+fn trace_unlock_flags() -> i64 {
+    if (tr_fl_sp <= 0) { return 0; }
+    tr_fl_sp = tr_fl_sp - 1;
+    tr_fl_tmp = tr_fl_stk[tr_fl_sp];
+    trace_restore_if();
+    return 0;
+}
+
+// Deja el anillo tomado y las IRQ como estaban. 0 = no se pudo: el
+// evento ya quedó en tr_lost y las IRQ volvieron a su estado.
+fn trace_lock() -> i64 {
+    trace_save_if();
+    if (tr_fl_sp >= 4) {
+        tr_lost = tr_lost + 1;
+        trace_restore_if();
+        return 0;
+    }
+    tr_fl_stk[tr_fl_sp] = tr_fl_tmp;
+    tr_fl_sp = tr_fl_sp + 1;
+    if (tr_busy != 0) {
+        tr_lost = tr_lost + 1;
+        trace_unlock_flags();
+        return 0;
+    }
+    tr_busy = 1;
+    return 1;
+}
+
+fn trace_unlock() -> i64 {
+    tr_busy = 0;
+    return trace_unlock_flags();
+}
+
+fn trace_layout() -> i64 {
+    if (sizeof(TrEv) != 40) { return 0; }
+    if (offsetof(TrEv, time) != 0) { return 0; }
+    if (offsetof(TrEv, id) != 8) { return 0; }
+    if (offsetof(TrEv, pid) != 16) { return 0; }
+    if (offsetof(TrEv, a0) != 24) { return 0; }
+    if (offsetof(TrEv, a1) != 32) { return 0; }
+    return 1;
+}
+
+fn trace_hit(id: i64, pid: i64, a0: i64, a1: i64) -> i64 {
+    if (id < 0 || id >= 11) { return 0; }
+    if (tr_en[id] == 0) { return 0; }
+    if (trace_lock() == 0) { return 0; }
+    tr_count[id] = tr_count[id] + 1;
+    let slot = tr_head & 31;
+    tr_ring[slot].time = ticks;
+    tr_ring[slot].id = id;
+    tr_ring[slot].pid = pid;
+    tr_ring[slot].a0 = a0;
+    tr_ring[slot].a1 = a1;
+    tr_head = (slot + 1) & 31;
+    if (tr_used < 32) { tr_used = tr_used + 1; }
+    else { tr_lost = tr_lost + 1; }
+    trace_unlock();
+    return 0;
+}
+
+fn tr_name(id: i64) -> *u8 {
+    if (id == 0) { return "sys-enter"; }
+    if (id == 1) { return "sys-exit"; }
+    if (id == 2) { return "switch"; }
+    if (id == 3) { return "pf"; }
+    if (id == 4) { return "pit"; }
+    if (id == 5) { return "pg-alloc"; }
+    if (id == 6) { return "pg-free"; }
+    if (id == 7) { return "blk-read"; }
+    if (id == 8) { return "blk-write"; }
+    if (id == 9) { return "net-rx"; }
+    if (id == 10) { return "net-tx"; }
+    return "?";
+}
+
+fn tr_is(s: *u8) -> i64 {
+    let i = 0;
+    while (s[i] != 0) {
+        if (tr_word[i] != s[i]) { return 0; }
+        i = i + 1;
+    }
+    return tr_word[i] == 0;
+}
+
+fn tr_find() -> i64 {
+    let id = 0;
+    while (id < 11) {
+        if (tr_is(tr_name(id)) != 0) { return id; }
+        id = id + 1;
+    }
+    return 0 - 1;
+}
+
+fn tr_word_at(pos: i64) -> i64 {
+    while (pos < line_len && line[pos] == 32) { pos = pos + 1; }
+    let i = 0;
+    while (i < 16) { tr_word[i] = 0; i = i + 1; }
+    i = 0;
+    while (pos < line_len && line[pos] != 32 && i < 15) {
+        tr_word[i] = line[pos];
+        i = i + 1;
+        pos = pos + 1;
+    }
+    return pos;
+}
+
+fn trace_clear() -> i64 {
+    if (trace_lock() == 0) {
+        puts("trace busy\n");
+        return 0;
+    }
+    tr_head = 0;
+    tr_used = 0;
+    tr_lost = 0;
+    let i = 0;
+    while (i < 11) {
+        tr_count[i] = 0;
+        i = i + 1;
+    }
+    trace_unlock();
+    puts("trace clear\n");
+    return 0;
+}
+
+fn trace_ls() -> i64 {
+    if (trace_lock() == 0) {
+        puts("trace busy\n");
+        return 0;
+    }
+    let lost = tr_lost;
+    let i = 0;
+    while (i < 11) {
+        tr_show[i] = tr_count[i];
+        tr_show[i + 11] = tr_en[i];
+        i = i + 1;
+    }
+    trace_unlock();
+    i = 0;
+    while (i < 11) {
+        put_int(i);
+        putc(32);
+        puts(tr_name(i));
+        putc(32);
+        if (tr_show[i + 11] != 0) { puts("on"); } else { puts("off"); }
+        putc(32);
+        put_int(tr_show[i]);
+        putc(10);
+        i = i + 1;
+    }
+    puts("trace lost ");
+    put_int(lost);
+    putc(10);
+    return 0;
+}
+
+fn trace_count() -> i64 {
+    if (trace_lock() == 0) {
+        puts("trace busy\n");
+        return 0;
+    }
+    let lost = tr_lost;
+    let i = 0;
+    while (i < 11) {
+        tr_show[i] = tr_count[i];
+        i = i + 1;
+    }
+    trace_unlock();
+    puts("trace count lost ");
+    put_int(lost);
+    putc(10);
+    i = 0;
+    while (i < 11) {
+        puts("probe ");
+        puts(tr_name(i));
+        putc(32);
+        put_int(tr_show[i]);
+        putc(10);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn trace_dump(n: i64) -> i64 {
+    if (trace_lock() == 0) {
+        puts("trace busy\n");
+        return 0;
+    }
+    let used = tr_used;
+    let lost = tr_lost;
+    if (used < 0) { used = 0; }
+    if (used > 32) { used = 32; }
+    if (n <= 0 || n > used) { n = used; }
+    let idx = 0;
+    if (used == 32) { idx = tr_head & 31; }
+    let skip = used - n;
+    let s = 0;
+    while (s < skip) {
+        idx = (idx + 1) & 31;
+        s = s + 1;
+    }
+    let k = 0;
+    while (k < n) {
+        tr_show[k * 5] = tr_ring[idx].time;
+        tr_show[k * 5 + 1] = tr_ring[idx].id;
+        tr_show[k * 5 + 2] = tr_ring[idx].pid;
+        tr_show[k * 5 + 3] = tr_ring[idx].a0;
+        tr_show[k * 5 + 4] = tr_ring[idx].a1;
+        idx = (idx + 1) & 31;
+        k = k + 1;
+    }
+    trace_unlock();
+    puts("trace begin\n");
+    k = 0;
+    while (k < n) {
+        puts("t ");
+        put_int(tr_show[k * 5]);
+        putc(32);
+        puts(tr_name(tr_show[k * 5 + 1]));
+        puts(" pid ");
+        put_int(tr_show[k * 5 + 2]);
+        puts(" a ");
+        put_int(tr_show[k * 5 + 3]);
+        puts(" b ");
+        put_int(tr_show[k * 5 + 4]);
+        putc(10);
+        k = k + 1;
+    }
+    puts("trace end n ");
+    put_int(n);
+    puts(" lost ");
+    put_int(lost);
+    putc(10);
+    return 0;
+}
+
+fn trace_set(on: i64) -> i64 {
+    let id = tr_find();
+    if (id < 0) {
+        puts("trace bad probe\n");
+        return 0;
+    }
+    if (on != 0) { tr_en[id] = 1; } else { tr_en[id] = 0; }
+    puts("trace ");
+    if (on != 0) { puts("on "); } else { puts("off "); }
+    puts(tr_name(id));
+    putc(10);
+    return 0;
+}
+
+fn cmd_trace() -> i64 {
+    if (trace_layout() == 0) {
+        puts("trace layout\n");
+        return 0;
+    }
+    let pos = tr_word_at(5);
+    if (tr_word[0] == 0 || tr_is("ls") != 0) { return trace_ls(); }
+    if (tr_is("count") != 0) { return trace_count(); }
+    if (tr_is("clear") != 0) { return trace_clear(); }
+    if (tr_is("dump") != 0) {
+        while (pos < line_len && line[pos] == 32) { pos = pos + 1; }
+        if (pos >= line_len) { return trace_dump(0); }
+        parse_pos = pos;
+        return trace_dump(parse_int());
+    }
+    if (tr_is("on") != 0 || tr_is("off") != 0) {
+        let on = tr_is("on");
+        tr_word_at(pos);
+        return trace_set(on);
+    }
+    puts("trace bad cmd\n");
+    return 0;
+}

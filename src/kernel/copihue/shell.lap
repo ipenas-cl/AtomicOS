@@ -1,4 +1,4 @@
-// AtomicOS shell: line editing and built-in commands.
+// LapageriaOS shell: line editing and built-in commands.
 
 let line: [u8; 80];
 let line_len: i64 = 0;
@@ -27,7 +27,7 @@ fn read_line() -> i64 {
             continue;
         }
         if (line_len < 79) {
-            line[line_len] = c;
+            line[line_len] = c as u8;
             line_len++;
             putc(c);
         }
@@ -58,8 +58,169 @@ fn cmd_help() -> i64 {
     puts("  mul <a> <b>     multiply two integers\n");
     puts("  clear           clear the screen\n");
     puts("  version         kernel and compiler version\n");
+    puts("  ticks           PIT tick count\n");
+    puts("  irqs            keyboard IRQ count\n");
+    puts("  cr3             CR3 and the bootloader page table\n");
+    puts("  pf              read unmapped 0x200000\n");
+    puts("  nx              bit NX, W^X y #PF de fetch\n");
+    puts("  hh              kernel en la mitad alta\n");
+    puts("  pmm             allocate and free physical pages\n");
+    puts("  user            enter ring 3 and syscall\n");
+    puts("  sched           two processes, separate pages\n");
+    puts("  disk            data disk checksum\n");
+    puts("  fs              archivos y snapshots\n");
+    puts("  exec <nombre>   programa del disco en anillo 3\n");
+    puts("  zone            zonas: create, ls, exec\n");
+    puts("  net             ARP, ping y descarte\n");
+    puts("  trace           sondas: ls on off dump count clear\n");
+    puts("  ud2             raise #UD and halt\n");
     puts("  reboot          reset the machine\n");
     return 0;
+}
+
+fn fs_scan(pos: i64, dst: *u8) -> i64 {
+    while (pos < line_len && line[pos] == ' ') { pos = pos + 1; }
+    fs_zero(dst, 16);
+    let i = 0;
+    while (pos < line_len && line[pos] != ' ') {
+        if (i >= 15) { return 0 - 1; }
+        dst[i] = line[pos];
+        i = i + 1;
+        pos = pos + 1;
+    }
+    return pos;
+}
+
+fn fs_is(s: *u8) -> i64 {
+    let i = 0;
+    while (s[i] != 0) {
+        if (fs_sub[i] != s[i]) { return 0; }
+        i = i + 1;
+    }
+    return fs_sub[i] == 0;
+}
+
+fn fs_fail(r: i64) -> i64 {
+    puts("fs fail ");
+    put_int(r);
+    putc('\n');
+    return r;
+}
+
+fn fs_show(prefix: *u8, n: i64) -> i64 {
+    if (n < 0) {
+        if (n == 0 - 5) {
+            puts("fs corrupt detected\n");
+            return 0;
+        }
+        return fs_fail(0 - n);
+    }
+    if (n == 0) {
+        puts("fs empty\n");
+        return 0;
+    }
+    puts(prefix);
+    let i = 0;
+    while (i < n) {
+        putc(fs_buf[i]);
+        i = i + 1;
+    }
+    putc('\n');
+    return 0;
+}
+
+fn cmd_fs() -> i64 {
+    let pos = fs_scan(2, fs_sub);
+    if (pos < 0) { return fs_fail(11); }
+    if (fs_is("format")) {
+        let r = fs_format();
+        if (r != 0) { return fs_fail(r); }
+        puts("fs format ok\n");
+        return 0;
+    }
+    if (fs_is("create")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        let r = fs_create(fs_name);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs create ok\n");
+        return 0;
+    }
+    if (fs_is("write")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        if (pos < line_len && line[pos] == ' ') { pos = pos + 1; }
+        let n = 0;
+        while (pos < line_len && n < 1024) {
+            fs_buf[n] = line[pos];
+            n = n + 1;
+            pos = pos + 1;
+        }
+        let r = fs_write(fs_name, fs_buf, n);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs write ok\n");
+        return 0;
+    }
+    if (fs_is("cat")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        return fs_show("fs live ", fs_read(fs_name, fs_buf, 1024));
+    }
+    if (fs_is("ls")) {
+        let r = fs_list();
+        if (r != 0) { return fs_fail(r); }
+        return 0;
+    }
+    if (fs_is("snap")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        let look = pos;
+        while (look < line_len && line[look] == ' ') { look = look + 1; }
+        if (look < line_len) {
+            pos = fs_scan(pos, fs_name2);
+            if (pos < 0) { return fs_fail(11); }
+            return fs_show("fs snap ", fs_read_snap(fs_name, fs_name2, fs_buf, 1024));
+        }
+        let r = fs_snapshot(fs_name);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs snap ok\n");
+        return 0;
+    }
+    if (fs_is("rollback")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        let r = fs_rollback(fs_name);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs rollback ok\n");
+        return 0;
+    }
+    if (fs_is("corrupt")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        let r = fs_corrupt(fs_name);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs corrupt armed\n");
+        return 0;
+    }
+    if (fs_is("blocks")) {
+        let r = fs_blocks_test();
+        if (r != 0) { return fs_fail(r); }
+        return 0;
+    }
+    if (fs_is("check")) {
+        let r = fs_blocks_check();
+        if (r != 0) { return fs_fail(r); }
+        return 0;
+    }
+    if (fs_is("rm")) {
+        pos = fs_scan(pos, fs_name);
+        if (pos < 0) { return fs_fail(11); }
+        let r = fs_remove(fs_name);
+        if (r != 0) { return fs_fail(r); }
+        puts("fs rm ok\n");
+        return 0;
+    }
+    return fs_fail(11);
 }
 
 fn run_command() -> i64 {
@@ -82,7 +243,61 @@ fn run_command() -> i64 {
     }
     if (cmd_is("clear")) { con_clear(); return 0; }
     if (cmd_is("version")) {
-        puts("AtomicOS 0.8 - kernel written in Copihue\n");
+        puts("LapageriaOS 0.8 - kernel written in Copihue v0.31.0\n");
+        return 0;
+    }
+    if (cmd_is("ticks")) {
+        puts("ticks ");
+        put_int(ticks);
+        putc('\n');
+        return 0;
+    }
+    if (cmd_is("irqs")) {
+        puts("kbd_irqs ");
+        put_int(kbd_irqs);
+        putc('\n');
+        return 0;
+    }
+    if (cmd_is("cr3")) {
+        let cr3 = read_cr3();
+        puts("cr3=");
+        put_hex(cr3);
+        putc('\n');
+        let pml4: *u64 = cr3 as *u64;
+        puts("pml4=");
+        put_hex(pml4[0]);
+        putc('\n');
+        let pdpt: *u64 = ((pml4[0] >> 12) << 12) as *u64;
+        puts("pdpt=");
+        put_hex(pdpt[0]);
+        putc('\n');
+        return 0;
+    }
+    if (cmd_is("nx")) { cmd_nx(); return 0; }
+    if (cmd_is("hh")) { cmd_hh(); return 0; }
+    if (cmd_is("pf")) {
+        puts("raising #PF\n");
+        let p: *u8 = 0x200000;
+        let b = p[0];
+        puts("pf resumed ");
+        put_hex(b);
+        puts("\n");
+        return 0;
+    }
+    if (cmd_is("pmm")) { pmm_test(); return 0; }
+    if (cmd_is("user")) { enter_user(); return 0; }
+    if (cmd_is("sched")) { sched_demo(); return 0; }
+    // Disco de datos: identify, bloque con CRC y un byte corrompido.
+    if (cmd_is("disk")) { disk_test(); return 0; }
+    if (cmd_is("fs")) { cmd_fs(); return 0; }
+    if (cmd_is("exec")) { cmd_exec(); return 0; }
+    if (cmd_is("zone")) { cmd_zone(); return 0; }
+    if (cmd_is("net")) { cmd_net(); return 0; }
+    if (cmd_is("trace")) { cmd_trace(); return 0; }
+    if (cmd_is("ud2")) {
+        puts("raising #UD\n");
+        ud2();
+        puts("ud2 returned\n");
         return 0;
     }
     if (cmd_is("reboot")) {
@@ -102,7 +317,7 @@ fn run_command() -> i64 {
 fn shell_run() -> i64 {
     while (1) {
         set_color(0x0A);
-        puts("atomicos> ");
+        puts("lapageria> ");
         set_color(0x0F);
         read_line();
         run_command();

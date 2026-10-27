@@ -1,0 +1,718 @@
+// Sistema de archivos copy-on-write sobre blk_read / blk_write.
+// El mapa de bytes está en docs/fs.md. Los bloques 0 y 1 los usa
+// `disk`. Los superbloques viven en 2 y 3. El primer bloque libre es 4.
+//
+// El sector sigue siendo [u8; 512]. Encima se lee con structs packed:
+// la entrada útil mide 56 y el hueco del directorio mide 64. fs_layout
+// lo chequea con sizeof y offsetof. La copia al disco sigue siendo 512
+// bytes; el formato no cambia.
+
+packed struct FsEnt {
+    name: [u8; 16],
+    size: u32,
+    nblocks: u32,
+    blocks: [u32; 8]
+}
+
+packed struct FsSlot {
+    file: FsEnt,
+    pad: [u8; 8]
+}
+
+packed struct FsSnap {
+    name: [u8; 12],
+    root: u32,
+    gen: u32,
+    zero: u32
+}
+
+packed struct FsSuper {
+    magic: [u8; 4],
+    version: u32,
+    gen: u32,
+    root: u32,
+    limit: u32,
+    first: u32,
+    nsnaps: u32,
+    reserved: u32,
+    bitmap: [u8; 128],
+    snaps: [FsSnap; 8]
+}
+
+packed struct FsDir {
+    magic: [u8; 4],
+    count: u32,
+    slots: [FsSlot; 7]
+}
+
+let fs_super: [u8; 512];
+let fs_dir: [u8; 512];
+let fs_scratch: [u8; 512];
+let fs_buf: [u8; 1024];
+let fs_sub: [u8; 16];
+let fs_name: [u8; 16];
+let fs_name2: [u8; 16];
+let fs_slot: i64;
+let fs_oldb: [i64; 8];
+let fs_newb: [i64; 8];
+
+fn fs_layout() -> i64 {
+    if (sizeof(FsEnt) != 56) { return 0; }
+    if (offsetof(FsEnt, name) != 0) { return 0; }
+    if (offsetof(FsEnt, size) != 16) { return 0; }
+    if (offsetof(FsEnt, nblocks) != 20) { return 0; }
+    if (offsetof(FsEnt, blocks) != 24) { return 0; }
+    if (sizeof(FsSlot) != 64) { return 0; }
+    if (offsetof(FsSlot, pad) != 56) { return 0; }
+    if (sizeof(FsSnap) != 24) { return 0; }
+    if (offsetof(FsSnap, root) != 12) { return 0; }
+    if (offsetof(FsSnap, gen) != 16) { return 0; }
+    if (offsetof(FsSnap, zero) != 20) { return 0; }
+    if (offsetof(FsSuper, version) != 4) { return 0; }
+    if (offsetof(FsSuper, gen) != 8) { return 0; }
+    if (offsetof(FsSuper, root) != 12) { return 0; }
+    if (offsetof(FsSuper, limit) != 16) { return 0; }
+    if (offsetof(FsSuper, first) != 20) { return 0; }
+    if (offsetof(FsSuper, nsnaps) != 24) { return 0; }
+    if (offsetof(FsSuper, reserved) != 28) { return 0; }
+    if (offsetof(FsSuper, bitmap) != 32) { return 0; }
+    if (offsetof(FsSuper, snaps) != 160) { return 0; }
+    if (sizeof(FsSuper) != 352) { return 0; }
+    if (offsetof(FsDir, count) != 4) { return 0; }
+    if (offsetof(FsDir, slots) != 8) { return 0; }
+    if (sizeof(FsDir) != 456) { return 0; }
+    return 1;
+}
+
+fn fs_sb(p: *u8) -> *FsSuper {
+    return p as *FsSuper;
+}
+
+fn fs_db(p: *u8) -> *FsDir {
+    return p as *FsDir;
+}
+
+fn fs_ent(p: *u8, i: i64) -> *FsEnt {
+    return (p as i64 + offsetof(FsDir, slots) + i * sizeof(FsSlot)) as *FsEnt;
+}
+
+fn fs_snap(p: *u8, i: i64) -> *FsSnap {
+    return (p as i64 + offsetof(FsSuper, snaps) + i * sizeof(FsSnap)) as *FsSnap;
+}
+
+fn fs_zero(p: *u8, n: i64) -> i64 {
+    let i = 0;
+    while (i < n) {
+        p[i] = 0;
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_zero_at(p: *u8, off: i64, n: i64) -> i64 {
+    let i = 0;
+    while (i < n) {
+        p[off + i] = 0;
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_copy(d: *u8, s: *u8, n: i64) -> i64 {
+    let i = 0;
+    while (i < n) {
+        d[i] = s[i];
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_magic(p: *u8) -> i64 {
+    let s: *FsSuper = fs_sb(p);
+    if (s.magic[0] != 0x41 || s.magic[1] != 0x46) { return 0; }
+    if (s.magic[2] != 0x53 || s.magic[3] != 0x31) { return 0; }
+    if (s.version != 1) { return 0; }
+    return 1;
+}
+
+fn fs_dir_magic(p: *u8) -> i64 {
+    let d: *FsDir = fs_db(p);
+    if (d.magic[0] != 0x41 || d.magic[1] != 0x44) { return 0; }
+    if (d.magic[2] != 0x49 || d.magic[3] != 0x52) { return 0; }
+    return 1;
+}
+
+fn fs_name_ok(name: *u8, max: i64) -> i64 {
+    if ((name[0] & 255) == 0) { return 0; }
+    let i = 0;
+    while (i <= max) {
+        if ((name[i] & 255) == 0) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_name_eq(p: *u8, name: *u8, width: i64) -> i64 {
+    let i = 0;
+    let ended = 0;
+    while (i < width) {
+        let b = 0;
+        if (ended == 0) {
+            b = name[i] & 255;
+            if (b == 0) { ended = 1; }
+        }
+        if ((p[i] & 255) != b) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn fs_name_put(p: *u8, name: *u8, width: i64) -> i64 {
+    let i = 0;
+    while (i < width) {
+        p[i] = 0;
+        i = i + 1;
+    }
+    i = 0;
+    while (i < width - 1) {
+        let c = name[i] & 255;
+        if (c == 0) { return 0; }
+        p[i] = c as u8;
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_puts_name(p: *u8) -> i64 {
+    let i = 0;
+    while (i < 16) {
+        let c = p[i] & 255;
+        if (c == 0) { return 0; }
+        putc(c);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_mark(n: i64, v: i64) -> i64 {
+    if (n < 0 || n >= 1024) { return 0; }
+    let s: *FsSuper = fs_sb(fs_super);
+    let byte = n / 8;
+    let mask = 1 << (n % 8);
+    let cur = s.bitmap[byte] & 255;
+    if (v != 0) { cur = cur | mask; }
+    else { cur = cur & (255 ^ mask); }
+    s.bitmap[byte] = cur;
+    return 0;
+}
+
+fn fs_taken(n: i64) -> i64 {
+    if (n < 0 || n >= 1024) { return 1; }
+    let s: *FsSuper = fs_sb(fs_super);
+    let cur = s.bitmap[n / 8] & 255;
+    if ((cur & (1 << (n % 8))) != 0) { return 1; }
+    return 0;
+}
+
+fn fs_alloc() -> i64 {
+    let s: *FsSuper = fs_sb(fs_super);
+    let n = s.first;
+    let lim = s.limit;
+    if (n < 4) { n = 4; }
+    if (lim > 1024) { lim = 1024; }
+    while (n < lim) {
+        if (fs_taken(n) == 0) {
+            fs_mark(n, 1);
+            return n;
+        }
+        n = n + 1;
+    }
+    return 0 - 1;
+}
+
+fn fs_put_dir(block: i64) -> i64 {
+    fs_copy(blk_data, fs_dir, 512);
+    return blk_write(block);
+}
+
+fn fs_write_super(dest: i64) -> i64 {
+    fs_copy(blk_data, fs_super, 512);
+    return blk_write(dest);
+}
+
+fn fs_commit() -> i64 {
+    let s: *FsSuper = fs_sb(fs_super);
+    let gen = s.gen + 1;
+    let dest = 3;
+    if (fs_slot == 3) { dest = 2; }
+    s.gen = gen as u32;
+    let r = fs_write_super(dest);
+    if (r != 0) {
+        s.gen = (gen - 1) as u32;
+        return r;
+    }
+    fs_slot = dest;
+    return 0;
+}
+
+fn fs_reload() -> i64 {
+    if (fs_layout() == 0) {
+        puts("fs layout\n");
+        return 8;
+    }
+    if (ata_sectors == 0) {
+        let id = ata_identify();
+        if (id != 0) { return id; }
+    }
+    let b: *FsSuper = fs_sb(blk_data);
+    let g2 = 0 - 1;
+    let g3 = 0 - 1;
+    let r = blk_read(2);
+    if (r == 0 && fs_magic(blk_data) != 0) {
+        g2 = b.gen;
+        fs_copy(fs_scratch, blk_data, 512);
+    }
+    r = blk_read(3);
+    if (r == 0 && fs_magic(blk_data) != 0) {
+        g3 = b.gen;
+    }
+    if (g2 < 0 && g3 < 0) { return 8; }
+    if (g3 > g2) {
+        fs_copy(fs_super, blk_data, 512);
+        fs_slot = 3;
+    } else {
+        fs_copy(fs_super, fs_scratch, 512);
+        fs_slot = 2;
+    }
+    return 0;
+}
+
+fn fs_load_dir(block: i64) -> i64 {
+    let r = blk_read(block);
+    if (r != 0) { return r; }
+    if (fs_dir_magic(blk_data) == 0) { return 8; }
+    fs_copy(fs_dir, blk_data, 512);
+    return 0;
+}
+
+fn fs_open() -> i64 {
+    let r = fs_reload();
+    if (r != 0) { return r; }
+    let s: *FsSuper = fs_sb(fs_super);
+    return fs_load_dir(s.root);
+}
+
+fn fs_find(name: *u8) -> i64 {
+    let d: *FsDir = fs_db(fs_dir);
+    let n = d.count;
+    let i = 0;
+    while (i < n && i < 7) {
+        let e: *FsEnt = fs_ent(fs_dir, i);
+        if (fs_name_eq(e as *u8, name, 16) != 0) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fn fs_add(name: *u8) -> i64 {
+    let d: *FsDir = fs_db(fs_dir);
+    let n = d.count;
+    if (n >= 7) { return 0 - 1; }
+    fs_zero_at(fs_dir, offsetof(FsDir, slots) + n * sizeof(FsSlot), sizeof(FsSlot));
+    let e: *FsEnt = fs_ent(fs_dir, n);
+    fs_name_put(e as *u8, name, 16);
+    d.count = (n + 1) as u32;
+    return n;
+}
+
+fn fs_dir_has(block: i64) -> i64 {
+    let d: *FsDir = fs_db(fs_dir);
+    let n = d.count;
+    let i = 0;
+    while (i < n && i < 7) {
+        let e: *FsEnt = fs_ent(fs_dir, i);
+        let nb = e.nblocks;
+        let k = 0;
+        while (k < nb && k < 8) {
+            if (e.blocks[k] == block) { return 1; }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_tree_has(root: i64, block: i64) -> i64 {
+    if (root == block) { return 1; }
+    if (root < 4) { return 0; }
+    let r = blk_read(root);
+    if (r != 0) { return 1; }
+    if (fs_dir_magic(blk_data) == 0) { return 1; }
+    let d: *FsDir = fs_db(blk_data);
+    let n = d.count;
+    let i = 0;
+    while (i < n && i < 7) {
+        let e: *FsEnt = fs_ent(blk_data, i);
+        let nb = e.nblocks;
+        let k = 0;
+        while (k < nb && k < 8) {
+            if (e.blocks[k] == block) { return 1; }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_any_snap(block: i64) -> i64 {
+    let s: *FsSuper = fs_sb(fs_super);
+    let n = s.nsnaps;
+    let i = 0;
+    while (i < n && i < 8) {
+        let snap: *FsSnap = fs_snap(fs_super, i);
+        if (fs_tree_has(snap.root, block) != 0) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_release(block: i64) -> i64 {
+    if (block < 4) { return 0; }
+    if (fs_dir_has(block) != 0) { return 0; }
+    if (fs_any_snap(block) != 0) { return 0; }
+    fs_mark(block, 0);
+    return 0;
+}
+
+fn fs_publish(oldn: i64) -> i64 {
+    let s: *FsSuper = fs_sb(fs_super);
+    let oldroot = s.root;
+    let nb = fs_alloc();
+    if (nb < 0) { return 6; }
+    let r = fs_put_dir(nb);
+    if (r != 0) { return r; }
+    s.root = nb as u32;
+    let k = 0;
+    while (k < oldn && k < 8) {
+        fs_release(fs_oldb[k]);
+        k = k + 1;
+    }
+    fs_release(oldroot);
+    return fs_commit();
+}
+
+fn fs_format() -> i64 {
+    if (ata_sectors == 0) {
+        let id = ata_identify();
+        if (id != 0) { return id; }
+    }
+    if (ata_sectors < 16) { return 3; }
+    if (fs_layout() == 0) {
+        puts("fs layout\n");
+        return 8;
+    }
+    fs_zero(fs_super, 512);
+    let s: *FsSuper = fs_sb(fs_super);
+    s.magic[0] = 0x41;
+    s.magic[1] = 0x46;
+    s.magic[2] = 0x53;
+    s.magic[3] = 0x31;
+    s.version = 1;
+    s.gen = 1;
+    let count = (ata_sectors - 2) / 2 + 1;
+    if (count > 1024) { count = 1024; }
+    s.limit = count as u32;
+    s.first = 4;
+    fs_mark(0, 1);
+    fs_mark(1, 1);
+    fs_mark(2, 1);
+    fs_mark(3, 1);
+    fs_zero(fs_dir, 512);
+    let d: *FsDir = fs_db(fs_dir);
+    d.magic[0] = 0x41;
+    d.magic[1] = 0x44;
+    d.magic[2] = 0x49;
+    d.magic[3] = 0x52;
+    let root = fs_alloc();
+    if (root < 0) { return 6; }
+    let r = fs_put_dir(root);
+    if (r != 0) { return r; }
+    s.root = root as u32;
+    r = fs_write_super(2);
+    if (r != 0) { return r; }
+    s.gen = 0;
+    r = fs_write_super(3);
+    if (r != 0) { return r; }
+    s.gen = 1;
+    fs_slot = 2;
+    return 0;
+}
+
+fn fs_create(name: *u8) -> i64 {
+    if (fs_name_ok(name, 15) == 0) { return 11; }
+    let r = fs_open();
+    if (r != 0) { return r; }
+    if (fs_find(name) >= 0) { return 11; }
+    if (fs_add(name) < 0) { return 6; }
+    return fs_publish(0);
+}
+
+fn fs_write(name: *u8, src: *u8, len: i64) -> i64 {
+    if (fs_name_ok(name, 15) == 0) { return 11; }
+    if (len < 0 || len > 4096) { return 9; }
+    let r = fs_open();
+    if (r != 0) { return r; }
+    let idx = fs_find(name);
+    if (idx < 0) {
+        idx = fs_add(name);
+        if (idx < 0) { return 6; }
+    }
+    let e: *FsEnt = fs_ent(fs_dir, idx);
+    let oldn = e.nblocks;
+    let k = 0;
+    while (k < oldn && k < 8) {
+        fs_oldb[k] = e.blocks[k];
+        k = k + 1;
+    }
+    let need = 0;
+    if (len > 0) { need = (len + 511) / 512; }
+    k = 0;
+    while (k < need) {
+        let b = fs_alloc();
+        if (b < 0) { return 6; }
+        fs_newb[k] = b;
+        fs_zero(blk_data, 512);
+        let base = k * 512;
+        let ncopy = len - base;
+        if (ncopy > 512) { ncopy = 512; }
+        let j = 0;
+        while (j < ncopy) {
+            blk_data[j] = src[base + j];
+            j = j + 1;
+        }
+        r = blk_write(b);
+        if (r != 0) { return r; }
+        k = k + 1;
+    }
+    e.size = len as u32;
+    e.nblocks = need as u32;
+    k = 0;
+    while (k < 8) {
+        let v = 0;
+        if (k < need) { v = fs_newb[k]; }
+        e.blocks[k] = v;
+        k = k + 1;
+    }
+    return fs_publish(oldn);
+}
+
+fn fs_read_dir(name: *u8, buf: *u8, max: i64) -> i64 {
+    let idx = fs_find(name);
+    if (idx < 0) { return 0 - 7; }
+    let e: *FsEnt = fs_ent(fs_dir, idx);
+    let size = e.size;
+    let nb = e.nblocks;
+    let want = size;
+    if (want > max) { want = max; }
+    let filled = 0;
+    let k = 0;
+    while (k < nb && filled < want) {
+        let b = e.blocks[k];
+        let r = blk_read(b);
+        if (r != 0) { return 0 - r; }
+        let j = 0;
+        while (j < 512 && filled < want) {
+            buf[filled] = blk_data[j];
+            filled = filled + 1;
+            j = j + 1;
+        }
+        k = k + 1;
+    }
+    return filled;
+}
+
+fn fs_read(name: *u8, buf: *u8, max: i64) -> i64 {
+    let r = fs_open();
+    if (r != 0) { return 0 - r; }
+    return fs_read_dir(name, buf, max);
+}
+
+fn fs_snap_find(name: *u8) -> i64 {
+    let s: *FsSuper = fs_sb(fs_super);
+    let n = s.nsnaps;
+    let i = 0;
+    while (i < n && i < 8) {
+        let snap: *FsSnap = fs_snap(fs_super, i);
+        if (fs_name_eq(snap as *u8, name, 12) != 0) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fn fs_read_snap(snap: *u8, name: *u8, buf: *u8, max: i64) -> i64 {
+    let r = fs_reload();
+    if (r != 0) { return 0 - r; }
+    let i = fs_snap_find(snap);
+    if (i < 0) { return 0 - 7; }
+    let shot: *FsSnap = fs_snap(fs_super, i);
+    r = fs_load_dir(shot.root);
+    if (r != 0) { return 0 - r; }
+    return fs_read_dir(name, buf, max);
+}
+
+fn fs_list() -> i64 {
+    let r = fs_open();
+    if (r != 0) { return r; }
+    let d: *FsDir = fs_db(fs_dir);
+    let n = d.count;
+    let i = 0;
+    while (i < n && i < 7) {
+        puts("fs file ");
+        let e: *FsEnt = fs_ent(fs_dir, i);
+        fs_puts_name(e as *u8);
+        putc('\n');
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_snapshot(name: *u8) -> i64 {
+    if (fs_name_ok(name, 11) == 0) { return 11; }
+    let r = fs_reload();
+    if (r != 0) { return r; }
+    if (fs_snap_find(name) >= 0) { return 11; }
+    let s: *FsSuper = fs_sb(fs_super);
+    let n = s.nsnaps;
+    if (n >= 8) { return 6; }
+    let snap: *FsSnap = fs_snap(fs_super, n);
+    fs_name_put(snap as *u8, name, 12);
+    snap.root = s.root;
+    snap.gen = s.gen;
+    snap.zero = 0;
+    s.nsnaps = (n + 1) as u32;
+    return fs_commit();
+}
+
+fn fs_drop_old() -> i64 {
+    let s: *FsSuper = fs_sb(fs_super);
+    let oldroot = s.root;
+    fs_release(oldroot);
+    let d: *FsDir = fs_db(fs_scratch);
+    let n = d.count;
+    let i = 0;
+    while (i < n && i < 7) {
+        let e: *FsEnt = fs_ent(fs_scratch, i);
+        let nb = e.nblocks;
+        let k = 0;
+        while (k < nb && k < 8) {
+            fs_release(e.blocks[k]);
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn fs_rollback(name: *u8) -> i64 {
+    let r = fs_open();
+    if (r != 0) { return r; }
+    let i = fs_snap_find(name);
+    if (i < 0) { return 7; }
+    let s: *FsSuper = fs_sb(fs_super);
+    let snap: *FsSnap = fs_snap(fs_super, i);
+    let newroot = snap.root;
+    if (newroot == s.root) { return 0; }
+    fs_copy(fs_scratch, fs_dir, 512);
+    r = fs_load_dir(newroot);
+    if (r != 0) { return r; }
+    fs_drop_old();
+    s.root = newroot as u32;
+    return fs_commit();
+}
+
+fn fs_slide(d: i64, s: i64) -> i64 {
+    let i = 0;
+    let dd = fs_dir as i64 + offsetof(FsDir, slots) + d * sizeof(FsSlot);
+    let ss = fs_dir as i64 + offsetof(FsDir, slots) + s * sizeof(FsSlot);
+    let dst: *u8 = dd as *u8;
+    let src: *u8 = ss as *u8;
+    while (i < sizeof(FsSlot)) {
+        dst[i] = src[i];
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Saca la entrada del directorio vivo. Los bloques que sigue un
+// snapshot no se marcan libres. El hueco sigue siendo FsSlot (64):
+// la parte útil es FsEnt.
+fn fs_remove(name: *u8) -> i64 {
+    if (fs_name_ok(name, 15) == 0) { return 11; }
+    let r = fs_open();
+    if (r != 0) { return r; }
+    let idx = fs_find(name);
+    if (idx < 0) { return 7; }
+    let e: *FsEnt = fs_ent(fs_dir, idx);
+    let oldn = e.nblocks;
+    let k = 0;
+    while (k < oldn && k < 8) {
+        fs_oldb[k] = e.blocks[k];
+        k = k + 1;
+    }
+    let d: *FsDir = fs_db(fs_dir);
+    let n = d.count;
+    let j = idx;
+    while (j < n - 1) {
+        fs_slide(j, j + 1);
+        j = j + 1;
+    }
+    let last = n - 1;
+    fs_zero_at(fs_dir, offsetof(FsDir, slots) + last * sizeof(FsSlot), sizeof(FsSlot));
+    d.count = last as u32;
+    return fs_publish(oldn);
+}
+
+// Pisa un byte del primer bloque de datos y deja el CRC viejo.
+fn fs_corrupt(name: *u8) -> i64 {
+    let r = fs_open();
+    if (r != 0) { return r; }
+    let idx = fs_find(name);
+    if (idx < 0) { return 7; }
+    let e: *FsEnt = fs_ent(fs_dir, idx);
+    if (e.nblocks < 1) { return 7; }
+    let b = e.blocks[0];
+    if (b < 4) { return 8; }
+    r = blk_read(b);
+    if (r != 0) { return r; }
+    blk_data[0] = (blk_data[0] ^ 0xFF) & 255;
+    return ata_write(b * 2, blk_data);
+}
+
+fn fs_pat(i: i64) -> i64 {
+    return (i + 0x5A) & 255;
+}
+
+fn fs_blocks_check() -> i64 {
+    fs_zero(fs_buf, 1024);
+    let n = fs_read("m", fs_buf, 1024);
+    if (n < 0) { return 0 - n; }
+    if (n != 600) { return 7; }
+    let i = 0;
+    while (i < 600) {
+        if ((fs_buf[i] & 255) != fs_pat(i)) { return 9; }
+        i = i + 1;
+    }
+    puts("fs blocks ok\n");
+    return 0;
+}
+
+fn fs_blocks_test() -> i64 {
+    let i = 0;
+    while (i < 600) {
+        fs_buf[i] = (fs_pat(i)) as u8;
+        i = i + 1;
+    }
+    let r = fs_write("m", fs_buf, 600);
+    if (r != 0) { return r; }
+    return fs_blocks_check();
+}

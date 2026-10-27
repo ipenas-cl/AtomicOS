@@ -1,6 +1,32 @@
-// AtomicOS kernel entry. boot64.asm loads this flat image at 0x10000 and
-// jumps to its first byte in 64-bit long mode (stack at 0x90000).
-// Built with `copihue --flat 0x10000`, which places _start first.
+// LapageriaOS kernel entry. stage2.lap loads this flat image at physical
+// 0x10000 and jumps to its first byte in long mode. The link address is
+// 0xFFFFFFFF80010000 (`copihue --flat`), and the stack is the same
+// physical page seen at 0xFFFFFFFF80090000. _start is still the first byte.
+//
+// The imports are the rest of the kernel, in the order `cat` used to
+// concatenate. The path is relative to this file. One namespace, one
+// assembly unit. _start below is still emitted first.
+
+import "console.lap";
+import "keyboard.lap";
+import "pmm.lap";
+import "paging.lap";
+import "gdt.lap";
+import "sched.lap";
+import "usermode.lap";
+import "nx.lap";
+import "hh.lap";
+import "idt.lap";
+import "ata.lap";
+import "blk.lap";
+import "fs.lap";
+import "exec_img.lap";
+import "exec.lap";
+import "zone_img.lap";
+import "zone.lap";
+import "net.lap";
+import "trace.lap";
+import "shell.lap";
 
 fn _start() -> i64 {
     // Zero .bss (globals declared without an initializer).
@@ -24,10 +50,30 @@ fn kmain() -> i64 {
     set_color(0x0F);
     con_clear();
     set_color(0x0B);
-    puts("AtomicOS 0.8 (x86-64)\n");
+    puts("LapageriaOS 0.8 (x86-64)\n");
     set_color(0x07);
-    puts("Kernel, console, PS/2 keyboard driver and shell are written in Copihue.\n");
+    puts("Kernel in Copihue: VGA/COM1, IDT, PIT 100 Hz, PS/2, sched.\n");
     puts("Type 'help' for commands.\n\n");
+    pmm_init();
+    zone_init();
+    idt_init();
+    nx_init();
+    while (ticks < 100) { hlt(); }
+    puts("timer: ticks=");
+    put_int(ticks);
+    puts("\n");
+    let mark = ticks;
+    while (ticks < mark + 100) { hlt(); }
+    puts("timer: ticks=");
+    put_int(ticks);
+    puts("\n");
     shell_run();
     return 0;
+}
+
+// .text y .data no pueden compartir una página: el código queda sin
+// escritura y los datos con NX. NASM alinea este hueco a 4096, y
+// __text_end queda en ese borde. .data empieza en la página siguiente.
+data nx_text_pad {
+    align 4096;
 }

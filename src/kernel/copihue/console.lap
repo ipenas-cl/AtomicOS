@@ -1,4 +1,4 @@
-// AtomicOS console: VGA text mode (80x25 at 0xB8000) mirrored to COM1.
+// LapageriaOS console: VGA text mode (80x25 at 0xB8000) mirrored to COM1.
 // Freestanding Copihue: no OS, no syscalls; hardware access via port I/O builtins.
 
 let con_row: i64 = 0;
@@ -36,7 +36,7 @@ fn con_clear() -> i64 {
     let vga: *u16 = 0xB8000;
     let i = 0;
     while (i < 80 * 25) {
-        vga[i] = (con_attr << 8) | ' ';
+        vga[i] = ((con_attr << 8) | ' ') as u16;
         i++;
     }
     con_row = 0;
@@ -53,7 +53,7 @@ fn con_scroll() -> i64 {
         i++;
     }
     while (i < 80 * 25) {
-        vga[i] = (con_attr << 8) | ' ';
+        vga[i] = ((con_attr << 8) | ' ') as u16;
         i++;
     }
     con_row = 24;
@@ -77,11 +77,11 @@ fn putc(c: i64) -> i64 {
     } else if (c == 8) {
         if (con_col > 0) {
             con_col--;
-            vga[con_row * 80 + con_col] = (con_attr << 8) | ' ';
+            vga[con_row * 80 + con_col] = ((con_attr << 8) | ' ') as u16;
             serial_putc(8); serial_putc(' '); serial_putc(8);
         }
     } else {
-        vga[con_row * 80 + con_col] = (con_attr << 8) | c;
+        vga[con_row * 80 + con_col] = ((con_attr << 8) | c) as u16;
         serial_putc(c);
         con_col++;
         if (con_col >= 80) { con_newline(); }
@@ -105,7 +105,7 @@ fn put_int(n: i64) -> i64 {
     let count = 0;
     if (n == 0) { digits[0] = '0'; count = 1; }
     while (n > 0) {
-        digits[count] = '0' + n % 10;
+        digits[count] = ('0' + n % 10) as u8;
         n = n / 10;
         count++;
     }
@@ -118,5 +118,33 @@ fn put_int(n: i64) -> i64 {
 
 fn set_color(attr: i64) -> i64 {
     con_attr = attr;
+    return 0;
+}
+
+// Sixteen lowercase hex digits. Same encoding as put_hex, which stays
+// eight digits because the shell tests match that width.
+fn put_hex64(v: i64) -> i64 {
+    let digits: *u8 = "0123456789abcdef";
+    putc('0');
+    putc('x');
+    let shift = 60;
+    while (shift >= 0) {
+        putc(digits[(v >> shift) & 15]);
+        shift = shift - 4;
+    }
+    return 0;
+}
+
+// Eight lowercase hex digits. Digits live in a string so the index is a
+// pointer, not a local array (a local array index emits a hosted syscall).
+fn put_hex(v: i64) -> i64 {
+    let digits: *u8 = "0123456789abcdef";
+    putc('0');
+    putc('x');
+    let shift = 28;
+    while (shift >= 0) {
+        putc(digits[(v >> shift) & 15]);
+        shift = shift - 4;
+    }
     return 0;
 }

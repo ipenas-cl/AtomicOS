@@ -1,0 +1,295 @@
+// Interrupt descriptor table, PIC and PIT.
+//
+// gdt.lap replaces the bootloader GDT but keeps 0x18 as 64-bit kernel
+// code. A long-mode interrupt gate must use that selector. Selector 0x08
+// is a 32-bit code segment; the CPU raises #GP on entry and then #DF.
+//
+// Vectors 0-31 are CPU exceptions. Vectors that push an error code are
+// 8, 10, 11, 12, 13, 14, 17, 21, 29 and 30; the rest do not. IRQ0 (vector
+// 32) is the PIT. IRQ1 (vector 33) is the keyboard handler in keyboard.lap.
+//
+// #PF prints read_cr2() as well as the error code. A not-present fault
+// from ring 0 allocates a frame and maps it. A fault from ring 3 does not:
+// the kernel's 2MB identity page has no user bit, and resume_shell returns
+// to the shell instead of retrying the instruction.
+
+packed struct IdtEntry {
+    off_lo: u16,
+    sel: u16,
+    ist: u8,
+    typ: u8,
+    off_mid: u16,
+    off_hi: u32,
+    zero: u32
+}
+
+packed struct DescPtr { limit: u16, base: u64 }
+
+// Sin error code, el puntero es RIP. Con error_code primero, es el
+// código de #PF y rip va 8 bytes después. Los 15 GPR quedan 120 bytes
+// bajo ese primer qword: saved_ksp = frame as i64 - 120.
+struct InterruptFrame {
+    rip: i64,
+    cs: i64,
+    rflags: i64,
+    rsp: i64,
+    ss: i64
+}
+
+struct PfFrame {
+    error_code: i64,
+    rip: i64,
+    cs: i64,
+    rflags: i64,
+    rsp: i64,
+    ss: i64
+}
+
+let volatile ticks: i64 = 0;
+let idt: [IdtEntry; 48];
+
+fn exc_name(vec: i64) -> *u8 {
+    if (vec == 0) { return "#DE divide error"; }
+    if (vec == 1) { return "#DB debug"; }
+    if (vec == 2) { return "NMI"; }
+    if (vec == 3) { return "#BP breakpoint"; }
+    if (vec == 4) { return "#OF overflow"; }
+    if (vec == 5) { return "#BR bound range"; }
+    if (vec == 6) { return "#UD invalid opcode"; }
+    if (vec == 7) { return "#NM device not available"; }
+    if (vec == 8) { return "#DF double fault"; }
+    if (vec == 9) { return "coprocessor segment overrun"; }
+    if (vec == 10) { return "#TS invalid TSS"; }
+    if (vec == 11) { return "#NP segment not present"; }
+    if (vec == 12) { return "#SS stack fault"; }
+    if (vec == 13) { return "#GP general protection"; }
+    if (vec == 14) { return "#PF page fault"; }
+    if (vec == 16) { return "#MF x87 floating point"; }
+    if (vec == 17) { return "#AC alignment check"; }
+    if (vec == 18) { return "#MC machine check"; }
+    if (vec == 19) { return "#XM simd floating point"; }
+    if (vec == 20) { return "#VE virtualization"; }
+    if (vec == 21) { return "#CP control protection"; }
+    if (vec == 28) { return "#HV hypervisor injection"; }
+    if (vec == 29) { return "#VC vmm communication"; }
+    if (vec == 30) { return "#SX security exception"; }
+    return "reserved";
+}
+
+fn cpu_fault(vec: i64, err: i64, has_err: i64) -> i64 {
+    let fault_addr = 0;
+    if (vec == 14) { fault_addr = read_cr2(); }
+    cli();
+    puts("exception: vector ");
+    put_int(vec);
+    putc(' ');
+    puts(exc_name(vec));
+    if (has_err != 0) {
+        puts(" err=");
+        put_hex(err);
+    }
+    if (vec == 14) {
+        puts(" cr2=");
+        put_hex(fault_addr);
+    }
+    puts("\n");
+    if (vec == 14 && (err & 4) != 0) {
+        puts("user blocked\n");
+        resume_shell();
+        while (1) { hlt(); }
+    }
+    if (vec == 14 && (err & 1) == 0 && demand_map(fault_addr) != 0) { return 0; }
+    while (1) { hlt(); }
+    return 0;
+}
+
+interrupt fn exc0() { cpu_fault(0, 0, 0); }
+interrupt fn exc1() { cpu_fault(1, 0, 0); }
+interrupt fn exc2() { cpu_fault(2, 0, 0); }
+interrupt fn exc3() { cpu_fault(3, 0, 0); }
+interrupt fn exc4() { cpu_fault(4, 0, 0); }
+interrupt fn exc5() { cpu_fault(5, 0, 0); }
+interrupt fn exc6() { cpu_fault(6, 0, 0); }
+interrupt fn exc7() { cpu_fault(7, 0, 0); }
+interrupt fn exc8(err: i64) { cpu_fault(8, err, 1); }
+interrupt fn exc9() { cpu_fault(9, 0, 0); }
+interrupt fn exc10(err: i64) { cpu_fault(10, err, 1); }
+interrupt fn exc11(err: i64) { cpu_fault(11, err, 1); }
+interrupt fn exc12(err: i64) { cpu_fault(12, err, 1); }
+interrupt fn exc13(err: i64) { cpu_fault(13, err, 1); }
+interrupt fn exc14(frame: *PfFrame) {
+    // Fallo de anillo 3 con el planificador prendido: se reescribe rip
+    // y el epílogo hace iretq. El de `user` (sin sched) vuelve al shell.
+    // pf: CR2 y código de error. Apagada, un solo chequeo.
+    if (tr_en[3] != 0) {
+        let addr = read_cr2();
+        trace_hit(3, proc_pid[cur_i], addr, frame.error_code);
+    }
+    // Anillo 0, con la sonda del comando nx: #PF de fetch o de
+    // escritura. restore_context vuelve al comando; no se reintenta.
+    if (nx_probe != 0 && (frame.error_code & 4) == 0) {
+        if (nx_kernel_fault(frame) != 0) { return; }
+    }
+    // Lectura de anillo 0 a una página baja del kernel ya retirada.
+    // No se demanda: la identidad no vuelve.
+    if (hh_probe != 0 && (frame.error_code & 4) == 0) {
+        hh_kernel_fault(frame);
+        return;
+    }
+    // Anillo 3 ejecutando pila o datos durante `nx`: el proceso muere
+    // y el otro (o el shell) sigue. No se parchea rip.
+    if (sched_on != 0 && nx_user != 0 && (frame.error_code & 4) != 0 && (frame.error_code & 16) != 0) {
+        nx_user_fault(frame);
+        return;
+    }
+    // Anillo 3 leyendo o escribiendo el kernel en la mitad alta.
+    if (sched_on != 0 && hh_user != 0 && (frame.error_code & 4) != 0) {
+        hh_user_fault(frame);
+        return;
+    }
+    if (sched_on != 0 && (frame.error_code & 4) != 0) {
+        note_user_fault(frame.error_code);
+        frame.rip = patch_rip;
+        return;
+    }
+    cpu_fault(14, frame.error_code, 1);
+}
+interrupt fn exc15() { cpu_fault(15, 0, 0); }
+interrupt fn exc16() { cpu_fault(16, 0, 0); }
+interrupt fn exc17(err: i64) { cpu_fault(17, err, 1); }
+interrupt fn exc18() { cpu_fault(18, 0, 0); }
+interrupt fn exc19() { cpu_fault(19, 0, 0); }
+interrupt fn exc20() { cpu_fault(20, 0, 0); }
+interrupt fn exc21(err: i64) { cpu_fault(21, err, 1); }
+interrupt fn exc22() { cpu_fault(22, 0, 0); }
+interrupt fn exc23() { cpu_fault(23, 0, 0); }
+interrupt fn exc24() { cpu_fault(24, 0, 0); }
+interrupt fn exc25() { cpu_fault(25, 0, 0); }
+interrupt fn exc26() { cpu_fault(26, 0, 0); }
+interrupt fn exc27() { cpu_fault(27, 0, 0); }
+interrupt fn exc28() { cpu_fault(28, 0, 0); }
+interrupt fn exc29(err: i64) { cpu_fault(29, err, 1); }
+interrupt fn exc30(err: i64) { cpu_fault(30, err, 1); }
+interrupt fn exc31() { cpu_fault(31, 0, 0); }
+
+interrupt fn irq_timer(frame: *InterruptFrame) {
+    ticks = ticks + 1;
+    outb(0x20, 0x20);
+    // IRQ0 no trae error code. El epílogo relee `frame`: apuntarlo al
+    // otro saved_ksp + 120 reanuda ese proceso. No se nombra rbp.
+    // pit: una muestra por tick mientras está prendida.
+    if (tr_en[4] != 0) { trace_hit(4, proc_pid[cur_i], ticks, 0); }
+    if (sched_on != 0) {
+        saved_cs = frame.cs;
+        saved_ksp = frame as i64 - 120;
+        if (timer_should_switch() != 0) {
+            frame = (saved_ksp + 120) as *InterruptFrame;
+        }
+    }
+}
+
+// Masked lines, and the spurious IRQ7 the PIC can raise on its own.
+interrupt fn irq_master() {
+    outb(0x20, 0x20);
+}
+
+interrupt fn irq_slave() {
+    outb(0xA0, 0x20);
+    outb(0x20, 0x20);
+}
+
+fn set_gate(n: i64, handler: i64) -> i64 {
+    idt[n].off_lo = (handler & 0xFFFF) as u16;
+    idt[n].sel = 0x18;
+    idt[n].ist = 0;
+    idt[n].typ = 0x8E;
+    idt[n].off_mid = ((handler >> 16) & 0xFFFF) as u16;
+    idt[n].off_hi = (handler >> 32) as u32;
+    idt[n].zero = 0;
+    return 0;
+}
+
+fn io_wait() -> i64 {
+    outb(0x80, 0);
+    return 0;
+}
+
+// Remap the PIC off vectors 0-15 and leave every line masked.
+fn pic_remap() -> i64 {
+    outb(0x20, 0x11); io_wait();
+    outb(0xA0, 0x11); io_wait();
+    outb(0x21, 32); io_wait();
+    outb(0xA1, 40); io_wait();
+    outb(0x21, 4); io_wait();
+    outb(0xA1, 2); io_wait();
+    outb(0x21, 1); io_wait();
+    outb(0xA1, 1); io_wait();
+    outb(0x21, 0xFF);
+    outb(0xA1, 0xFF);
+    return 0;
+}
+
+// Square wave on channel 0. 1193182 / 100 = 11931, about 100.007 Hz.
+fn pit_init(hz: i64) -> i64 {
+    let div = 1193182 / hz;
+    outb(0x43, 0x36);
+    outb(0x40, div & 0xFF);
+    outb(0x40, (div >> 8) & 0xFF);
+    return 0;
+}
+
+fn idt_init() -> i64 {
+    cli();
+    gdt_load();
+    set_gate(0, &exc0);
+    set_gate(1, &exc1);
+    set_gate(2, &exc2);
+    set_gate(3, &exc3);
+    set_gate(4, &exc4);
+    set_gate(5, &exc5);
+    set_gate(6, &exc6);
+    set_gate(7, &exc7);
+    set_gate(8, &exc8);
+    set_gate(9, &exc9);
+    set_gate(10, &exc10);
+    set_gate(11, &exc11);
+    set_gate(12, &exc12);
+    set_gate(13, &exc13);
+    set_gate(14, &exc14);
+    set_gate(15, &exc15);
+    set_gate(16, &exc16);
+    set_gate(17, &exc17);
+    set_gate(18, &exc18);
+    set_gate(19, &exc19);
+    set_gate(20, &exc20);
+    set_gate(21, &exc21);
+    set_gate(22, &exc22);
+    set_gate(23, &exc23);
+    set_gate(24, &exc24);
+    set_gate(25, &exc25);
+    set_gate(26, &exc26);
+    set_gate(27, &exc27);
+    set_gate(28, &exc28);
+    set_gate(29, &exc29);
+    set_gate(30, &exc30);
+    set_gate(31, &exc31);
+    set_gate(32, &irq_timer);
+    set_gate(33, &irq_kbd);
+    let i = 34;
+    while (i < 40) { set_gate(i, &irq_master); i = i + 1; }
+    while (i < 48) { set_gate(i, &irq_slave); i = i + 1; }
+    let idtr: DescPtr;
+    idtr.limit = (48 * 16 - 1) as u16;
+    idtr.base = idt as u64;
+    lidt(&idtr);
+    ltr(0x40);
+    program_syscall();
+    puts("gdt ok\n");
+    pic_remap();
+    pit_init(100);
+    kbd_flush();
+    outb(0x21, 0xFC);
+    outb(0xA1, 0xFF);
+    sti();
+    return 0;
+}

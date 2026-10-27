@@ -1,0 +1,139 @@
+// 4KB page tables. map_page walks the PML4 in CR3. The bootloader still
+// starts at PML4 0x1000 / PDPT 0x2000 / PD 0x3000. PD[0] begins as the
+// supervisor 2MB identity page; nx_init replaces it with kern_low_pt,
+// one 4KB table for the low 2MB. A new directory slot gets a page table
+// from the identity-mapped pool (physical address below 2MB).
+//
+// flags is the low 12 bits of the PTE, plus bit 63 (NX) when the caller
+// ORs pte_nx_bit(). 3 is supervisor read/write, 7 is user read/write,
+// 5 is user read-only executable. The user bit on a directory entry does
+// not by itself make the page user-accessible; every level of the walk
+// has to have it. NX is only set on a leaf: a directory entry with bit
+// 63 would make (e >> 12) << 12 sign-extend, because >> is arithmetic.
+//
+// last_alloc_pt is the page table allocated by the latest map_in, or 0
+// when the directory slot already had one. sched.lap records it.
+// kern_low_pt is 0 until nx_init. low_pd_entry() is that table, or the
+// bootloader's 2MB page if NX could not be turned on.
+
+let last_alloc_pt: i64 = 0;
+let kern_low_pt: i64 = 0;
+// Tabla de 4KB de la ventana 0xFFFFFFFF80000000. No es kern_low_pt:
+// borrar la identidad del kernel no puede llevarse el código.
+let kern_hh_pt: i64 = 0;
+
+// 0xFFFFFFFF80000000. Un literal de ese ancho en una función normal
+// sale de dos mitades: el alto es 0xFFFFFFFF << 32.
+fn hh_base() -> i64 {
+    let v = 0xFFFFFFFF;
+    v = v << 32;
+    return v | 0x80000000;
+}
+
+fn hh_phys(va: i64) -> i64 {
+    return va - hh_base();
+}
+
+// La ventana del kernel son 2MB desde la base. Por debajo (más
+// negativo) y por encima no entran. Una dirección >= 0 tampoco:
+// 0xFFFFFFFF80000000 es el entero con signo más chico de esa ventana.
+fn hh_window(va: i64) -> i64 {
+    if (va < hh_base()) { return 0; }
+    if (va >= hh_base() + 0x200000) { return 0; }
+    return 1;
+}
+
+fn pte_nx_bit() -> i64 {
+    let b = 1;
+    return b << 63;
+}
+
+fn low_pd_entry() -> i64 {
+    if (kern_low_pt == 0) { return 0x83; }
+    return kern_low_pt | 3;
+}
+
+fn cr3_root() -> i64 {
+    return (read_cr3() >> 12) << 12;
+}
+
+fn map_in(root: i64, va: i64, pa: i64, flags: i64) -> i64 {
+    last_alloc_pt = 0;
+    if (pa < 0 || root <= 0) { return 0; }
+    if (va < 0 && hh_window(va) == 0) { return 0; }
+    let pml4: *u64 = root as *u64;
+    let e = pml4[(va >> 39) & 511];
+    if ((e & 1) == 0) { return 0; }
+    let pdpt: *u64 = ((e >> 12) << 12) as *u64;
+    e = pdpt[(va >> 30) & 511];
+    if ((e & 1) == 0) { return 0; }
+    let pd: *u64 = ((e >> 12) << 12) as *u64;
+    let i2 = (va >> 21) & 511;
+    e = pd[i2];
+    if ((e & 128) != 0) { return 0; }
+    if ((e & 1) == 0) {
+        let table = alloc_low_page();
+        if (table == 0) { return 0; }
+        zero_va(table);
+        pd[i2] = table | 7;
+        last_alloc_pt = table;
+        e = pd[i2];
+    }
+    let pt: *u64 = ((e >> 12) << 12) as *u64;
+    pt[(va >> 12) & 511] = ((pa >> 12) << 12) | flags;
+    invlpg(va);
+    return 1;
+}
+
+fn map_page(va: i64, pa: i64, flags: i64) -> i64 {
+    return map_in(cr3_root(), va, pa, flags);
+}
+
+fn unmap_in(root: i64, va: i64) -> i64 {
+    if (root <= 0) { return 0; }
+    if (va < 0 && hh_window(va) == 0) { return 0; }
+    let pml4: *u64 = root as *u64;
+    let e = pml4[(va >> 39) & 511];
+    if ((e & 1) == 0) { return 0; }
+    let pdpt: *u64 = ((e >> 12) << 12) as *u64;
+    e = pdpt[(va >> 30) & 511];
+    if ((e & 1) == 0) { return 0; }
+    let pd: *u64 = ((e >> 12) << 12) as *u64;
+    e = pd[(va >> 21) & 511];
+    if ((e & 1) == 0 || (e & 128) != 0) { return 0; }
+    let pt: *u64 = ((e >> 12) << 12) as *u64;
+    pt[(va >> 12) & 511] = 0;
+    invlpg(va);
+    return 1;
+}
+
+fn unmap_page(va: i64) -> i64 {
+    return unmap_in(cr3_root(), va);
+}
+
+fn zero_va(va: i64) -> i64 {
+    let p: *u8 = va as *u8;
+    let i = 0;
+    while (i < 4096) {
+        p[i] = 0;
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Not-present fault from ring 0: back the faulting page with a real frame
+// and zero it. Pages at or above 2MB are preferred so the identity-mapped
+// window stays available for page tables.
+fn demand_map(va: i64) -> i64 {
+    if (va < 0 || va >= 0x8000000) { return 0; }
+    let page = (va >> 12) << 12;
+    let pa = alloc_high_page();
+    if (pa == 0) { pa = alloc_page(); }
+    if (pa == 0) { return 0; }
+    if (map_page(page, pa, 3 | pte_nx_bit()) == 0) {
+        free_page(pa);
+        return 0;
+    }
+    zero_va(page);
+    return 1;
+}

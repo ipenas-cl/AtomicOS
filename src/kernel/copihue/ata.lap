@@ -1,0 +1,162 @@
+// Canal IDE primario, esclavo (QEMU ide index=1, ide0-hd1).
+// El maestro es la imagen de arranque: este driver no la selecciona.
+// PIO, LBA28, un sector de 512 B. El lazo de estado tiene tope:
+// si el disco no responde, se devuelve error y no se queda pegado.
+//
+// 0 listo
+// 1 se agotó el tiempo
+// 2 el disco marcó ERR o DF
+// 3 no hay unidad (estado 0xFF, o IDENTIFY sin sectores)
+// 4 LBA fuera de 28 bits
+
+let ata_sectors: i64 = 0;
+let ata_id: [u8; 512];
+
+fn ata_delay() -> i64 {
+    // ~400 ns: cuatro lecturas del estado alterno, sin borrar la IRQ.
+    inb(0x3F6);
+    inb(0x3F6);
+    inb(0x3F6);
+    inb(0x3F6);
+    return 0;
+}
+
+fn ata_init() -> i64 {
+    // nIEN: el disco no afirma IRQ14. El PIC esclavo ya está enmascarado.
+    outb(0x3F6, 0x02);
+    ata_delay();
+    return 0;
+}
+
+fn ata_wait_bsy() -> i64 {
+    let n = 0;
+    while (n < 200000) {
+        let s = inb(0x1F7);
+        if (s == 0xFF) { return 3; }
+        if ((s & 0x80) == 0) { return 0; }
+        n = n + 1;
+    }
+    return 1;
+}
+
+fn ata_wait_drq() -> i64 {
+    let n = 0;
+    while (n < 200000) {
+        let s = inb(0x1F7);
+        if (s == 0xFF) { return 3; }
+        if ((s & 0x80) == 0) {
+            if ((s & 0x01) != 0 || (s & 0x20) != 0) { return 2; }
+            if ((s & 0x08) != 0) { return 0; }
+        }
+        n = n + 1;
+    }
+    return 1;
+}
+
+fn ata_wait_done() -> i64 {
+    let n = 0;
+    while (n < 200000) {
+        let s = inb(0x1F7);
+        if (s == 0xFF) { return 3; }
+        if ((s & 0x80) == 0) {
+            if ((s & 0x01) != 0 || (s & 0x20) != 0) { return 2; }
+            if ((s & 0x08) == 0) { return 0; }
+        }
+        n = n + 1;
+    }
+    return 1;
+}
+
+fn ata_select(lba: i64) -> i64 {
+    let r = ata_wait_bsy();
+    if (r != 0) { return r; }
+    // 0xE0 es LBA en el maestro. Bit 4 elige el esclavo: 0xF0.
+    outb(0x1F6, 0xF0 | ((lba >> 24) & 0x0F));
+    ata_delay();
+    return ata_wait_bsy();
+}
+
+fn ata_cmd(lba: i64, count: i64, cmd: i64) -> i64 {
+    let r = ata_select(lba);
+    if (r != 0) { return r; }
+    outb(0x1F2, count & 255);
+    outb(0x1F3, lba & 255);
+    outb(0x1F4, (lba >> 8) & 255);
+    outb(0x1F5, (lba >> 16) & 255);
+    outb(0x1F7, cmd & 255);
+    ata_delay();
+    return 0;
+}
+
+fn ata_pio_in(dst: *u8) -> i64 {
+    let i = 0;
+    cli();
+    while (i < 256) {
+        let w = inw(0x1F0);
+        dst[i * 2] = (w & 255) as u8;
+        dst[i * 2 + 1] = ((w >> 8) & 255) as u8;
+        i = i + 1;
+    }
+    sti();
+    return 0;
+}
+
+fn ata_pio_out(src: *u8) -> i64 {
+    let i = 0;
+    cli();
+    while (i < 256) {
+        let lo = src[i * 2] & 255;
+        let hi = src[i * 2 + 1] & 255;
+        outw(0x1F0, lo | (hi << 8));
+        i = i + 1;
+    }
+    sti();
+    return 0;
+}
+
+fn ata_id_word(n: i64) -> i64 {
+    let o = n * 2;
+    // v0.30.0 recorta el << al u8 de la izquierda. Sin el cast, el
+    // byte alto sale 0 y LBA28 se lee mal.
+    return (ata_id[o] & 255) | (((ata_id[o + 1] & 255) as i64) << 8);
+}
+
+fn ata_identify() -> i64 {
+    ata_sectors = 0;
+    ata_init();
+    let i = 0;
+    while (i < 512) {
+        ata_id[i] = 0;
+        i = i + 1;
+    }
+    let r = ata_cmd(0, 0, 0xEC);
+    if (r != 0) { return r; }
+    r = ata_wait_drq();
+    if (r != 0) { return r; }
+    ata_pio_in(ata_id);
+    // Palabras 60 y 61: cantidad de sectores LBA28.
+    let nsec = ata_id_word(60) | (ata_id_word(61) << 16);
+    if (nsec <= 0) { return 3; }
+    ata_sectors = nsec;
+    return 0;
+}
+
+fn ata_read(lba: i64, dst: *u8) -> i64 {
+    if (lba < 0 || lba > 0x0FFFFFFF) { return 4; }
+    let r = ata_cmd(lba, 1, 0x20);
+    if (r != 0) { return r; }
+    r = ata_wait_drq();
+    if (r != 0) { return r; }
+    ata_pio_in(dst);
+    return 0;
+}
+
+fn ata_write(lba: i64, src: *u8) -> i64 {
+    if (lba < 0 || lba > 0x0FFFFFFF) { return 4; }
+    let r = ata_cmd(lba, 1, 0x30);
+    if (r != 0) { return r; }
+    r = ata_wait_drq();
+    if (r != 0) { return r; }
+    ata_pio_out(src);
+    return ata_wait_done();
+}

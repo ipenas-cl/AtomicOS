@@ -1,0 +1,146 @@
+// exec: lee un AXE1 del disco (fs_read, con el CRC del bloque), arma un
+// PML4 nuevo con el asignador que ya usa sched y lo deja corriendo en
+// anillo 3. La cabecera está en docs/exec.md.
+//
+// El salto a anillo 3 es sched_go, que ya guarda el marco del shell.
+// El programa vuelve con el syscall exit.
+
+let exec_buf: [u8; 4096];
+let exec_code: [u8; 4096];
+let exec_sz: i64 = 0;
+
+// Cabecera de 16 bytes. docs/exec.md. El código empieza después.
+packed struct Axe {
+    magic: [u8; 4],
+    size: u32,
+    entry: u64
+}
+
+fn axe_layout() -> i64 {
+    if (sizeof(Axe) != 16) { return 0; }
+    if (offsetof(Axe, size) != 4) { return 0; }
+    if (offsetof(Axe, entry) != 8) { return 0; }
+    return 1;
+}
+
+fn axe_of(p: *u8) -> *Axe {
+    return p as *Axe;
+}
+
+fn exec_fail(r: i64) -> i64 {
+    puts("exec fail ");
+    put_int(r);
+    putc('\n');
+    return 0;
+}
+
+fn exec_is(s: *u8) -> i64 {
+    let i = 0;
+    while (s[i] != 0) {
+        if (fs_name[i] != s[i]) { return 0; }
+        i = i + 1;
+    }
+    return fs_name[i] == 0;
+}
+
+fn exec_magic() -> i64 {
+    let h: *Axe = axe_of(exec_buf);
+    if (h.magic[0] != 0x41 || h.magic[1] != 0x58) { return 0; }
+    if (h.magic[2] != 0x45 || h.magic[3] != 0x31) { return 0; }
+    return 1;
+}
+
+// Escribe hola (válido), malo (magic en cero) y gordo (tamaño 65535).
+// Los tres pasan por fs_write, así que el CRC del bloque queda bien;
+// gordo y malo fallan recién en la cabecera.
+fn exec_plant() -> i64 {
+    let n = exec_fill(exec_buf);
+    if (n < 16 || n > 4096) { return exec_fail(9); }
+    let r = fs_write("hola", exec_buf, n);
+    if (r != 0) { return exec_fail(r); }
+    let h: *Axe = axe_of(exec_buf);
+    h.magic[0] = 0;
+    r = fs_write("malo", exec_buf, n);
+    if (r != 0) { return exec_fail(r); }
+    n = exec_fill(exec_buf);
+    h.size = 65535;
+    r = fs_write("gordo", exec_buf, n);
+    if (r != 0) { return exec_fail(r); }
+    puts("exec plant ok\n");
+    return 0;
+}
+
+fn exec_prepare() -> i64 {
+    let n = fs_read(fs_name, exec_buf, 4096);
+    if (n < 0) {
+        if (n == 0 - 5) {
+            puts("exec corrupt\n");
+            return 0;
+        }
+        return exec_fail(0 - n);
+    }
+    if (n < 16) {
+        puts("exec bad size\n");
+        return 0;
+    }
+    if (exec_magic() == 0) {
+        puts("exec bad magic\n");
+        return 0;
+    }
+    if (axe_layout() == 0) {
+        puts("exec bad size\n");
+        return 0;
+    }
+    let h: *Axe = axe_of(exec_buf);
+    let sz = h.size;
+    let room = n - 16;
+    if (sz <= 0 || sz > 4080 || sz > room) {
+        puts("exec bad size\n");
+        return 0;
+    }
+    let entry = h.entry;
+    let end = 0x400000 + sz;
+    if (entry < 0x400000 || entry >= 0x401000 || entry >= end) {
+        puts("exec bad entry\n");
+        return 0;
+    }
+    let i = 0;
+    while (i < sz) {
+        exec_code[i] = exec_buf[16 + i];
+        i = i + 1;
+    }
+    exec_sz = sz;
+    return entry;
+}
+
+fn exec_run() -> i64 {
+    // El shell es la zona 0: el programa hereda esa zona.
+    build_zone = zone_for_new(0 - 1);
+    charge_zone = 0;
+    let entry = exec_prepare();
+    if (entry == 0) { return 0; }
+    cli();
+    if (shared_init() == 0) {
+        sti();
+        return exec_fail(6);
+    }
+    if (build_proc(0, exec_code as i64, exec_sz, 0) == 0) {
+        write_cr3(0x1000);
+        release_proc(0);
+        sti();
+        build_zone = 0;
+        return exec_fail(6);
+    }
+    forge(0, entry, 0x402000, 0x202);
+    sched_go();
+    build_zone = 0;
+    puts("exec ok\n");
+    return 0;
+}
+
+fn cmd_exec() -> i64 {
+    let pos = fs_scan(4, fs_name);
+    if (pos < 0) { return exec_fail(11); }
+    if (exec_is("plant")) { return exec_plant(); }
+    return exec_run();
+}

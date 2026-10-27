@@ -1,0 +1,599 @@
+// Zonas ligeras. La zona 0 es la global (shell y kernel). Una zona
+// nueva niega toda syscall que no esté en su máscara, no ve nombres
+// fuera de su prefijo y no pasa de su tope de páginas ni de procesos.
+// El prefijo lo agrega el kernel: el programa manda un nombre relativo.
+//
+// Nombre y prefijo son 16 bytes por zona. ZoneStr lo mide; zone_layout
+// lo chequea. El programa sigue dejando el nombre en 0x401800.
+
+packed struct ZoneStr {
+    b: [u8; 16]
+}
+
+let zone_live: [i64; 8];
+let zone_cap: [i64; 8];
+let zone_pages: [i64; 8];
+let zone_mask: [i64; 8];
+let zone_nproc: [i64; 8];
+let zone_maxproc: [i64; 8];
+let zone_niega: [i64; 8];
+let zone_fuga: [i64; 8];
+let zone_name: [ZoneStr; 8];
+let zone_prefix: [ZoneStr; 8];
+let zone_raw: [u8; 16];
+let zone_path: [u8; 16];
+let zone_io: [u8; 64];
+let zone_errno: i64 = 0;
+let build_zone: i64 = 0;
+
+fn zone_fail(n: i64) -> i64 {
+    puts("zone fail ");
+    put_int(n);
+    putc('\n');
+    return 0;
+}
+
+fn zone_user_mask() -> i64 {
+    let m = 0;
+    m = m | (1 << 1);
+    m = m | (1 << 5);
+    m = m | (1 << 6);
+    m = m | (1 << 7);
+    m = m | (1 << 8);
+    return m;
+}
+
+fn zone_set_str(which: i64, z: i64, s: *u8) -> i64 {
+    let i = 0;
+    while (i < 16) {
+        if (which == 0) { zone_name[z].b[i] = 0; }
+        else { zone_prefix[z].b[i] = 0; }
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 15) {
+        let c = s[i] & 255;
+        if (c == 0) { return 1; }
+        if (which == 0) { zone_name[z].b[i] = c; }
+        else { zone_prefix[z].b[i] = c; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn zone_eq_name(z: i64, s: *u8) -> i64 {
+    let i = 0;
+    while (i < 16) {
+        let a = zone_name[z].b[i] & 255;
+        let b = s[i] & 255;
+        if (a != b) { return 0; }
+        if (a == 0) { return 1; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn zone_eq_pre(z: i64, s: *u8) -> i64 {
+    let i = 0;
+    while (i < 16) {
+        let a = zone_prefix[z].b[i] & 255;
+        let b = s[i] & 255;
+        if (a != b) { return 0; }
+        if (a == 0) { return 1; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn zone_has_prefix(z: i64, s: *u8) -> i64 {
+    let c0 = zone_prefix[z].b[0] & 255;
+    if (c0 == 0) { return 0; }
+    let i = 0;
+    while (i < 16) {
+        let c = zone_prefix[z].b[i] & 255;
+        if (c == 0) { return 1; }
+        if ((s[i] & 255) != c) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn zone_by_name(s: *u8) -> i64 {
+    let i = 0;
+    while (i < 8) {
+        if (zone_live[i] != 0 && zone_eq_name(i, s) != 0) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+fn zone_ident_ok(s: *u8) -> i64 {
+    let i = 0;
+    while (i < 8) {
+        let c = s[i] & 255;
+        if (c == 0) {
+            if (i == 0) { return 0; }
+            return 1;
+        }
+        let ok = 0;
+        if (c >= 48 && c <= 57) { ok = 1; }
+        if (c >= 65 && c <= 90) { ok = 1; }
+        if (c >= 97 && c <= 122) { ok = 1; }
+        if (ok == 0) { return 0; }
+        i = i + 1;
+    }
+    if ((s[8] & 255) != 0) { return 0; }
+    return 1;
+}
+
+fn zone_pre_ok(s: *u8) -> i64 {
+    let i = 0;
+    while (i < 8) {
+        let c = s[i] & 255;
+        if (c == 0) {
+            if (i == 0) { return 0; }
+            return 1;
+        }
+        if (c < 33 || c > 126) { return 0; }
+        if (c == 46 || c == 92) { return 0; }
+        i = i + 1;
+    }
+    if ((s[8] & 255) != 0) { return 0; }
+    return 1;
+}
+
+fn zone_pre_overlap(z: i64, s: *u8) -> i64 {
+    if (zone_has_prefix(z, s) != 0) { return 1; }
+    let i = 0;
+    while (i < 16) {
+        let c = s[i] & 255;
+        if (c == 0) { return 1; }
+        if ((zone_prefix[z].b[i] & 255) != c) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn zone_pre_clash(s: *u8) -> i64 {
+    let i = 1;
+    while (i < 8) {
+        if (zone_live[i] != 0 && zone_pre_overlap(i, s) != 0) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn zone_layout() -> i64 {
+    if (sizeof(ZoneStr) != 16) { return 0; }
+    if (offsetof(ZoneStr, b) != 0) { return 0; }
+    return 1;
+}
+
+fn zone_init() -> i64 {
+    if (zone_layout() == 0) {
+        puts("zone layout\n");
+        return 0;
+    }
+    zone_live[0] = 1;
+    zone_cap[0] = 32768;
+    zone_mask[0] = 0 - 1;
+    zone_maxproc[0] = 8;
+    zone_pages[0] = 0;
+    zone_nproc[0] = 0;
+    zone_niega[0] = 0;
+    zone_fuga[0] = 0;
+    zone_set_str(0, 0, "global");
+    return 0;
+}
+
+fn zone_for_new(parent: i64) -> i64 {
+    if (parent < 0) { return 0; }
+    if (parent > 1) { return 0; }
+    return proc_zone[parent];
+}
+
+fn zone_shell() -> i64 {
+    if (sched_on != 0) { return 0; }
+    return 1;
+}
+
+fn zone_acquire(z: i64) -> i64 {
+    if (z < 0 || z >= 8) {
+        zone_errno = 11;
+        return 0 - 1;
+    }
+    if (z > 0 && zone_live[z] == 0) {
+        zone_errno = 11;
+        return 0 - 1;
+    }
+    if (zone_maxproc[z] <= 0 || zone_nproc[z] >= zone_maxproc[z]) {
+        zone_errno = 4;
+        return 0 - 1;
+    }
+    zone_nproc[z] = zone_nproc[z] + 1;
+    return 0;
+}
+
+fn zone_release(z: i64) -> i64 {
+    if (z < 0 || z >= 8) { return 0; }
+    if (zone_nproc[z] > 0) { zone_nproc[z] = zone_nproc[z] - 1; }
+    return zone_nproc[z];
+}
+
+fn zone_room(z: i64) -> i64 {
+    if (z <= 0) { return 1; }
+    if (z >= 8) { return 0; }
+    if (zone_live[z] == 0) { return 0; }
+    if (zone_pages[z] >= zone_cap[z]) { return 0; }
+    return 1;
+}
+
+fn zone_account_alloc(z: i64) -> i64 {
+    if (z <= 0 || z >= 8) { return 0; }
+    zone_pages[z] = zone_pages[z] + 1;
+    return zone_pages[z];
+}
+
+fn zone_account_free(z: i64) -> i64 {
+    if (z <= 0 || z >= 8) { return 0; }
+    if (zone_pages[z] > 0) { zone_pages[z] = zone_pages[z] - 1; }
+    return zone_pages[z];
+}
+
+fn zone_gate(nr: i64) -> i64 {
+    if (sched_on == 0) { return 0; }
+    let z = proc_zone[cur_i];
+    if (z <= 0) { return 0; }
+    if (nr == 9) {
+        zone_fuga[z] = zone_fuga[z] + 1;
+        return 0 - 2;
+    }
+    if (nr <= 0 || nr >= 62) {
+        zone_niega[z] = zone_niega[z] + 1;
+        return 0 - 1;
+    }
+    let bit = 1 << nr;
+    if ((zone_mask[z] & bit) == 0) {
+        zone_niega[z] = zone_niega[z] + 1;
+        return 0 - 1;
+    }
+    return 0;
+}
+
+fn zone_read_name() -> i64 {
+    let u: *ZoneStr = 0x401800 as *ZoneStr;
+    let i = 0;
+    let saw = 0;
+    while (i < 16) {
+        let c = u.b[i] & 255;
+        zone_raw[i] = c as u8;
+        if (c == 0) { saw = 1; }
+        i = i + 1;
+    }
+    if (saw == 0) { return 0 - 12; }
+    return 0;
+}
+
+fn zone_rel_ok() -> i64 {
+    return zone_ident_ok(zone_raw);
+}
+
+fn zone_other_prefix(z: i64) -> i64 {
+    let i = 0;
+    while (i < 8) {
+        if (i != z && zone_live[i] != 0 && zone_has_prefix(i, zone_raw) != 0) { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn zone_blocks(z: i64) -> i64 {
+    let r = fs_open();
+    if (r != 0) { return 0 - r; }
+    if (fs_find(zone_raw) < 0) { return 0; }
+    if (zone_has_prefix(z, zone_raw) != 0) { return 0; }
+    return 1;
+}
+
+fn zone_join(z: i64) -> i64 {
+    let i = 0;
+    while (i < 16) {
+        zone_path[i] = 0;
+        i = i + 1;
+    }
+    i = 0;
+    let p = 0;
+    let stop = 0;
+    let c = 0;
+    while (p < 8 && stop == 0) {
+        c = zone_prefix[z].b[p] & 255;
+        if (c == 0) { stop = 1; }
+        else {
+            if (i >= 15) { return 0 - 12; }
+            zone_path[i] = c as u8;
+            i = i + 1;
+            p = p + 1;
+        }
+    }
+    let j = 0;
+    stop = 0;
+    while (j < 8 && stop == 0) {
+        c = zone_raw[j] & 255;
+        if (c == 0) { stop = 1; }
+        else {
+            if (i >= 15) { return 0 - 12; }
+            zone_path[i] = c as u8;
+            i = i + 1;
+            j = j + 1;
+        }
+    }
+    zone_path[i] = 0;
+    return 0;
+}
+
+fn zone_resolve(z: i64) -> i64 {
+    if (z <= 0) {
+        let i = 0;
+        while (i < 16) {
+            zone_path[i] = zone_raw[i];
+            i = i + 1;
+        }
+        return 0;
+    }
+    if (zone_rel_ok() == 0) { return 0 - 12; }
+    if (zone_other_prefix(z) != 0) { return 0 - 12; }
+    let b = zone_blocks(z);
+    if (b < 0) { return b; }
+    if (b != 0) { return 0 - 12; }
+    if (zone_join(z) != 0) { return 0 - 12; }
+    if (zone_has_prefix(z, zone_path) == 0) { return 0 - 12; }
+    return 0;
+}
+
+fn zone_read_data(n: i64) -> i64 {
+    if (n < 0 || n > 64) { return 0 - 9; }
+    let p: *u8 = 0x401C00;
+    let i = 0;
+    while (i < n) {
+        zone_io[i] = p[i];
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn zone_write_data(n: i64) -> i64 {
+    let p: *u8 = 0x401C00;
+    let i = 0;
+    let m = n;
+    if (m > 64) { m = 64; }
+    while (i < m) {
+        p[i] = zone_io[i];
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn zone_sys_write(len: i64) -> i64 {
+    if (len < 1 || len > 64) { return 0 - 9; }
+    if (zone_read_name() != 0) { return 0 - 12; }
+    let z = 0;
+    if (sched_on != 0) { z = proc_zone[cur_i]; }
+    if (zone_resolve(z) != 0) { return 0 - 12; }
+    if (zone_read_data(len) != 0) { return 0 - 9; }
+    let r = fs_write(zone_path, zone_io, len);
+    if (r != 0) { return 0 - r; }
+    return 0;
+}
+
+fn zone_sys_read(max: i64) -> i64 {
+    let m = max;
+    if (m < 0) { return 0 - 9; }
+    if (m > 64) { m = 64; }
+    if (zone_read_name() != 0) { return 0 - 12; }
+    let z = 0;
+    if (sched_on != 0) { z = proc_zone[cur_i]; }
+    let g = zone_resolve(z);
+    if (g != 0) { return g; }
+    let n = fs_read(zone_path, zone_io, m);
+    if (n < 0) { return n; }
+    zone_write_data(n);
+    return n;
+}
+
+fn zone_sys_alloc() -> i64 {
+    if (sched_on == 0) { return 0 - 1; }
+    let z = proc_zone[cur_i];
+    if (z <= 0) { return 0 - 1; }
+    if (zone_pages[z] >= zone_cap[z]) { return 0 - 1; }
+    let pi = cur_i;
+    let va = proc_uva[pi];
+    if (va == 0) { va = 0x402000; }
+    if (va >= 0x500000) { return 0 - 3; }
+    charge_zone = z;
+    let pa = alloc_high_page();
+    if (pa == 0) {
+        charge_zone = 0;
+        if (zone_pages[z] >= zone_cap[z]) { return 0 - 1; }
+        return 0 - 3;
+    }
+    if (track(pi, pa) == 0) {
+        free_page(pa);
+        charge_zone = 0;
+        return 0 - 3;
+    }
+    if (map_user(pi, va, pa, 7 | pte_nx_bit()) == 0) {
+        charge_zone = 0;
+        return 0 - 3;
+    }
+    charge_zone = 0;
+    proc_uva[pi] = va + 4096;
+    return 0;
+}
+
+fn zone_sys_set(target: i64) -> i64 {
+    if (sched_on == 0) { return 0 - 2; }
+    if (proc_zone[cur_i] != 0) { return 0 - 2; }
+    if (target < 0 || target >= 8) { return 0 - 11; }
+    if (target != 0 && zone_live[target] == 0) { return 0 - 11; }
+    proc_zone[cur_i] = target;
+    return 0;
+}
+
+fn zone_puts_at(which: i64, z: i64) -> i64 {
+    let i = 0;
+    let any = 0;
+    while (i < 16) {
+        let c = 0;
+        if (which == 0) { c = zone_name[z].b[i] & 255; }
+        else { c = zone_prefix[z].b[i] & 255; }
+        if (c == 0) { i = 16; }
+        else {
+            putc(c);
+            any = 1;
+            i = i + 1;
+        }
+    }
+    if (any == 0) { putc('-'); }
+    return 0;
+}
+
+fn zone_show(z: i64) -> i64 {
+    puts("zone ");
+    put_int(z);
+    putc(' ');
+    zone_puts_at(0, z);
+    puts(" pre=");
+    zone_puts_at(1, z);
+    puts(" cap=");
+    put_int(zone_cap[z]);
+    puts(" proc=");
+    put_int(zone_nproc[z]);
+    putc('/');
+    put_int(zone_maxproc[z]);
+    puts(" pag=");
+    put_int(zone_pages[z]);
+    puts(" niega=");
+    put_int(zone_niega[z]);
+    puts(" fuga=");
+    put_int(zone_fuga[z]);
+    putc('\n');
+    return 0;
+}
+
+fn zone_ls() -> i64 {
+    let i = 0;
+    while (i < 8) {
+        if (zone_live[i] != 0) { zone_show(i); }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn zone_create(pos: i64) -> i64 {
+    let p = fs_scan(pos, fs_name);
+    if (p < 0) { return zone_fail(11); }
+    p = fs_scan(p, fs_name2);
+    if (p < 0) { return zone_fail(11); }
+    if (zone_ident_ok(fs_name) == 0) { return zone_fail(11); }
+    if (zone_pre_ok(fs_name2) == 0) { return zone_fail(11); }
+    if (zone_by_name(fs_name) >= 0) { return zone_fail(11); }
+    if (zone_pre_clash(fs_name2) != 0) { return zone_fail(11); }
+    parse_pos = p;
+    let pages = parse_int();
+    if (pages < 1 || pages > 4096) { return zone_fail(11); }
+    let z = 1;
+    let slot = 0 - 1;
+    while (z < 8) {
+        if (slot < 0 && zone_live[z] == 0) { slot = z; }
+        z = z + 1;
+    }
+    if (slot < 0) { return zone_fail(6); }
+    zone_live[slot] = 1;
+    zone_cap[slot] = pages;
+    zone_pages[slot] = 0;
+    zone_mask[slot] = zone_user_mask();
+    zone_nproc[slot] = 0;
+    zone_maxproc[slot] = 2;
+    zone_niega[slot] = 0;
+    zone_fuga[slot] = 0;
+    zone_set_str(0, slot, fs_name);
+    zone_set_str(1, slot, fs_name2);
+    puts("zone created ");
+    put_int(slot);
+    putc('\n');
+    return 0;
+}
+
+fn zone_plant() -> i64 {
+    let n = zone_fill(exec_buf);
+    if (n < 16 || n > 4096) { return exec_fail(9); }
+    let r = fs_write("ztest", exec_buf, n);
+    if (r != 0) { return exec_fail(r); }
+    puts("zone plant ok\n");
+    return 0;
+}
+
+fn zone_run(z: i64) -> i64 {
+    let before = pmm_free;
+    puts("zone mem ");
+    put_int(before);
+    putc('\n');
+    let entry = exec_prepare();
+    if (entry == 0) { return 0; }
+    if (proc_state[0] != 0) { return zone_fail(4); }
+    zone_errno = 0;
+    cli();
+    if (shared_init() == 0) {
+        sti();
+        return zone_fail(6);
+    }
+    build_zone = z;
+    if (build_proc(0, exec_code as i64, exec_sz, 0) == 0) {
+        write_cr3(0x1000);
+        release_proc(0);
+        sti();
+        build_zone = 0;
+        return zone_fail(zone_errno);
+    }
+    build_zone = 0;
+    puts("zone used ");
+    put_int(zone_pages[z]);
+    putc('\n');
+    forge(0, entry, 0x402000, 0x202);
+    sched_go();
+    let after = pmm_free;
+    puts("zone mem ");
+    put_int(after);
+    putc('\n');
+    if (after != before || zone_pages[z] != 0) {
+        puts("zone leak\n");
+        return 0;
+    }
+    puts("zone exec ok\n");
+    return 0;
+}
+
+fn zone_exec_cmd(pos: i64) -> i64 {
+    let p = fs_scan(pos, fs_name);
+    if (p < 0) { return zone_fail(11); }
+    p = fs_scan(p, fs_name2);
+    if (p < 0) { return zone_fail(11); }
+    let z = zone_by_name(fs_name);
+    if (z < 0) { return zone_fail(11); }
+    fs_copy(fs_name, fs_name2, 16);
+    return zone_run(z);
+}
+
+fn cmd_zone() -> i64 {
+    if (zone_shell() == 0) {
+        puts("zone denied\n");
+        return 0;
+    }
+    let pos = fs_scan(4, fs_sub);
+    if (pos < 0) { return zone_fail(11); }
+    if (fs_is("create")) { return zone_create(pos); }
+    if (fs_is("ls")) { return zone_ls(); }
+    if (fs_is("exec")) { return zone_exec_cmd(pos); }
+    if (fs_is("plant")) { return zone_plant(); }
+    return zone_fail(11);
+}

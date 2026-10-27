@@ -1,0 +1,47 @@
+// Programa de anillo 3. `copihue --flat 0x400000` lo deja en bytes
+// crudos; scripts/mkaxe.sh le pone la cabecera AXE1. No llama al
+// kernel: solo syscall 1 (un carácter) y syscall 5 (exit).
+// La cadena es «desde disco», distinta de «user ok» y de las letras
+// de sched.
+
+naked fn _start() {
+    rax = 1;
+    rdi = 100;
+    syscall();
+    rax = 1;
+    rdi = 101;
+    syscall();
+    rax = 1;
+    rdi = 115;
+    syscall();
+    rax = 1;
+    rdi = 100;
+    syscall();
+    rax = 1;
+    rdi = 101;
+    syscall();
+    rax = 1;
+    rdi = 32;
+    syscall();
+    rax = 1;
+    rdi = 100;
+    syscall();
+    rax = 1;
+    rdi = 105;
+    syscall();
+    rax = 1;
+    rdi = 115;
+    syscall();
+    rax = 1;
+    rdi = 99;
+    syscall();
+    rax = 1;
+    rdi = 111;
+    syscall();
+    rax = 1;
+    rdi = 10;
+    syscall();
+    rax = 5;
+    syscall();
+    hlt();
+}
