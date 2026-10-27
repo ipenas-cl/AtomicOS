@@ -1,6 +1,6 @@
 # LapageriaOS
 
-<p align="center"><img src="docs/branding/lapageriaos-banner.jpg" alt="LapageriaOS: seguro por diseño, observable, escrito en Copihue" width="720"></p>
+<p align="center"><img src="docs/branding/lapageriaos-banner.jpg" alt="LapageriaOS: seguro por diseño, observable, escrito por un copihue" width="720"></p>
 
 Sistema operativo x86-64 seguro por diseño: privilegios mínimos, memoria protegida (NX y W^X, kernel en la mitad alta), aislamiento por zonas, trazas integradas y sistema de archivos con checksums y snapshots. El kernel y el arranque están escritos en [Copihue](https://github.com/ipenas-cl/copihue), un lenguaje propio, sin ensamblador en línea. Lapageria rosea es el nombre científico del copihue, la flor nacional de Chile. Antes se llamó AtomicOS; las URL del repositorio siguen igual.
 
